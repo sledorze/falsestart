@@ -43,6 +43,20 @@ const CONTENT_FIELD: Readonly<Record<string, string>> = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/**
+ * Whether this payload is even a candidate for judgement.
+ *
+ * Cheap and deliberately separate from `decide`, because the hook fires on EVERY tool call. A
+ * caller can skip loading a rule tree entirely for the `Bash`/`Read`/`Grep` calls that make up
+ * most of an agent's traffic — which keeps the guard off the hot path, and keeps a broken rule
+ * tree from raising errors on tool calls it was never going to have an opinion about.
+ *
+ * A malformed payload counts as a candidate: deciding it is a problem is `decide`'s job, and
+ * skipping it here would silently swallow exactly the case worth reporting.
+ */
+export const judgesPayload = (payload: unknown): boolean =>
+  !isRecord(payload) || typeof payload['tool_name'] !== 'string' || payload['tool_name'] in CONTENT_FIELD
+
 const describe = (finding: Finding): string =>
   `${finding.ruleId} (${finding.line}:${finding.column}): ${finding.message}`
 
