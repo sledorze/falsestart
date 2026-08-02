@@ -86,6 +86,7 @@
     ]
   },
   "dependencies": {
+    "@ast-grep/napi": "^0.45.0",
     "picomatch": "^4.0.5",
     "yaml": "^2.9.0"
   }
