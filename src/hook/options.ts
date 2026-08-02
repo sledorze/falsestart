@@ -41,11 +41,18 @@ export const parseArguments = (args: readonly string[]): Options => {
 
   let rulesDirectory = DEFAULT_RULES_DIRECTORY
 
-  for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]
+  // `entries()` rather than an index loop: it yields a defined element, so there is no
+  // possibly-undefined fallback branch that no input can ever reach.
+  let consumedValue = false
+
+  for (const [index, argument] of args.entries()) {
+    if (consumedValue) {
+      consumedValue = false
+      continue
+    }
 
     if (argument !== '--rules') {
-      return { _tag: 'Invalid', problem: `unrecognised argument: ${String(argument)}` }
+      return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
     const value = args[index + 1]
@@ -54,7 +61,7 @@ export const parseArguments = (args: readonly string[]): Options => {
     }
 
     rulesDirectory = value
-    index += 1
+    consumedValue = true
   }
 
   return { _tag: 'Run', rulesDirectory }

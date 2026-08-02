@@ -8,8 +8,9 @@ Stages: `core/rule.ts` (is this rule runnable?), `core/loader.ts` (what rules ar
 directory?), `core/scope.ts` (may this rule touch this path?), `core/matcher.ts` (where does it
 match?), `core/engine.ts` (what does this rule set find?), `hook/decide.ts` (block, ignore, or
 complain?), `hook/respond.ts` (what to emit), `cli.ts` (the only module naming a runtime or
-process). Beside the pipeline sit `testing/assess.ts` (does this rule do what its author thinks?)
-and `index.ts` (the consumer-facing surface).
+process). Beside the pipeline sit `hook/options.ts` (what did the command line ask for?),
+`testing/assess.ts` (does this rule do what its author thinks?) and `index.ts` (the consumer-facing
+surface).
 
 Load-bearing decisions:
 

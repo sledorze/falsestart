@@ -1,0 +1,28 @@
+id: no-test-lifecycle-hooks
+language: tsx
+severity: error
+message: 'Lifecycle hooks set up state out of band: the test reads as if its dependencies appeared from nowhere, and nothing ties teardown to setup. Express the setup as a Layer and provide it — layer(MyLayer)("suite", (it) => ...) from @effect/vitest — using Layer.effect for a value, Layer.effectDiscard for a side effect, and Effect.acquireRelease when it must be torn down.'
+note: |
+  `beforeAll`/`afterAll`/`beforeEach`/`afterEach` share mutable state between tests through
+  variables declared above them, usually typed as possibly-undefined because the compiler cannot
+  see that the hook ran. Teardown sits in a separate function that has to be kept in step by hand.
+
+  A Layer says the same thing with the dependency in the type:
+
+      const Built = Layer.effectDiscard(buildOnce)
+
+      layer(Built)('the executable', (it) => {
+        it.effect('blocks a violating write', () => ...)
+      })
+
+  Anything needing teardown becomes Effect.acquireRelease, which cannot forget to release.
+
+  Applies only to test files, like no-vi-mocking and unlike every other rule here.
+rule:
+  pattern: $HOOK($$$ARGS)
+constraints:
+  HOOK:
+    regex: '^(beforeAll|afterAll|beforeEach|afterEach)$'
+files:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

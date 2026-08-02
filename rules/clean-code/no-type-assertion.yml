@@ -1,0 +1,30 @@
+id: no-type-assertion
+language: tsx
+severity: error
+message: 'A type assertion tells the compiler to stop checking rather than establishing that the value has that type. Narrow with a type guard, decode the value, or model the type so the assertion is unnecessary.'
+note: |
+  Covers every `x as T`. Import and export aliases (`import * as ns`, `import { a as b }`,
+  `export { a as b }`) are a different AST node entirely and are never matched — the rule is
+  scoped by node kind, not by the word `as`.
+
+  `x as const` is deliberately allowed. It narrows a literal's type rather than overriding it,
+  which is the opposite of what this rule is about.
+
+  `x as unknown` is allowed for the same reason inverted: widening to `unknown` discards knowledge
+  rather than claiming any, so it cannot be wrong. It is how you hand a value to something that
+  will validate it. `x as unknown as T` is still caught — by the outer assertion, which is the one
+  making the false claim.
+
+  This overlaps the more specific assertion rules in this directory on purpose: they fire first
+  with better-targeted advice, and this one catches everything else.
+rule:
+  kind: as_expression
+  not:
+    any:
+      - pattern: $EXPR as const
+      - pattern: $EXPR as unknown
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

@@ -29,6 +29,9 @@ const RULE_EXTENSIONS = ['.yml', '.yaml']
  */
 const SHARED_UTILS_DIRECTORY = '_utils'
 
+const isMapping = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
 const isRuleDocument = (name: string): boolean => RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
 
 const isSharedUtil = (entry: string): boolean => entry.split('/')[0] === SHARED_UTILS_DIRECTORY
@@ -44,11 +47,11 @@ const parseSharedUtil = (source: string, origin: string): Effect.Effect<{ id: st
     try: () => parseYaml(source) as unknown,
   }).pipe(
     Effect.flatMap((document) => {
-      if (typeof document !== 'object' || document === null || Array.isArray(document)) {
+      if (!isMapping(document)) {
         return Effect.fail(`${origin}: shared util must be a YAML mapping`)
       }
 
-      const { id, rule } = document as Record<string, unknown>
+      const { id, rule } = document
       if (typeof id !== 'string' || id.length === 0) {
         return Effect.fail(`${origin}: shared util needs a non-empty id`)
       }

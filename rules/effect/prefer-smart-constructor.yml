@@ -1,0 +1,39 @@
+id: prefer-smart-constructor
+language: tsx
+severity: error
+message: 'An object literal with a declared type asserts the shape is valid without anything having checked it. Build it through a smart constructor — Data.TaggedClass / Data.Class for a value with identity, or Schema.decodeUnknownEffect for one arriving from outside — so the invariants hold by construction and equality works structurally.'
+note: |
+  `const w: Widget = { id, size }` type-checks the FIELDS and nothing else. Any invariant the type
+  is meant to carry — a non-empty id, a size within range, two fields that must agree — is
+  unenforced, and every construction site is another place it can be got wrong.
+
+  A smart constructor moves the invariant to one place:
+
+      class Widget extends Data.TaggedClass('Widget')<{ readonly id: WidgetId; readonly size: Size }> {}
+
+      const widget = new Widget({ id, size })
+
+  `Data` also gives structural equality, so two equal widgets compare equal instead of by
+  reference. For values crossing a boundary, decode instead of assert:
+
+      const widget = yield* Schema.decodeUnknownEffect(WidgetSchema)(payload)
+
+  Blocking, like every rule here. It is scoped tightly to keep that workable: it only sees a
+  literal with an explicit type annotation, so an untyped options object — `{ concurrency:
+  'unbounded' }` — is not the target and is not matched. If it does fire somewhere it should not,
+  the fix is to narrow the `files` globs rather than to soften the severity, because a rule that
+  does not block is a rule that gets ignored.
+rule:
+  pattern: 'const $NAME: $TYPE = { $$$FIELDS }'
+constraints:
+  TYPE:
+    not:
+      # A Record/array annotation describes a lookup table or collection, not a value with
+      # invariants. `const LANGUAGES: Readonly<Record<Language, Lang>>` has nothing to construct
+      # smartly; treating it as a domain value would make the rule a nuisance in every codebase.
+      regex: 'Record<|Map<|Array<|ReadonlyArray<|\[\]$'
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

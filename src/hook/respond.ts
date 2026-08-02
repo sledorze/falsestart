@@ -22,13 +22,24 @@ export interface HookResponse {
   readonly stdout: string | undefined
 }
 
-const SILENT: HookResponse = { exitCode: 0, stderr: undefined, stdout: undefined }
+const silent = (): HookResponse => ({ exitCode: 0, stderr: undefined, stdout: undefined })
 
 /** A visible complaint that deliberately does not block. */
 const problem = (message: string): HookResponse => ({
   exitCode: 1,
   stderr: `falsestart: ${message}`,
   stdout: undefined,
+})
+
+/**
+ * Shown to the author without deciding anything: no `permissionDecision`, so the normal permission
+ * flow still applies. A `warning` rule that produced no output at all would be a rule that does
+ * nothing, which is the wrong way to express "worth knowing, not worth blocking".
+ */
+const advice = (note: string): HookResponse => ({
+  exitCode: 0,
+  stderr: undefined,
+  stdout: JSON.stringify({ systemMessage: `falsestart:\n${note}` }),
 })
 
 const denial = (reason: string): HookResponse => ({
@@ -66,7 +77,7 @@ export const respond = (
     }
 
     if (!judgesPayload(parsed.success)) {
-      return SILENT
+      return silent()
     }
 
     const loaded = yield* Effect.result(loadRules(rulesDirectory))
@@ -77,6 +88,9 @@ export const respond = (
     const decision = yield* decide(loaded.success, parsed.success)
 
     switch (decision._tag) {
+      case 'Advise': {
+        return advice(decision.note)
+      }
       case 'Deny': {
         return denial(decision.reason)
       }
@@ -84,7 +98,7 @@ export const respond = (
         return problem(decision.problem)
       }
       default: {
-        return SILENT
+        return silent()
       }
     }
   })
