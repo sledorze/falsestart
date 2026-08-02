@@ -2,41 +2,63 @@
 /**
  * The executable. Reads a PreToolUse hook payload on stdin and emits a decision.
  *
- * Everything interesting happens in `respond`; this file exists to connect it to the process, and
- * is deliberately the only place that knows a process exists at all.
+ * Everything interesting happens in `respond` and `parseArguments`; this file exists to connect
+ * them to the process, and is deliberately the only place that names a runtime or a process.
  */
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
-import { Effect, Layer, Stdio, Stream } from 'effect'
+import { Data, Effect, Layer, Stdio, Stream } from 'effect'
+import { parseArguments } from './hook/options.ts'
+import type { HookResponse } from './hook/respond.ts'
 import { respond } from './hook/respond.ts'
 
-/** Where rules live, relative to wherever the hook is run from. */
-const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
+/**
+ * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
+ * intent is legible where it is raised and where it is handled.
+ */
+class Exit extends Data.TaggedError('Exit')<{ readonly code: number }> {}
 
-const rulesDirectoryFrom = (args: readonly string[]): string => {
-  const flag = args.indexOf('--rules')
-  return flag === -1 ? DEFAULT_RULES_DIRECTORY : (args[flag + 1] ?? DEFAULT_RULES_DIRECTORY)
-}
+const write = (text: string, sink: Sink) => Stream.make(text).pipe(Stream.run(sink))
+
+type Sink = ReturnType<Stdio.Stdio['stdout']>
+
+const emit = (response: HookResponse) =>
+  Effect.gen(function* () {
+    const stdio = yield* Stdio.Stdio
+
+    if (response.stdout !== undefined) {
+      yield* write(response.stdout, stdio.stdout())
+    }
+    if (response.stderr !== undefined) {
+      yield* write(`${response.stderr}\n`, stdio.stderr())
+    }
+  })
 
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
-  const args = yield* stdio.args
+  const options = parseArguments(yield* stdio.args)
+
+  if (options._tag === 'Help') {
+    return yield* write(`${options.text}\n`, stdio.stdout())
+  }
+
+  if (options._tag === 'Invalid') {
+    // Refusing the run is itself the non-blocking error notice: the write proceeds, but the
+    // misconfiguration is visible rather than silently running some other rule set.
+    yield* write(`falsestart: ${options.problem}\n`, stdio.stderr())
+    return yield* new Exit({ code: 1 })
+  }
+
+  // Read stdin only once there is something to do with it.
   const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
+  const response = yield* respond(options.rulesDirectory, input)
 
-  const response = yield* respond(rulesDirectoryFrom(args), input)
+  yield* emit(response)
 
-  if (response.stdout !== undefined) {
-    yield* Stream.make(response.stdout).pipe(Stream.run(stdio.stdout()))
-  }
-  if (response.stderr !== undefined) {
-    yield* Stream.make(`${response.stderr}\n`).pipe(Stream.run(stdio.stderr()))
-  }
-
-  // A non-zero exit is the contract's "non-blocking error notice". Failing the effect is how that
-  // reaches the process; the message has already been written, so reporting it again would double
-  // up the output the user sees.
-  return yield* response.exitCode === 0 ? Effect.void : Effect.fail(undefined)
+  return yield* response.exitCode === 0 ? Effect.void : new Exit({ code: response.exitCode })
 })
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.layer)
 
+// Error reporting is off because every message this program has to give has already been written
+// to stderr in the shape the hook contract expects; re-reporting would double it.
 NodeRuntime.runMain(program.pipe(Effect.provide(platform)), { disableErrorReporting: true })

@@ -25,11 +25,11 @@ interface CliResult {
 const collect = (stream: Stream.Stream<Uint8Array, unknown>) =>
   stream.pipe(Stream.decodeText(), Stream.mkString) as Effect.Effect<string, never, never>
 
-const runCli = (rulesDirectory: string, payload: string) =>
+const runCliRaw = (args: readonly string[], payload: string) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const stdin = Stream.make(new TextEncoder().encode(payload))
-    const handle = yield* spawner.spawn(ChildProcess.make('node', [CLI, '--rules', rulesDirectory], { stdin }))
+    const handle = yield* spawner.spawn(ChildProcess.make('node', [CLI, ...args], { stdin }))
 
     const stdout = yield* collect(handle.stdout)
     const stderr = yield* collect(handle.stderr)
@@ -37,6 +37,8 @@ const runCli = (rulesDirectory: string, payload: string) =>
 
     return { exitCode: exitCode as number, stderr, stdout } satisfies CliResult
   }).pipe(Effect.scoped, Effect.orDie)
+
+const runCli = (rulesDirectory: string, payload: string) => runCliRaw(['--rules', rulesDirectory], payload)
 
 /** Build once, so the test judges the artifact that actually ships rather than the sources. */
 const build = Effect.gen(function* () {
@@ -110,6 +112,41 @@ describe('falsestart executable', () => {
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe('')
+      }),
+    ),
+  )
+
+  effect('refuses an unrecognised flag instead of running a different rule set', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        // Previously this fell back to the default directory and looked like a working guard.
+        const result = yield* runCliRaw(['--rulez', rules], payloadFor({ content: 'x', file_path: '/r/a.ts' }))
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('--rulez')
+      }),
+    ),
+  )
+
+  effect('refuses --rules with no directory', () =>
+    withRules({}, () =>
+      Effect.gen(function* () {
+        const result = yield* runCliRaw(['--rules'], payloadFor({ content: 'x', file_path: '/r/a.ts' }))
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('--rules')
+      }),
+    ),
+  )
+
+  effect('prints usage for --help without waiting on stdin', () =>
+    withRules({}, () =>
+      Effect.gen(function* () {
+        const result = yield* runCliRaw(['--help'], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('--rules')
       }),
     ),
   )
