@@ -1,0 +1,11 @@
+id: no-as-any
+language: tsx
+severity: error
+message: '`as any` erases the type rather than establishing it. Narrow with a type guard, or model the shape you actually have.'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

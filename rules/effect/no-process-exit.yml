@@ -1,0 +1,11 @@
+id: no-process-exit
+language: tsx
+severity: error
+message: 'process.exit tears the process down without running finalizers, so scopes never release. Fail the Effect and let the runtime exit.'
+rule:
+  pattern: process.exit($$$ARGS)
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

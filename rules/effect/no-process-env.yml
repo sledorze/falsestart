@@ -1,0 +1,11 @@
+id: no-process-env
+language: tsx
+severity: error
+message: 'Reading process.env directly makes configuration an untracked, untyped global. Declare it through Effect Config so it is validated once and visible in the type.'
+rule:
+  pattern: process.env
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

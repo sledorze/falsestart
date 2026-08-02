@@ -1,0 +1,11 @@
+id: no-await
+language: tsx
+severity: error
+message: 'await drops out of the Effect world: no typed error channel and no interruption. Compose with Effect.gen / Effect.flatMap, bridging at the edge with Effect.tryPromise.'
+rule:
+  kind: await_expression
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

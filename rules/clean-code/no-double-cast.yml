@@ -1,0 +1,11 @@
+id: no-double-cast
+language: tsx
+severity: error
+message: 'Casting through `unknown` defeats every check the compiler would have made. Parse or validate the value instead.'
+rule:
+  pattern: $X as unknown as $T
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

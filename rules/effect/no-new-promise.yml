@@ -1,0 +1,11 @@
+id: no-new-promise
+language: tsx
+severity: error
+message: 'A hand-rolled Promise has no typed error channel and cannot be interrupted. Use Effect.async, or Effect.tryPromise at the boundary.'
+rule:
+  pattern: new Promise($$$ARGS)
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
