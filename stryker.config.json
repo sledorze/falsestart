@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "testRunner": "vitest",
+  "vitest": {
+    "configFile": "vitest.config.ts"
+  },
+  "mutate": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/**/*.test-d.ts",
+    "!src/**/*.bench.ts",
+    "!src/testSupport/**",
+    "!src/cli.ts"
+  ],
+  "reporters": ["html", "clear-text", "progress"],
+  "coverageAnalysis": "perTest",
+  "_inPlaceComment": "Required: Stryker's sandbox-mode tsconfig rewriter calls a TypeScript config-parsing API (ts.parseConfigFileTextToJson) that TypeScript 7 removed, crashing before a single mutant runs. inPlace mode skips that preprocessor entirely (it mutates real files directly, one mutant at a time, backing up to .stryker-tmp/ and restoring after every run). Revisit once Stryker ships TS7 support.",
+  "inPlace": true,
+  "thresholds": {
+    "high": 90,
+    "low": 80,
+    "break": 77
+  }
+}

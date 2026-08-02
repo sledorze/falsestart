@@ -1,0 +1,87 @@
+{
+  "name": "@sledorze/falsestart",
+  "version": "0.0.1",
+  "description": "Blocks risky code patterns the instant an AI writes them — before the file lands, not just at CI. Also enforces structure/architecture conventions.",
+  "keywords": [
+    "claude",
+    "agents",
+    "hooks",
+    "static-analysis",
+    "architecture"
+  ],
+  "license": "MIT",
+  "author": "Stéphane Le Dorze",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sledorze/falsestart.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "packageManager": "pnpm@10.11.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "falsestart": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && pnpm run bundle-cli",
+    "bundle-cli": "esbuild dist/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --allow-overwrite --banner:js=\"import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);\"",
+    "check": "cairn check",
+    "coverage": "vitest run --coverage",
+    "dev": "tsx src/cli.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "oxlint",
+    "mutation": "stryker run",
+    "prepare": "lefthook install || true",
+    "release": "changeset publish",
+    "stamp": "cairn check --summaries-only --stamp",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.0-beta.100"
+  },
+  "peerDependenciesMeta": {
+    "effect": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@effect/platform-node": "4.0.0-beta.102",
+    "@effect/vitest": "4.0.0-beta.102",
+    "@sledorze/cairn": "^0.6.0",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "effect": "4.0.0-beta.102",
+    "esbuild": "^0.28.1",
+    "lefthook": "^2.1.0",
+    "oxlint": "1.74.0",
+    "prettier": "^3.8.1",
+    "tsx": "^4.21.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.0.18"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "lefthook"
+    ]
+  }
+}

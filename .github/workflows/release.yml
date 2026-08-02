@@ -1,0 +1,45 @@
+name: Release
+
+# Automated changesets flow (see AGENTS.md for the `pnpm changeset` convention). Copied
+# from cairn's release workflow, but DEACTIVATED for now: the job is gated on the
+# `releases-enabled` repository variable, which is unset by default. Nothing publishes
+# (no NPM_TOKEN secret is configured either) until both are set up deliberately — flip
+# `vars.releases-enabled` to `'true'` and add the NPM_TOKEN secret when this package is
+# ready to actually ship to npm.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release:
+    if: github.repository == 'sledorze/falsestart' && vars.releases-enabled == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+      - uses: changesets/action@v1.9.0
+        with:
+          publish: pnpm release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          LEFTHOOK: 0

@@ -1,0 +1,67 @@
+# Lefthook - Git hooks manager (https://github.com/evilmartians/lefthook)
+# Installed automatically via `pnpm prepare`. Skip once: git commit --no-verify.
+
+pre-commit:
+  parallel: true
+  commands:
+    # Prevent secrets from being committed
+    gitleaks:
+      glob: '*.{js,cjs,mjs,ts,tsx,json,yaml,yml,env,sh}'
+      run: gitleaks protect --staged --no-banner
+
+    # Lint Dockerfiles
+    hadolint:
+      glob: '**/Dockerfile*'
+      run: hadolint {staged_files}
+
+    # Lint + auto-fix TypeScript
+    oxlint:
+      glob: '*.{js,cjs,mjs,ts,tsx}'
+      run: pnpm oxlint --fix {staged_files} && git add {staged_files}
+      stage_fixed: true
+
+    # Format + auto-fix
+    prettier:
+      glob: '*.{js,cjs,mjs,ts,tsx,json,md,yml,yaml,css,html}'
+      run: pnpm prettier --write {staged_files} && git add {staged_files}
+      stage_fixed: true
+
+    # Docs: no dead links + every big file has a fresh, stamped summary
+    docs:
+      glob: '*.md'
+      run: pnpm check
+
+# Check-only mirror (no auto-fix). Usage: lefthook run ci
+ci:
+  parallel: true
+  commands:
+    gitleaks:
+      run: gitleaks detect --no-banner
+    hadolint:
+      glob: '**/Dockerfile*'
+      run: hadolint {all_files}
+    oxlint:
+      run: pnpm lint
+    prettier:
+      run: pnpm format:check
+    docs:
+      run: pnpm check
+
+# The quality gate before code leaves your machine.
+pre-push:
+  piped: true
+  commands:
+    checks:
+      priority: 1
+      run: pnpm typecheck && pnpm test && pnpm build
+    # Coverage ratchet, local-only (not run in CI — see ci.yml, which calls
+    # plain `pnpm test`): fails only if coverage regresses below the
+    # thresholds committed in vitest.config.ts; autoUpdate means those
+    # numbers self-raise as coverage improves, so this never needs manual
+    # bumping to stay meaningful.
+    coverage:
+      priority: 2
+      run: pnpm coverage
+    docs:
+      priority: 3
+      run: pnpm check

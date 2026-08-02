@@ -1,0 +1,9 @@
+{
+  "ignore": ["**/node_modules/**"],
+  "naming": {
+    "dirSummary": "_SUMMARY.md",
+    "fileSummarySuffix": ".summary.md"
+  },
+  "roots": ["docs"],
+  "thresholdLines": 30
+}
