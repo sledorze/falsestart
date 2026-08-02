@@ -13,7 +13,11 @@ write proceed — loud, but not able to hold a repository hostage.
 The shipped corpus in `rules/` is split by assumption: `rules/clean-code/` is generic TypeScript,
 `rules/effect/` assumes an Effect codebase (`no-await` forbids a construct most projects use
 freely). Selection is by which rule documents are present, so "what is enforced here" is a directory
-listing. Where each rule applies is re-scopable per repo via `falsestart.config.{ts,mts,js,mjs,json}`
+listing. Rules come from three sources: `--preset all|clean-code|effect` for the shipped set,
+`--rules <dir>` for your own, and `--rules pkg:@acme/falsestart-rules[/subdir]` for another
+package, resolved from your project rather than a guessed node_modules path. The `pkg:` prefix is
+required rather than inferred, so an existing `--rules rules` keeps meaning the directory. A rules
+package is just a `rules/` directory of ast-grep documents. Where each rule applies is re-scopable per repo via `falsestart.config.{ts,mts,js,mjs,json}`
 (or `--config <file>`). A TypeScript config is type-checked against the exported `FalsestartConfig`
 and `ShippedRuleId`; use a type-only import, since a `.ts` config is type-stripped and imported
 without a filesystem location. `files` is required in an override; `ignores` is optional and, when
