@@ -152,3 +152,74 @@ rule:
     }),
   )
 })
+
+describe('rule structure validation', () => {
+  effect('rejects an `all` of bare pattern/regex with no kind, as the ast-grep CLI does', () =>
+    Effect.gen(function* () {
+      // The upstream CLI rejects this ("Rule must specify a set of AST kinds"); the napi binding
+      // accepts it and then matches essentially every node. Without this check a rule that the
+      // real engine considers broken silently reports a violation on almost any input.
+      const rule = yield* parseRule(
+        `
+id: all-without-kind
+language: tsx
+rule:
+  all:
+    - pattern: $X
+    - regex: 'foo'
+`,
+        'broken.yml',
+      )
+
+      const error = yield* Effect.flip(findViolations(rule, 'const foo = 1'))
+
+      expect(error._tag).toBe('MatchError')
+      expect(error.reason).toContain('kind')
+    }),
+  )
+
+  effect('still allows an `all` that does pin a kind', () =>
+    Effect.gen(function* () {
+      const rule = yield* parseRule(
+        `
+id: all-with-kind
+language: tsx
+rule:
+  all:
+    - kind: identifier
+    - regex: '^foo$'
+`,
+        'ok.yml',
+      )
+
+      expect(yield* findViolations(rule, 'const foo = 1')).toHaveLength(1)
+    }),
+  )
+
+  effect('allows a single-element `all`, which is unambiguous', () =>
+    Effect.gen(function* () {
+      const rule = yield* parseRule(
+        `
+id: all-single
+language: tsx
+rule:
+  all:
+    - pattern: $X as any
+`,
+        'ok.yml',
+      )
+
+      expect(yield* findViolations(rule, 'const a = b as any')).toHaveLength(1)
+    }),
+  )
+
+  effect('rejects an empty `all`', () =>
+    Effect.gen(function* () {
+      const rule = yield* parseRule('id: empty-all\nlanguage: tsx\nrule:\n  all: []\n', 'broken.yml')
+
+      const error = yield* Effect.flip(findViolations(rule, 'const a = 1'))
+
+      expect(error.reason).toContain('empty')
+    }),
+  )
+})

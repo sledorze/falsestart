@@ -19,6 +19,7 @@
 import { Effect } from 'effect'
 import type { Finding } from '../core/engine.ts'
 import { checkFile } from '../core/engine.ts'
+import { toScopingPath } from '../core/scope.ts'
 import type { Rule } from '../core/rule.ts'
 
 export type Decision =
@@ -29,15 +30,20 @@ export type Decision =
 const DEFER: Decision = { _tag: 'Defer' }
 
 /**
- * The tools that introduce source text, and where each keeps it.
+ * The tools that introduce source text, and where each keeps its content and its path.
  *
- * `Edit` is judged by `new_string` — the text it would introduce — rather than by the whole
- * resulting file, which the hook never sees. That means an edit is checked for what it ADDS; it
+ * The path key is per-tool rather than assumed: `NotebookEdit` calls it `notebook_path`, and
+ * reading `file_path` there would leave the rule effectively unscoped instead of correctly scoped
+ * — a rule would then run against a file its globs never admitted.
+ *
+ * `Edit`/`NotebookEdit` are judged by the text they would introduce, rather than by the whole
+ * resulting file, which the hook never sees. An edit is therefore checked for what it ADDS; it
  * cannot be checked for what it leaves behind elsewhere in the file.
  */
-const CONTENT_FIELD: Readonly<Record<string, string>> = {
-  Edit: 'new_string',
-  Write: 'content',
+const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; readonly path: string }>> = {
+  Edit: { content: 'new_string', path: 'file_path' },
+  NotebookEdit: { content: 'new_source', path: 'notebook_path' },
+  Write: { content: 'content', path: 'file_path' },
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -55,7 +61,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * skipping it here would silently swallow exactly the case worth reporting.
  */
 export const judgesPayload = (payload: unknown): boolean =>
-  !isRecord(payload) || typeof payload['tool_name'] !== 'string' || payload['tool_name'] in CONTENT_FIELD
+  !isRecord(payload) || typeof payload['tool_name'] !== 'string' || payload['tool_name'] in WRITE_TOOLS
 
 const describe = (finding: Finding): string =>
   `${finding.ruleId} (${finding.line}:${finding.column}): ${finding.message}`
@@ -77,8 +83,8 @@ export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<
       return { _tag: 'Report', problem: 'hook payload carried no tool_name' } as const
     }
 
-    const field = CONTENT_FIELD[toolName]
-    if (field === undefined) {
+    const fields = WRITE_TOOLS[toolName]
+    if (fields === undefined) {
       // Not a tool that writes source. Nothing this tool knows how to judge.
       return DEFER
     }
@@ -87,13 +93,21 @@ export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<
       return { _tag: 'Report', problem: `${toolName} carried no tool_input` } as const
     }
 
-    const content = toolInput[field]
-    const path = toolInput['file_path']
+    const content = toolInput[fields.content]
+    const path = toolInput[fields.path]
     if (typeof content !== 'string' || typeof path !== 'string') {
-      return { _tag: 'Report', problem: `${toolName} carried no ${field}/file_path to judge` } as const
+      return {
+        _tag: 'Report',
+        problem: `${toolName} carried no ${fields.content}/${fields.path} to judge`,
+      } as const
     }
 
-    const outcome = yield* Effect.result(checkFile(rules, { content, path }))
+    // The payload reports an absolute path; rules are written relative to the project. Scoping on
+    // the raw absolute path makes every repo-relative glob silently never match.
+    const cwd = payload['cwd']
+    const scopingPath = toScopingPath(path, typeof cwd === 'string' ? cwd : undefined)
+
+    const outcome = yield* Effect.result(checkFile(rules, { content, path: scopingPath }))
     if (outcome._tag === 'Failure') {
       return {
         _tag: 'Report',

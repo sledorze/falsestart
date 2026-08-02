@@ -148,3 +148,87 @@ describe('hook decision', () => {
     }),
   )
 })
+
+describe('project-relative scoping', () => {
+  effect('applies a repo-relative rule glob to the absolute path a hook reports', () =>
+    Effect.gen(function* () {
+      // Regression: rules are authored as `src/**/*.ts`, hooks report `/repo/src/a.ts`, and
+      // matching one against the other used to silently never fire.
+      const scoped = yield* rulesOf(`${noAsAny}files:\n  - 'src/**/*.ts'\n`)
+
+      const decision = yield* decide(scoped, {
+        cwd: '/repo',
+        tool_input: { content: 'const x = value as any', file_path: '/repo/src/widget.ts' },
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  effect('still keeps a repo-relative rule off a path it does not cover', () =>
+    Effect.gen(function* () {
+      const scoped = yield* rulesOf(`${noAsAny}files:\n  - 'src/**/*.ts'\n`)
+
+      const decision = yield* decide(scoped, {
+        cwd: '/repo',
+        tool_input: { content: 'const x = value as any', file_path: '/repo/vendor/widget.ts' },
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Defer')
+    }),
+  )
+
+  effect('falls back to the absolute path when the payload carries no cwd', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), writePayload('const x = value as any'))
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+})
+
+describe('notebook writes', () => {
+  effect('judges a NotebookEdit by the source it would introduce', () =>
+    Effect.gen(function* () {
+      // NotebookEdit writes real source and was previously an unjudged bypass.
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        tool_input: {
+          cell_type: 'code',
+          new_source: 'const x = value as any',
+          notebook_path: '/repo/analysis.ipynb',
+        },
+        tool_name: 'NotebookEdit',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  effect('scopes a notebook by its own path field', () =>
+    Effect.gen(function* () {
+      // The path lives in `notebook_path`, not `file_path`; reading the wrong key would leave the
+      // rule unscoped rather than out of scope.
+      const scoped = yield* rulesOf(`${noAsAny}files:\n  - '**/*.ts'\n`)
+
+      const decision = yield* decide(scoped, {
+        tool_input: { new_source: 'const x = value as any', notebook_path: '/repo/analysis.ipynb' },
+        tool_name: 'NotebookEdit',
+      })
+
+      expect(decision._tag).toBe('Defer')
+    }),
+  )
+
+  effect('reports a NotebookEdit missing its path', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        tool_input: { new_source: 'const x = value as any' },
+        tool_name: 'NotebookEdit',
+      })
+
+      expect(decision._tag).toBe('Report')
+    }),
+  )
+})
