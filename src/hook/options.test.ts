@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_RULES_DIRECTORY, parseArguments } from './options.ts'
+import { DEFAULT_CONFIG_PATH, DEFAULT_RULES_DIRECTORY, parseArguments } from './options.ts'
 
 describe('command line', () => {
   it('takes the rule directory from --rules', () => {
-    expect(parseArguments(['--rules', 'my-rules'])).toEqual({ _tag: 'Run', rulesDirectory: 'my-rules' })
+    expect(parseArguments(['--rules', 'my-rules'])).toEqual({
+      _tag: 'Run',
+      configPath: DEFAULT_CONFIG_PATH,
+      rulesDirectory: 'my-rules',
+    })
   })
 
   it('falls back to a conventional directory when given nothing', () => {
-    expect(parseArguments([])).toEqual({ _tag: 'Run', rulesDirectory: DEFAULT_RULES_DIRECTORY })
+    expect(parseArguments([])).toEqual({
+      _tag: 'Run',
+      configPath: DEFAULT_CONFIG_PATH,
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+    })
   })
 
   it('refuses --rules with no directory rather than quietly using the default', () => {
@@ -50,7 +58,31 @@ describe('command line', () => {
   it('takes the last --rules when it is repeated', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
+      configPath: DEFAULT_CONFIG_PATH,
       rulesDirectory: 'second',
+    })
+  })
+
+  it('takes a config path from --config', () => {
+    expect(parseArguments(['--config', 'my.json'])).toEqual({
+      _tag: 'Run',
+      configPath: 'my.json',
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+    })
+  })
+
+  it('refuses --config with no file', () => {
+    const parsed = parseArguments(['--config'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--config')
+  })
+
+  it('accepts both flags together', () => {
+    expect(parseArguments(['--rules', 'r', '--config', 'c.json'])).toEqual({
+      _tag: 'Run',
+      configPath: 'c.json',
+      rulesDirectory: 'r',
     })
   })
 })

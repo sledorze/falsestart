@@ -50,7 +50,7 @@ const program = Effect.gen(function* () {
 
   // Read stdin only once there is something to do with it.
   const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
-  const response = yield* respond(options.rulesDirectory, input)
+  const response = yield* respond(options.rulesDirectory, input, options.configPath)
 
   yield* emit(response)
 

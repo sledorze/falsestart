@@ -23,7 +23,9 @@ const withRules = <A, E>(
     const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-respond-' })
 
     for (const [name, contents] of Object.entries(files)) {
-      yield* fs.writeFileString(path.join(root, name), contents)
+      const target = path.join(root, name)
+      yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+      yield* fs.writeFileString(target, contents)
     }
 
     return yield* use(root)
@@ -74,6 +76,84 @@ describe('hook response', () => {
         expect(payload.systemMessage).toContain('as any erases the type')
         // No permissionDecision: advising must not silently approve the write either.
         expect(payload.hookSpecificOutput).toBeUndefined()
+      }),
+    ),
+  )
+
+  effect('honours a per-repo scope override so a rule can be narrowed without editing it', () =>
+    withRules(
+      { 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"no-as-any":{"files":["src/domain/**/*.ts"]}}}' },
+      (rules) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          const config = path.join(rules, 'scope.json')
+
+          // The shipped rule has no `files` at all, so without the override this would be denied.
+          const response = yield* respond(rules, writeOf('const x = value as any'), config)
+
+          expect(response.exitCode).toBe(0)
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
+  effect('still applies a rule where the override admits it', () =>
+    withRules(
+      { 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"no-as-any":{"files":["**/widget.ts"]}}}' },
+      (rules) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          const response = yield* respond(rules, writeOf('const x = value as any'), path.join(rules, 'scope.json'))
+
+          expect(JSON.parse(response.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
+        }),
+    ),
+  )
+
+  effect('ignores a config path that does not exist, since config is optional', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond(rules, writeOf('const x = value as any'), path.join(rules, 'absent.json'))
+
+        expect(JSON.parse(response.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
+      }),
+    ),
+  )
+
+  effect('reports a config file that exists but cannot be understood', () =>
+    withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{oops' }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('JSON')
+      }),
+    ),
+  )
+
+  effect('reports a config path that is not a readable file', () =>
+    withRules({ 'no-as-any.yml': noAsAny, 'scope.json/inner.txt': 'x' }, (rules) =>
+      Effect.gen(function* () {
+        // A DIRECTORY named like the config file: it exists, but reading it as one fails.
+        const path = yield* Path.Path
+        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('cannot be read')
+      }),
+    ),
+  )
+
+  effect('reports an override naming a rule that is not loaded', () =>
+    withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"typo":{"files":["x"]}}}' }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('typo')
       }),
     ),
   )

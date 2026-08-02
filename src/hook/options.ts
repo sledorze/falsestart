@@ -13,10 +13,13 @@
 /** Where rules live when the caller does not say. */
 export const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
 
+/** Optional, unlike the rule tree: a repo with nothing to re-scope needs no config file. */
+export const DEFAULT_CONFIG_PATH = 'falsestart.config.json'
+
 export type Options =
   | { readonly _tag: 'Help'; readonly text: string }
   | { readonly _tag: 'Invalid'; readonly problem: string }
-  | { readonly _tag: 'Run'; readonly rulesDirectory: string }
+  | { readonly _tag: 'Run'; readonly configPath: string; readonly rulesDirectory: string }
 
 const USAGE = `falsestart — block risky code patterns as they are written
 
@@ -28,7 +31,14 @@ Usage:
 Options:
   --rules <dir>   Directory of ast-grep rule documents, searched recursively.
                   Defaults to ${DEFAULT_RULES_DIRECTORY}.
+  --config <file> Per-repo scope overrides. Optional; defaults to
+                  ${DEFAULT_CONFIG_PATH} and is ignored if absent.
   -h, --help      Show this message.
+
+Config format:
+  { "rules": { "<rule-id>": { "files": ["src/domain/**/*.ts"] } } }
+  An override changes only the keys it names, so setting "files" keeps the
+  rule's own "ignores".
 
 Exit codes:
   0  Decision made (JSON on stdout to block) or nothing to say.
@@ -40,6 +50,7 @@ export const parseArguments = (args: readonly string[]): Options => {
   }
 
   let rulesDirectory = DEFAULT_RULES_DIRECTORY
+  let configPath = DEFAULT_CONFIG_PATH
 
   // `entries()` rather than an index loop: it yields a defined element, so there is no
   // possibly-undefined fallback branch that no input can ever reach.
@@ -51,18 +62,22 @@ export const parseArguments = (args: readonly string[]): Options => {
       continue
     }
 
-    if (argument !== '--rules') {
+    if (argument !== '--rules' && argument !== '--config') {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
     const value = args[index + 1]
     if (value === undefined) {
-      return { _tag: 'Invalid', problem: '--rules needs a directory' }
+      return { _tag: 'Invalid', problem: `${argument} needs a ${argument === '--rules' ? 'directory' : 'file'}` }
     }
 
-    rulesDirectory = value
+    if (argument === '--rules') {
+      rulesDirectory = value
+    } else {
+      configPath = value
+    }
     consumedValue = true
   }
 
-  return { _tag: 'Run', rulesDirectory }
+  return { _tag: 'Run', configPath, rulesDirectory }
 }

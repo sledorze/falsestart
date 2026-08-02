@@ -25,13 +25,14 @@ rule document ──parse──▶ Rule ──scope──▶ applicable? ──m
 | [`hook/respond.ts`](../src/hook/respond.ts) | What should the process emit?               |
 | [`cli.ts`](../src/cli.ts)                   | Wiring to stdin, stdout, and the exit code. |
 
-Three modules sit beside the pipeline rather than in it:
+Four modules sit beside the pipeline rather than in it:
 
-| Module                                          | Answers                                   |
-| ----------------------------------------------- | ----------------------------------------- |
-| [`hook/options.ts`](../src/hook/options.ts)     | What did the command line ask for?        |
-| [`testing/assess.ts`](../src/testing/assess.ts) | Does this rule do what its author thinks? |
-| [`index.ts`](../src/index.ts)                   | What may a consumer import?               |
+| Module                                          | Answers                                       |
+| ----------------------------------------------- | --------------------------------------------- |
+| [`core/config.ts`](../src/core/config.ts)       | Where does THIS repo want each rule to apply? |
+| [`hook/options.ts`](../src/hook/options.ts)     | What did the command line ask for?            |
+| [`testing/assess.ts`](../src/testing/assess.ts) | Does this rule do what its author thinks?     |
+| [`index.ts`](../src/index.ts)                   | What may a consumer import?                   |
 
 `cli.ts` is the only module that names a runtime or a process.
 

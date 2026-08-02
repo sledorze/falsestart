@@ -11,8 +11,9 @@
  * Notably a block is NOT exit 2. Exit 2 does block, but the runtime discards stdout and reads
  * stderr as the reason, which throws away the structured decision.
  */
-import { Effect } from 'effect'
-import type { FileSystem, Path } from 'effect'
+import { Effect, FileSystem } from 'effect'
+import type { Path } from 'effect'
+import { ConfigError, EMPTY_CONFIG, applyScopeOverrides, parseConfig } from '../core/config.ts'
 import { loadRules } from '../core/loader.ts'
 import { decide, judgesPayload } from './decide.ts'
 
@@ -63,6 +64,7 @@ const denial = (reason: string): HookResponse => ({
 export const respond = (
   rulesDirectory: string,
   input: string,
+  configPath?: string,
 ): Effect.Effect<HookResponse, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const parsed = yield* Effect.result(
@@ -85,7 +87,40 @@ export const respond = (
       return problem(`could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`)
     }
 
-    const decision = yield* decide(loaded.success, parsed.success)
+    // Configuration is optional: an absent file means no overrides, not an error. A file that
+    // exists but cannot be read or understood IS an error, because the author expected it to apply.
+    const fs = yield* FileSystem.FileSystem
+    const configured = yield* Effect.result(
+      configPath === undefined
+        ? Effect.succeed(EMPTY_CONFIG)
+        : fs.exists(configPath).pipe(
+            Effect.flatMap((present) =>
+              present
+                ? fs.readFileString(configPath).pipe(Effect.flatMap((contents) => parseConfig(contents, configPath)))
+                : Effect.succeed(EMPTY_CONFIG),
+            ),
+            // One handler for every way reading can fail, so a ConfigError keeps its own detail and
+            // anything else (unreadable path, a directory where a file was expected) still reports.
+            Effect.mapError((cause) =>
+              cause instanceof ConfigError
+                ? cause
+                : new ConfigError({ reasons: [`${configPath}: cannot be read (${String(cause)})`] }),
+            ),
+          ),
+    )
+
+    if (configured._tag === 'Failure') {
+      return problem(configured.failure.reasons.join('\n'))
+    }
+
+    const scoped = yield* Effect.result(applyScopeOverrides(loaded.success, configured.success))
+    if (scoped._tag === 'Failure') {
+      // No path prefix: overrides only exist when a config file supplied them, so a `configPath ??`
+      // fallback here would be a branch no input can reach. The reasons name the rule themselves.
+      return problem(scoped.failure.reasons.join('\n'))
+    }
+
+    const decision = yield* decide(scoped.success, parsed.success)
 
     switch (decision._tag) {
       case 'Advise': {
