@@ -47,9 +47,33 @@ The shipped corpus lives in [`rules/`](../rules) and is split by what it assumes
 - `rules/effect/` — assumes an Effect codebase. `no-await` in particular forbids a construct most
   TypeScript projects use freely, so adopt this directory only if that is what you want.
 
-Point `--rules` at a directory holding only the subset you want. There is no runtime toggle: which
-rules are active is decided by which rule documents are present, so the answer to "what is enforced
-here" is a directory listing rather than a configuration file to reason about.
+Point `--rules` at a directory holding only the subset you want. Which rules are _active_ is decided
+by which rule documents are present, so the answer to "what is enforced here" is a directory
+listing.
+
+## Re-scoping a rule to your layout
+
+A rule ships with `files`/`ignores` chosen by an author who does not know your directory structure.
+`falsestart.config.json` re-scopes it without touching the rule:
+
+```json
+{
+  "rules": {
+    "prefer-smart-constructor": { "files": ["src/domain/**/*.ts"] },
+    "no-await": { "ignores": ["src/legacy/**"] }
+  }
+}
+```
+
+Pass it with `--config <file>`; it defaults to `falsestart.config.json` and is ignored if absent.
+
+An override changes **only the keys it names**, so setting `files` keeps the rule's own `ignores`
+— narrowing where a rule looks must not quietly discard the test-file exemption its author wrote.
+An override naming a rule that is not loaded is an error rather than a no-op, because a typo'd id
+would otherwise be a scope change that silently never happens.
+
+This is the supported answer when a rule fires somewhere it should not. Editing the rule documents
+under `node_modules` is not: the next install undoes it.
 
 ## Writing a rule
 

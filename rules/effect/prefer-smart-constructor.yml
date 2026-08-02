@@ -21,8 +21,9 @@ note: |
   Blocking, like every rule here. It is scoped tightly to keep that workable: it only sees a
   literal with an explicit type annotation, so an untyped options object — `{ concurrency:
   'unbounded' }` — is not the target and is not matched. If it does fire somewhere it should not,
-  the fix is to narrow the `files` globs rather than to soften the severity, because a rule that
-  does not block is a rule that gets ignored.
+  the fix is to narrow where it looks rather than to soften the severity, because a rule that does
+  not block is a rule that gets ignored. Do that from your own repo with `falsestart.config.json`:
+  `{ "rules": { "prefer-smart-constructor": { "files": ["src/domain/**/*.ts"] } } }`.
 rule:
   pattern: 'const $NAME: $TYPE = { $$$FIELDS }'
 constraints:
