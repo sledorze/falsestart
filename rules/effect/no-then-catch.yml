@@ -1,0 +1,14 @@
+id: no-then-catch
+language: tsx
+severity: error
+message: 'Promise chaining has no typed error channel and no interruption. Use Effect.map / Effect.catchAll / Effect.ensuring on an Effect.tryPromise instead.'
+rule:
+  any:
+    - pattern: $EXPR.then($$$ARGS)
+    - pattern: $EXPR.catch($$$ARGS)
+    - pattern: $EXPR.finally($$$ARGS)
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

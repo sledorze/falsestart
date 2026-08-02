@@ -1,0 +1,11 @@
+id: no-try-catch
+language: tsx
+severity: error
+message: 'try/catch produces an untyped `unknown` error that the compiler cannot help you with. Use Effect.try / Effect.tryPromise so the failure lands in the error channel.'
+rule:
+  kind: try_statement
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

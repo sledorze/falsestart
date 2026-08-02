@@ -1,0 +1,11 @@
+id: no-as-never
+language: tsx
+severity: error
+message: '`as never` silences an exhaustiveness error without resolving it. Handle the case, or make the type reflect that it cannot occur.'
+rule:
+  pattern: $X as never
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
