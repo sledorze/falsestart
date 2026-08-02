@@ -19,10 +19,27 @@ export const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
  */
 export const NO_EXPLICIT_CONFIG = undefined
 
+/**
+ * The rule sets falsestart ships, addressable without knowing where npm put them.
+ *
+ * Without this the only way to use the packaged rules is to write
+ * `--rules node_modules/@sledorze/falsestart/rules` by hand — a path that appears in no
+ * documentation, breaks under pnpm's layout, and is nobody's idea of getting started.
+ */
+export const PRESETS = ['all', 'clean-code', 'effect'] as const
+
+export type Preset = (typeof PRESETS)[number]
+
 export type Options =
   | { readonly _tag: 'Help'; readonly text: string }
   | { readonly _tag: 'Invalid'; readonly problem: string }
-  | { readonly _tag: 'Run'; readonly configPath: string | undefined; readonly rulesDirectory: string }
+  | {
+      readonly _tag: 'Run'
+      readonly configPath: string | undefined
+      /** Set when `--preset` was used; the caller resolves it against the installed package. */
+      readonly preset: Preset | undefined
+      readonly rulesDirectory: string
+    }
 
 const USAGE = `falsestart — block risky code patterns as they are written
 
@@ -34,6 +51,8 @@ Usage:
 Options:
   --rules <dir>   Directory of ast-grep rule documents, searched recursively.
                   Defaults to ${DEFAULT_RULES_DIRECTORY}.
+  --preset <name> Use rules shipped with falsestart: all, clean-code, effect.
+                  Mutually exclusive with --rules.
   --config <file> Per-repo scope overrides (.ts, .mts, .js, .mjs or .json).
                   Optional; without it falsestart looks for
                   falsestart.config.{ts,mts,js,mjs,json} and proceeds with no
@@ -54,6 +73,8 @@ Exit codes:
   0  Decision made (JSON on stdout to block) or nothing to say.
   1  falsestart could not do its job. Reported, and the write proceeds.`
 
+const isPreset = (value: string): value is Preset => (PRESETS as readonly string[]).includes(value)
+
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {
     return { _tag: 'Help', text: USAGE }
@@ -61,6 +82,8 @@ export const parseArguments = (args: readonly string[]): Options => {
 
   let rulesDirectory = DEFAULT_RULES_DIRECTORY
   let configPath: string | undefined = NO_EXPLICIT_CONFIG
+  let preset: Preset | undefined
+  let sawRules = false
 
   // `entries()` rather than an index loop: it yields a defined element, so there is no
   // possibly-undefined fallback branch that no input can ever reach.
@@ -72,22 +95,33 @@ export const parseArguments = (args: readonly string[]): Options => {
       continue
     }
 
-    if (argument !== '--rules' && argument !== '--config') {
+    if (argument !== '--rules' && argument !== '--config' && argument !== '--preset') {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
     const value = args[index + 1]
     if (value === undefined) {
-      return { _tag: 'Invalid', problem: `${argument} needs a ${argument === '--rules' ? 'directory' : 'file'}` }
+      return { _tag: 'Invalid', problem: `${argument} needs a value` }
     }
 
     if (argument === '--rules') {
       rulesDirectory = value
-    } else {
+      sawRules = true
+    } else if (argument === '--config') {
       configPath = value
+    } else if (isPreset(value)) {
+      preset = value
+    } else {
+      return { _tag: 'Invalid', problem: `unknown preset: ${value} (expected ${PRESETS.join(', ')})` }
     }
     consumedValue = true
   }
 
-  return { _tag: 'Run', configPath, rulesDirectory }
+  // Refused rather than ranked: silently preferring one when both are given would run a different
+  // rule set than the caller named, which is the failure this tool exists to prevent.
+  if (preset !== undefined && sawRules) {
+    return { _tag: 'Invalid', problem: '--preset and --rules cannot be combined' }
+  }
+
+  return { _tag: 'Run', configPath, preset, rulesDirectory }
 }

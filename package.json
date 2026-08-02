@@ -1,7 +1,7 @@
 {
   "name": "@sledorze/falsestart",
   "version": "0.0.1",
-  "description": "Blocks risky code patterns the instant an AI writes them — before the file lands, not just at CI. Also enforces structure/architecture conventions.",
+  "description": "Blocks risky code patterns the instant an AI writes them \u2014 before the file lands, not just at CI. Also enforces structure/architecture conventions.",
   "keywords": [
     "claude",
     "agents",
@@ -10,7 +10,7 @@
     "architecture"
   ],
   "license": "MIT",
-  "author": "Stéphane Le Dorze",
+  "author": "St\u00e9phane Le Dorze",
   "private": true,
   "repository": {
     "type": "git",
@@ -20,7 +20,7 @@
   "sideEffects": false,
   "packageManager": "pnpm@10.11.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "bin": {
     "falsestart": "./dist/cli.js"
@@ -30,6 +30,7 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./rules/*": "./rules/*",
     "./package.json": "./package.json"
   },
   "files": [
@@ -55,10 +56,11 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check"
   },
   "peerDependencies": {
+    "@effect/platform-node": "^4.0.0-beta.100",
     "effect": "^4.0.0-beta.100"
   },
   "peerDependenciesMeta": {
-    "effect": {
+    "@effect/platform-node": {
       "optional": true
     }
   },
@@ -90,5 +92,8 @@
     "@ast-grep/napi": "^0.45.0",
     "picomatch": "^4.0.5",
     "yaml": "^2.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

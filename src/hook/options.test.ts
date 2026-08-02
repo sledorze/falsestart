@@ -6,6 +6,7 @@ describe('command line', () => {
     expect(parseArguments(['--rules', 'my-rules'])).toEqual({
       _tag: 'Run',
       configPath: undefined,
+      preset: undefined,
       rulesDirectory: 'my-rules',
     })
   })
@@ -14,6 +15,7 @@ describe('command line', () => {
     expect(parseArguments([])).toEqual({
       _tag: 'Run',
       configPath: undefined,
+      preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
     })
   })
@@ -59,6 +61,7 @@ describe('command line', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
       configPath: undefined,
+      preset: undefined,
       rulesDirectory: 'second',
     })
   })
@@ -84,5 +87,33 @@ describe('command line', () => {
       configPath: 'c.json',
       rulesDirectory: 'r',
     })
+  })
+
+  it('takes a shipped rule set from --preset', () => {
+    expect(parseArguments(['--preset', 'effect'])).toEqual({
+      _tag: 'Run',
+      configPath: undefined,
+      preset: 'effect',
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+    })
+  })
+
+  it('refuses an unknown preset by name', () => {
+    const parsed = parseArguments(['--preset', 'efect'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('efect')
+  })
+
+  it('refuses --preset with no value', () => {
+    expect(parseArguments(['--preset'])._tag).toBe('Invalid')
+  })
+
+  it('refuses --preset combined with --rules, rather than ranking them', () => {
+    // Silently preferring one would run a different rule set than the caller named.
+    const parsed = parseArguments(['--preset', 'all', '--rules', 'r'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('cannot be combined')
   })
 })

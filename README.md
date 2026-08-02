@@ -13,12 +13,15 @@ answers with a decision, and code that breaks a rule never reaches the file.
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "falsestart --rules rules" }],
+        "hooks": [{ "type": "command", "command": "falsestart --preset all" }],
       },
     ],
   },
 }
 ```
+
+`--preset all` uses the rules shipped with falsestart — `clean-code` and `effect` are the narrower
+presets. Point `--rules <dir>` at your own directory instead when you have one.
 
 Rules are [ast-grep](https://ast-grep.github.io) documents, so the same file stays readable by the
 upstream CLI:
@@ -39,8 +42,19 @@ ignores:
 A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on its own a reason to touch a file.
 
 A starter corpus ships in [`rules/`](./rules): `clean-code/` is generic TypeScript, `effect/`
-assumes an Effect codebase. Point `--rules` at a directory holding only the subset you want —
-what is enforced is a directory listing, not a config file.
+assumes an Effect codebase. Reach them with `--preset`, or copy the ones you want into your own
+directory and use `--rules` — what is enforced is a directory listing, not a config file.
+
+Where each rule applies is yours to set, without editing any rule:
+
+```ts
+// falsestart.config.ts
+import type { FalsestartConfig } from '@sledorze/falsestart'
+
+export default {
+  rules: { 'prefer-smart-constructor': { files: ['src/domain/**/*.ts'] } },
+} satisfies FalsestartConfig
+```
 
 ## Docs
 
