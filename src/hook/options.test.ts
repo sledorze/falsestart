@@ -8,6 +8,7 @@ describe('command line', () => {
       configPath: undefined,
       preset: undefined,
       rulesDirectory: 'my-rules',
+      rulesPackage: undefined,
     })
   })
 
@@ -17,6 +18,7 @@ describe('command line', () => {
       configPath: undefined,
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
     })
   })
 
@@ -63,6 +65,7 @@ describe('command line', () => {
       configPath: undefined,
       preset: undefined,
       rulesDirectory: 'second',
+      rulesPackage: undefined,
     })
   })
 
@@ -71,6 +74,7 @@ describe('command line', () => {
       _tag: 'Run',
       configPath: 'my.json',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
     })
   })
 
@@ -86,6 +90,7 @@ describe('command line', () => {
       _tag: 'Run',
       configPath: 'c.json',
       rulesDirectory: 'r',
+      rulesPackage: undefined,
     })
   })
 
@@ -95,6 +100,7 @@ describe('command line', () => {
       configPath: undefined,
       preset: 'effect',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
     })
   })
 
@@ -115,5 +121,34 @@ describe('command line', () => {
 
     expect(parsed._tag).toBe('Invalid')
     expect(parsed._tag === 'Invalid' && parsed.problem).toContain('cannot be combined')
+  })
+
+  it('takes a rules package from a pkg: prefixed --rules', () => {
+    expect(parseArguments(['--rules', 'pkg:@acme/falsestart-rules'])).toEqual({
+      _tag: 'Run',
+      configPath: undefined,
+      preset: undefined,
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: '@acme/falsestart-rules',
+    })
+  })
+
+  it('keeps a subdirectory in the package specifier', () => {
+    const parsed = parseArguments(['--rules', 'pkg:@acme/falsestart-rules/strict'])
+
+    expect(parsed._tag === 'Run' && parsed.rulesPackage).toBe('@acme/falsestart-rules/strict')
+  })
+
+  it('still reads an unprefixed value as a directory', () => {
+    // `--rules rules` has always meant ./rules; reinterpreting bare names as packages would
+    // silently change which rule set an existing invocation loads.
+    const parsed = parseArguments(['--rules', 'rules'])
+
+    expect(parsed._tag === 'Run' && parsed.rulesDirectory).toBe('rules')
+    expect(parsed._tag === 'Run' && parsed.rulesPackage).toBeUndefined()
+  })
+
+  it('refuses a pkg: prefix with no package name', () => {
+    expect(parseArguments(['--rules', 'pkg:'])._tag).toBe('Invalid')
   })
 })

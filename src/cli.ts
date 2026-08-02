@@ -5,6 +5,8 @@
  * Everything interesting happens in `respond` and `parseArguments`; this file exists to connect
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
+import { createRequire } from 'node:module'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
@@ -47,6 +49,28 @@ const presetDirectory = (preset: Preset): string => {
   return preset === 'all' ? packaged : `${packaged}/${preset}`
 }
 
+/**
+ * Resolves `--rules pkg:<name>` to the rules directory inside an installed package.
+ *
+ * Resolution runs from the PROJECT, not from falsestart's own location, so the package is found
+ * wherever the consumer's package manager put it — the reason `node_modules/<name>/rules` is not
+ * simply joined by hand, since that path does not exist under pnpm's layout.
+ *
+ * A specifier may name a subdirectory (`@acme/rules/strict`) to take part of a rule set, mirroring
+ * what `--preset` does for the rules shipped here.
+ */
+const packageRulesDirectory = (specifier: string, projectDirectory: string): string => {
+  const scoped = specifier.startsWith('@')
+  const segments = specifier.split('/')
+  const packageName = segments.slice(0, scoped ? 2 : 1).join('/')
+  const subdirectory = segments.slice(scoped ? 2 : 1).join('/')
+
+  const resolve = createRequire(join(projectDirectory, 'noop.js'))
+  const manifest = resolve.resolve(`${packageName}/package.json`)
+
+  return join(dirname(manifest), 'rules', subdirectory)
+}
+
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
   const options = parseArguments(yield* stdio.args)
@@ -64,14 +88,36 @@ const program = Effect.gen(function* () {
 
   // Read stdin only once there is something to do with it.
   const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
-  const rulesDirectory = options.preset === undefined ? options.rulesDirectory : presetDirectory(options.preset)
+  const projectDirectory = process.cwd()
+
+  const located = yield* Effect.result(
+    Effect.try({
+      catch: String,
+      try: (): string => {
+        if (options.preset !== undefined) {
+          return presetDirectory(options.preset)
+        }
+        return options.rulesPackage === undefined
+          ? options.rulesDirectory
+          : packageRulesDirectory(options.rulesPackage, projectDirectory)
+      },
+    }),
+  )
+
+  // A rules package that will not resolve is reported like any other misconfiguration: visible,
+  // and non-blocking, so a missing dependency cannot stop every write in the repo.
+  if (located._tag === 'Failure') {
+    yield* write(`falsestart: could not resolve rules package (${located.failure})\n`, stdio.stderr())
+    return yield* new Exit({ code: 1 })
+  }
+
   const response = yield* respond({
     configPath: options.configPath,
     input,
     // The process runs in the project, which is where a repo's own config lives — not beside the
-    // rules, which `--preset` puts inside node_modules.
-    projectDirectory: process.cwd(),
-    rulesDirectory,
+    // rules, which `--preset` and `pkg:` both put inside node_modules.
+    projectDirectory,
+    rulesDirectory: located.success,
   })
 
   yield* emit(response)

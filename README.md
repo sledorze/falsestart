@@ -21,7 +21,8 @@ answers with a decision, and code that breaks a rule never reaches the file.
 ```
 
 `--preset all` uses the rules shipped with falsestart — `clean-code` and `effect` are the narrower
-presets. Point `--rules <dir>` at your own directory instead when you have one.
+presets. `--rules <dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at
+another package's.
 
 Rules are [ast-grep](https://ast-grep.github.io) documents, so the same file stays readable by the
 upstream CLI:

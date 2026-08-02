@@ -19,10 +19,38 @@ with a decision, so a rule violation is caught as the code is written rather tha
 }
 ```
 
-`--preset all` uses the rules shipped with falsestart, resolved from wherever your package manager
-installed it; `clean-code` and `effect` are the narrower presets. `--rules <dir>` points at your own
-directory instead, searched recursively, and defaults to `.falsestart/rules`. The two are mutually
-exclusive — giving both is refused rather than ranked.
+Rules can come from three places:
+
+| Source                  | How                                                     |
+| ----------------------- | ------------------------------------------------------- |
+| Shipped with falsestart | `--preset all` (or `clean-code`, `effect`)              |
+| Your own repo           | `--rules ./rules` — any directory, searched recursively |
+| Another package         | `--rules pkg:@acme/falsestart-rules`                    |
+
+`--preset` and `--rules` are mutually exclusive; giving both is refused rather than ranked.
+
+A package specifier may name a subdirectory — `pkg:@acme/falsestart-rules/strict` — to take part of
+a rule set. The package is expected to keep its rules in a `rules/` directory, as falsestart does,
+and is resolved from **your project**, so it is found wherever your package manager put it rather
+than at a guessed `node_modules` path that pnpm's layout does not have.
+
+The `pkg:` prefix is required rather than inferred. `--rules rules` has always meant the `rules/`
+directory, and quietly reinterpreting a bare name as a package would change which rule set an
+existing setup loads — the worst failure available to a tool whose job is enforcing a rule set.
+
+A package that will not resolve is reported and does not block, like every other misconfiguration:
+a missing dependency must not stop every write in the repo.
+
+## Publishing your own rules
+
+A rules package is a directory of ast-grep documents under `rules/` and nothing more:
+
+```
+@acme/falsestart-rules/
+  package.json
+  rules/
+    strict/no-console.yml
+```
 
 The `matcher` is an optimisation, not a safety boundary — falsestart ignores tool calls it has no
 opinion about, and does not even load the rule tree for them.
