@@ -69,6 +69,7 @@
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@types/node": "^26.1.1",
+    "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^4.1.10",
     "effect": "4.0.0-beta.102",
     "esbuild": "^0.28.1",
@@ -85,6 +86,7 @@
     ]
   },
   "dependencies": {
+    "picomatch": "^4.0.5",
     "yaml": "^2.9.0"
   }
 }
