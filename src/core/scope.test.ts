@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appliesTo } from './scope.ts'
+import { appliesTo, toScopingPath } from './scope.ts'
 
 const scoped = (files?: readonly string[], ignores?: readonly string[]) => ({
   ...(files === undefined ? {} : { files }),
@@ -73,5 +73,48 @@ describe('rule file scoping', () => {
   it('normalises backslash separators so Windows-shaped paths scope identically', () => {
     expect(appliesTo(scoped(['**/*.ts']), 'src\\core\\rule.ts')).toBeTruthy()
     expect(appliesTo(scoped(['**/*.ts'], ['**/*.test.ts']), 'src\\core\\rule.test.ts')).toBeFalsy()
+  })
+})
+
+describe('scoping path', () => {
+  it('expresses a path inside the project root relative to it', () => {
+    expect(toScopingPath('/repo/src/core/rule.ts', '/repo')).toBe('src/core/rule.ts')
+  })
+
+  it('is what makes a repo-relative glob match a payload that carries an absolute path', () => {
+    // The regression this exists for: hooks report absolute paths, rules are authored relative to
+    // the project, and matching one against the other silently never fires.
+    const rule = { files: ['src/**/*.ts'] }
+
+    expect(appliesTo(rule, '/repo/src/core/rule.ts')).toBeFalsy()
+    expect(appliesTo(rule, toScopingPath('/repo/src/core/rule.ts', '/repo'))).toBeTruthy()
+  })
+
+  it('still admits a leading-globstar rule after normalisation', () => {
+    expect(appliesTo({ files: ['**/*.ts'] }, toScopingPath('/repo/src/a.ts', '/repo'))).toBeTruthy()
+  })
+
+  it('tolerates a trailing separator on the root', () => {
+    expect(toScopingPath('/repo/src/a.ts', '/repo/')).toBe('src/a.ts')
+  })
+
+  it('leaves a path outside the root absolute rather than inventing a relative one', () => {
+    expect(toScopingPath('/elsewhere/a.ts', '/repo')).toBe('/elsewhere/a.ts')
+  })
+
+  it('does not treat a sibling directory sharing a prefix as inside the root', () => {
+    expect(toScopingPath('/repo-other/a.ts', '/repo')).toBe('/repo-other/a.ts')
+  })
+
+  it('leaves the path alone when no root is known', () => {
+    expect(toScopingPath('/repo/src/a.ts', undefined)).toBe('/repo/src/a.ts')
+  })
+
+  it('normalises separators so a Windows-shaped payload scopes identically', () => {
+    expect(toScopingPath('C:\\repo\\src\\a.ts', 'C:\\repo')).toBe('src/a.ts')
+  })
+
+  it('leaves an already-relative path untouched', () => {
+    expect(toScopingPath('src/a.ts', '/repo')).toBe('src/a.ts')
   })
 })
