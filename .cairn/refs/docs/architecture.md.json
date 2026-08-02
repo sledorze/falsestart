@@ -1,0 +1,60 @@
+{
+  "refs": [
+    {
+      "hash": "6db8b5ad5f0f9dd3b9315efcc0fbb6a2c6d64b7945e907c8f0b547f5245491cd",
+      "target": "../src/core/rule.ts"
+    },
+    {
+      "hash": "70adaf6335a6294192f4708a35825837e3c525421f8e0d1fc1a82686f0c9d33a",
+      "target": "../src/core/loader.ts"
+    },
+    {
+      "hash": "ca18201494013b4f94e5cf6a1881b0e7b7b2379d1d22685cf28fee9df9d777b7",
+      "target": "../src/core/scope.ts"
+    },
+    {
+      "hash": "0ad9a6d8893a235c55cb761b8bd41613663e74de0999b3920e0c9b7731d751c0",
+      "target": "../src/core/matcher.ts"
+    },
+    {
+      "hash": "f50581a936398888b4f11e4368200f99ae589e4c5326e70171730dab83e21ca5",
+      "target": "../src/core/engine.ts"
+    },
+    {
+      "hash": "350754cf7c4b7fa75aa0b08bda1ca327c3b38c37889c22b46a4725a1c3d3ab1c",
+      "target": "../src/hook/decide.ts"
+    },
+    {
+      "hash": "aa2497360453dcbc18f70a43012f51854348c34a31cec323596eca727fbdec40",
+      "target": "../src/hook/respond.ts"
+    },
+    {
+      "hash": "0476d440e74ede366a26716eb0fdead7935613fec814407f21ef9fb6a6dd0fea",
+      "target": "../src/cli.ts"
+    },
+    {
+      "hash": "81eae0884e74293b5c2c7a2947657ab2fab1dc8d98d631a934b106c9721470af",
+      "target": "../src/core/config.ts"
+    },
+    {
+      "hash": "9a811bde5edfc23cf4701c8f9b3a4899ce2c8f56e913166d5059a9ca111e5a9c",
+      "target": "../src/core/config-file.ts"
+    },
+    {
+      "hash": "8b582d63ee123a12b5de3f95be846cc383ddeb8aa537c2ade03425abc8c3613e",
+      "target": "../src/core/rule-ids.ts"
+    },
+    {
+      "hash": "5aabe6582b388fa132aaaf4a05e88c2efb74341d24fce982bbfb7bae21788209",
+      "target": "../src/hook/options.ts"
+    },
+    {
+      "hash": "0da2cb573a783f4c0273a9fb21d97bf0741387ec92d82e7e220c6bf2d6d683ba",
+      "target": "../src/testing/assess.ts"
+    },
+    {
+      "hash": "5cfc18dfb74fae642af87ee5e35aac8075a0fa08eb3a9aaea13d13b5647c1f97",
+      "target": "../src/index.ts"
+    }
+  ]
+}

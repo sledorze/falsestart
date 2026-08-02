@@ -26,9 +26,11 @@ pre-commit:
       run: pnpm prettier --write {staged_files} && git add {staged_files}
       stage_fixed: true
 
-    # Docs: no dead links + every big file has a fresh, stamped summary
+    # Docs: no dead links, every big file has a fresh stamped summary, and no doc claim about a
+    # source file has silently gone stale. The glob covers *.ts too, because `--refs` drift is
+    # caused by SOURCE edits — a docs-only glob would only notice at push time.
     docs:
-      glob: '*.md'
+      glob: '*.{md,ts}'
       run: pnpm check
 
 # Check-only mirror (no auto-fix). Usage: lefthook run ci
