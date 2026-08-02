@@ -15,13 +15,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       // A ratchet, not a fixed bar: autoUpdate rewrites these numbers up to match
-      // reality whenever coverage improves; starts at 0 since there's no code yet.
+      // reality whenever coverage improves.
       thresholds: {
         autoUpdate: true,
-        branches: 0,
-        functions: 0,
-        lines: 0,
-        statements: 0,
+        branches: 100,
+        functions: 100,
+        lines: 100,
+        statements: 100,
       },
     },
     include: ['src/**/*.test.ts'],
