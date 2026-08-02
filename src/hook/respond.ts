@@ -62,12 +62,28 @@ const denial = (reason: string): HookResponse => ({
  * Rules are loaded only once the payload is known to be judgeable, so the common case — a tool
  * call that writes no source — costs a JSON parse and nothing more.
  */
+export interface RespondOptions {
+  /** Path to a config file. Absent means look for the default names in `projectDirectory`. */
+  readonly configPath?: string | undefined
+  /** The raw hook payload. */
+  readonly input: string
+  /**
+   * Where an unnamed config is looked for.
+   *
+   * The PROJECT, never the rules directory. With `--preset` the rules live inside
+   * `node_modules`, and looking beside them there meant a repo's own config was silently
+   * ignored — the rule then applied as though no config existed, which is precisely the quiet
+   * wrong answer this tool exists to prevent.
+   */
+  readonly projectDirectory: string
+  readonly rulesDirectory: string
+}
+
 export const respond = (
-  rulesDirectory: string,
-  input: string,
-  configPath?: string,
+  options: RespondOptions,
 ): Effect.Effect<HookResponse, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
+    const { configPath, input, projectDirectory, rulesDirectory } = options
     const parsed = yield* Effect.result(
       Effect.try({
         catch: String,
@@ -91,7 +107,7 @@ export const respond = (
     // An explicit --config must exist; without one, the default names are looked for next to the
     // rules and their absence simply means no overrides.
     const configured = yield* Effect.result(
-      configPath === undefined ? loadDefaultConfig(rulesDirectory) : loadConfigFile(configPath),
+      configPath === undefined ? loadDefaultConfig(projectDirectory) : loadConfigFile(configPath),
     )
 
     if (configured._tag === 'Failure') {

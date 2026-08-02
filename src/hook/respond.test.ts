@@ -42,7 +42,11 @@ describe('hook response', () => {
   effect('emits a deny decision in the shape the hook contract defines', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         // Blocking is exit 0 WITH json on stdout. Exit 2 would discard stdout entirely.
         expect(response.exitCode).toBe(0)
@@ -57,7 +61,11 @@ describe('hook response', () => {
   effect('stays silent when the write is clean', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as Widget'))
+        const response = yield* respond({
+          input: writeOf('const x = value as Widget'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toBeUndefined()
@@ -69,7 +77,11 @@ describe('hook response', () => {
   effect('emits advisory findings as a system message with no permission decision', () =>
     withRules({ 'soft.yml': `${noAsAny}severity: warning\n` }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(0)
         const payload = JSON.parse(response.stdout ?? '{}')
@@ -89,7 +101,12 @@ describe('hook response', () => {
           const config = path.join(rules, 'scope.json')
 
           // The shipped rule has no `files` at all, so without the override this would be denied.
-          const response = yield* respond(rules, writeOf('const x = value as any'), config)
+          const response = yield* respond({
+            configPath: config,
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           expect(response.exitCode).toBe(0)
           expect(response.stdout).toBeUndefined()
@@ -103,7 +120,12 @@ describe('hook response', () => {
       (rules) =>
         Effect.gen(function* () {
           const path = yield* Path.Path
-          const response = yield* respond(rules, writeOf('const x = value as any'), path.join(rules, 'scope.json'))
+          const response = yield* respond({
+            configPath: path.join(rules, 'scope.json'),
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           expect(JSON.parse(response.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
         }),
@@ -115,7 +137,12 @@ describe('hook response', () => {
       Effect.gen(function* () {
         // Asking for a config that is not there is a misconfiguration, not an absence.
         const path = yield* Path.Path
-        const response = yield* respond(rules, writeOf('const x = value as any'), path.join(rules, 'absent.json'))
+        const response = yield* respond({
+          configPath: path.join(rules, 'absent.json'),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('no such config file')
@@ -126,7 +153,11 @@ describe('hook response', () => {
   effect('proceeds with no overrides when no default config is present', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(JSON.parse(response.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
       }),
@@ -138,7 +169,11 @@ describe('hook response', () => {
       { 'falsestart.config.json': '{"rules":{"no-as-any":{"files":["nowhere/**"]}}}', 'no-as-any.yml': noAsAny },
       (rules) =>
         Effect.gen(function* () {
-          const response = yield* respond(rules, writeOf('const x = value as any'))
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           expect(response.stdout).toBeUndefined()
         }),
@@ -160,7 +195,11 @@ describe('hook response', () => {
       },
       (rules) =>
         Effect.gen(function* () {
-          const response = yield* respond(rules, writeOf('const x = value as any'))
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           // Re-scoped away from src/widget.ts by the typed config.
           expect(response.stdout).toBeUndefined()
@@ -177,7 +216,11 @@ describe('hook response', () => {
       },
       (rules) =>
         Effect.gen(function* () {
-          const response = yield* respond(rules, writeOf('const x = value as any'))
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           expect(response.exitCode).toBe(1)
           expect(response.stderr).toContain('more than one')
@@ -193,7 +236,11 @@ describe('hook response', () => {
       },
       (rules) =>
         Effect.gen(function* () {
-          const response = yield* respond(rules, writeOf('const x = value as any'))
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
 
           expect(response.stdout).toBeUndefined()
         }),
@@ -203,7 +250,11 @@ describe('hook response', () => {
   effect('reports a TypeScript config that does not parse', () =>
     withRules({ 'falsestart.config.ts': 'export default { rules: {{{ }\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = v as any'))
+        const response = yield* respond({
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('falsestart.config.ts')
@@ -214,7 +265,11 @@ describe('hook response', () => {
   effect('reports a config directory masquerading as a TypeScript config', () =>
     withRules({ 'falsestart.config.ts/inner.txt': 'x', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = v as any'))
+        const response = yield* respond({
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('cannot be read')
@@ -225,7 +280,11 @@ describe('hook response', () => {
   effect('reports a JavaScript config that cannot be imported', () =>
     withRules({ 'falsestart.config.js': 'export default {{{\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = v as any'))
+        const response = yield* respond({
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('imported')
@@ -236,7 +295,11 @@ describe('hook response', () => {
   effect('reports a TypeScript config with no default export', () =>
     withRules({ 'falsestart.config.ts': 'export const rules = {}\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('default export')
@@ -248,7 +311,12 @@ describe('hook response', () => {
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{oops' }, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
-        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+        const response = yield* respond({
+          configPath: path.join(rules, 'scope.json'),
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('JSON')
@@ -261,7 +329,12 @@ describe('hook response', () => {
       Effect.gen(function* () {
         // A DIRECTORY named like the config file: it exists, but reading it as one fails.
         const path = yield* Path.Path
-        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+        const response = yield* respond({
+          configPath: path.join(rules, 'scope.json'),
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('cannot be read')
@@ -273,7 +346,12 @@ describe('hook response', () => {
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"typo":{"files":["x"]}}}' }, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
-        const response = yield* respond(rules, writeOf('const x = v as any'), path.join(rules, 'scope.json'))
+        const response = yield* respond({
+          configPath: path.join(rules, 'scope.json'),
+          input: writeOf('const x = v as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('typo')
@@ -281,10 +359,28 @@ describe('hook response', () => {
     ),
   )
 
+  effect('finds a default config in the project, not beside the rules', () =>
+    // Regression: with `--preset` the rules live inside node_modules. Looking for the config
+    // beside them meant a repo's own config was silently ignored and rules applied unchanged.
+    withRules({ 'no-as-any.yml': noAsAny }, (rulesElsewhere) =>
+      withRules({ 'falsestart.config.json': '{"rules":{"no-as-any":{"files":["nowhere/**"]}}}' }, (project) =>
+        Effect.gen(function* () {
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: project,
+            rulesDirectory: rulesElsewhere,
+          })
+
+          expect(response.stdout).toBeUndefined()
+        }),
+      ),
+    ),
+  )
+
   effect('surfaces a problem without blocking when the input is not JSON', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, 'this is not json')
+        const response = yield* respond({ input: 'this is not json', projectDirectory: rules, rulesDirectory: rules })
 
         // Exit 1 is the contract's non-blocking error: the user sees it, the write proceeds.
         expect(response.exitCode).toBe(1)
@@ -298,7 +394,11 @@ describe('hook response', () => {
     withRules({}, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
-        const response = yield* respond(path.join(rules, 'absent'), writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: path.join(rules, 'absent'),
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toBeDefined()
@@ -310,7 +410,11 @@ describe('hook response', () => {
   effect('surfaces a problem without blocking when a rule document is malformed', () =>
     withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, writeOf('const x = value as any'))
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stderr).toContain('broken.yml')
@@ -322,10 +426,11 @@ describe('hook response', () => {
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         // A Write with no file_path: judgeable in principle, but there is no path to scope by.
-        const response = yield* respond(
-          rules,
-          JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
-        )
+        const response = yield* respond({
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(1)
         expect(response.stdout).toBeUndefined()
@@ -336,7 +441,11 @@ describe('hook response', () => {
   effect('has no opinion about a tool that writes no source', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'Bash' }))
+        const response = yield* respond({
+          input: JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'Bash' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toBeUndefined()
@@ -348,7 +457,11 @@ describe('hook response', () => {
     // A broken rule tree must not turn an unrelated Bash call into an error notice.
     withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond(rules, JSON.stringify({ tool_input: {}, tool_name: 'Bash' }))
+        const response = yield* respond({
+          input: JSON.stringify({ tool_input: {}, tool_name: 'Bash' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
 
         expect(response.exitCode).toBe(0)
         expect(response.stderr).toBeUndefined()

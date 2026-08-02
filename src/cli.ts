@@ -5,8 +5,10 @@
  * Everything interesting happens in `respond` and `parseArguments`; this file exists to connect
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
+import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
+import type { Preset } from './hook/options.ts'
 import { parseArguments } from './hook/options.ts'
 import type { HookResponse } from './hook/respond.ts'
 import { respond } from './hook/respond.ts'
@@ -33,6 +35,18 @@ const emit = (response: HookResponse) =>
     }
   })
 
+/**
+ * Where the packaged rules live, resolved from this module rather than from the caller's cwd.
+ *
+ * `import.meta.url` points at the installed `dist/cli.js`, so `../rules` finds them wherever a
+ * package manager put the package — including pnpm's content-addressed store, where guessing
+ * `node_modules/@sledorze/falsestart/rules` does not work.
+ */
+const presetDirectory = (preset: Preset): string => {
+  const packaged = fileURLToPath(new URL('../rules', import.meta.url))
+  return preset === 'all' ? packaged : `${packaged}/${preset}`
+}
+
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
   const options = parseArguments(yield* stdio.args)
@@ -50,7 +64,15 @@ const program = Effect.gen(function* () {
 
   // Read stdin only once there is something to do with it.
   const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
-  const response = yield* respond(options.rulesDirectory, input, options.configPath)
+  const rulesDirectory = options.preset === undefined ? options.rulesDirectory : presetDirectory(options.preset)
+  const response = yield* respond({
+    configPath: options.configPath,
+    input,
+    // The process runs in the project, which is where a repo's own config lives — not beside the
+    // rules, which `--preset` puts inside node_modules.
+    projectDirectory: process.cwd(),
+    rulesDirectory,
+  })
 
   yield* emit(response)
 

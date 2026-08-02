@@ -12,15 +12,17 @@ with a decision, so a rule violation is caught as the code is written rather tha
     "PreToolUse": [
       {
         "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "falsestart --rules rules" }],
+        "hooks": [{ "type": "command", "command": "falsestart --preset all" }],
       },
     ],
   },
 }
 ```
 
-`--rules` points at a directory of rule documents, searched recursively. It defaults to
-`.falsestart/rules`.
+`--preset all` uses the rules shipped with falsestart, resolved from wherever your package manager
+installed it; `clean-code` and `effect` are the narrower presets. `--rules <dir>` points at your own
+directory instead, searched recursively, and defaults to `.falsestart/rules`. The two are mutually
+exclusive — giving both is refused rather than ranked.
 
 The `matcher` is an optimisation, not a safety boundary — falsestart ignores tool calls it has no
 opinion about, and does not even load the rule tree for them.
