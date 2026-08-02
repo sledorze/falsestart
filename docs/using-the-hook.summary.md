@@ -19,3 +19,11 @@ Rules are ast-grep documents needing `id`, `language`, and `rule`, optionally `m
 `severity`, `files`, `ignores`, `constraints`, `utils`. Always scope with `files`, and give every
 rule worked examples of both kinds — the must-not-fire examples are the ones that catch a rule
 turning into a nuisance.
+
+`files` globs match the path relative to the project root the hook reports, so `src/**/*.ts` works
+as written; a file outside that root keeps its absolute path. Notebooks scope by the notebook's own
+path, so a `**/*.ts` rule does not see TypeScript in a `.ipynb` cell.
+
+A matcher shared by several rules lives in a `_utils/` directory inside the rule tree and is
+referenced by `matches:`. Those documents need only `id` and `rule`, are not rules themselves, and
+lose a name collision to a rule's own `utils:` block.

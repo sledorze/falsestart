@@ -11,6 +11,7 @@
  * the caller decides what "the filesystem" means and tests can supply a real temp tree.
  */
 import { Data, Effect, FileSystem, Path } from 'effect'
+import { parse as parseYaml } from 'yaml'
 import type { Rule } from './rule.ts'
 import { parseRule } from './rule.ts'
 
@@ -21,7 +22,43 @@ export class RuleLoadError extends Data.TaggedError('RuleLoadError')<{
 
 const RULE_EXTENSIONS = ['.yml', '.yaml']
 
+/**
+ * Documents here define named matchers that every rule in the tree may reference by `matches:`,
+ * rather than rules of their own. Without somewhere to put them, a matcher needed by several rules
+ * has to be copy-pasted into each one's local `utils:`, and the copies drift.
+ */
+const SHARED_UTILS_DIRECTORY = '_utils'
+
 const isRuleDocument = (name: string): boolean => RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
+
+const isSharedUtil = (entry: string): boolean => entry.split('/')[0] === SHARED_UTILS_DIRECTORY
+
+/**
+ * A shared util is deliberately NOT a `Rule`: it has no `language`, `message`, or `files`, because
+ * it never matches on its own — it is a fragment named for reuse. Validating it as a rule would
+ * demand fields that make no sense for one.
+ */
+const parseSharedUtil = (source: string, origin: string): Effect.Effect<{ id: string; rule: unknown }, string> =>
+  Effect.try({
+    catch: (cause) => `${origin}: invalid YAML (${String(cause)})`,
+    try: () => parseYaml(source) as unknown,
+  }).pipe(
+    Effect.flatMap((document) => {
+      if (typeof document !== 'object' || document === null || Array.isArray(document)) {
+        return Effect.fail(`${origin}: shared util must be a YAML mapping`)
+      }
+
+      const { id, rule } = document as Record<string, unknown>
+      if (typeof id !== 'string' || id.length === 0) {
+        return Effect.fail(`${origin}: shared util needs a non-empty id`)
+      }
+      if (rule === undefined || rule === null) {
+        return Effect.fail(`${origin}: shared util needs a rule`)
+      }
+
+      return Effect.succeed({ id, rule })
+    }),
+  )
 
 /**
  * Two rules sharing an id make findings ambiguous and let one rule mask the other depending on
@@ -61,28 +98,56 @@ export const loadRules = (
 
     const documents = entries.filter((entry) => isRuleDocument(entry)).toSorted()
 
+    const read = (entry: string) =>
+      fs.readFileString(path.join(directory, entry)).pipe(Effect.mapError((cause) => `cannot read ${entry}: ${cause}`))
+
     // `Effect.all` over a mapped list rather than `Effect.forEach(documents, ...)`: a lint rule
     // keyed on the name `forEach` reads the second argument as an array `thisArg`.
-    const outcomes = yield* Effect.all(
-      documents.map((entry) => {
-        const absolute = path.join(directory, entry)
-
-        return fs.readFileString(absolute).pipe(
-          Effect.mapError((cause) => `cannot read ${entry}: ${cause}`),
-          Effect.flatMap((contents) =>
-            // The origin is folded into the text here: a bare reason like "Missing key at [id]"
-            // is useless when the whole point is to say WHICH of forty rule files is broken.
-            parseRule(contents, entry).pipe(Effect.mapError((error) => `${error.origin}: ${error.reason}`)),
+    const utilOutcomes = yield* Effect.all(
+      documents
+        .filter((entry) => isSharedUtil(entry))
+        .map((entry) =>
+          read(entry).pipe(
+            Effect.flatMap((contents) => parseSharedUtil(contents, entry)),
+            Effect.result,
           ),
-          // Each document is reduced to a Result so one bad rule does not short-circuit the walk;
-          // the failures are collected and reported together below.
-          Effect.result,
-        )
-      }),
+        ),
     )
 
-    const failures = outcomes.flatMap((outcome) => (outcome._tag === 'Failure' ? [outcome.failure] : []))
-    const rules = outcomes.flatMap((outcome) => (outcome._tag === 'Success' ? [outcome.success] : []))
+    const outcomes = yield* Effect.all(
+      documents
+        .filter((entry) => !isSharedUtil(entry))
+        .map((entry) =>
+          read(entry).pipe(
+            Effect.flatMap((contents) =>
+              // The origin is folded into the text here: a bare reason like "Missing key at [id]"
+              // is useless when the whole point is to say WHICH of forty rule files is broken.
+              parseRule(contents, entry).pipe(Effect.mapError((error) => `${error.origin}: ${error.reason}`)),
+            ),
+            // Each document is reduced to a Result so one bad rule does not short-circuit the walk;
+            // the failures are collected and reported together below.
+            Effect.result,
+          ),
+        ),
+    )
+
+    const sharedUtils: Record<string, unknown> = {}
+    for (const outcome of utilOutcomes) {
+      if (outcome._tag === 'Success') {
+        sharedUtils[outcome.success.id] = outcome.success.rule
+      }
+    }
+    const hasSharedUtils = Object.keys(sharedUtils).length > 0
+
+    const failures = [
+      ...utilOutcomes.flatMap((outcome) => (outcome._tag === 'Failure' ? [outcome.failure] : [])),
+      ...outcomes.flatMap((outcome) => (outcome._tag === 'Failure' ? [outcome.failure] : [])),
+    ]
+    // A rule's own `utils:` wins a name collision: the shared set is a default, not an override.
+    const withSharedUtils = (rule: Rule): Rule =>
+      hasSharedUtils ? { ...rule, utils: { ...sharedUtils, ...rule.utils } } : rule
+
+    const rules = outcomes.flatMap((outcome) => (outcome._tag === 'Success' ? [withSharedUtils(outcome.success)] : []))
     const reasons = [...failures, ...findDuplicateIds(rules)]
 
     return yield* reasons.length > 0 ? Effect.fail(new RuleLoadError({ reasons })) : Effect.succeed(rules)
