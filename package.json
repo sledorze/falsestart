@@ -83,5 +83,8 @@
     "onlyBuiltDependencies": [
       "lefthook"
     ]
+  },
+  "dependencies": {
+    "yaml": "^2.9.0"
   }
 }
