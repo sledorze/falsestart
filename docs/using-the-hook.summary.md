@@ -13,10 +13,12 @@ write proceed — loud, but not able to hold a repository hostage.
 The shipped corpus in `rules/` is split by assumption: `rules/clean-code/` is generic TypeScript,
 `rules/effect/` assumes an Effect codebase (`no-await` forbids a construct most projects use
 freely). Selection is by which rule documents are present, so "what is enforced here" is a directory
-listing. Where each rule applies is re-scopable per repo via `falsestart.config.json` (or
-`--config <file>`): a per-rule `files`/`ignores` override that changes only the keys it names, so
-narrowing `files` keeps the author's `ignores`. An override for a rule that is not loaded is an
-error, not a silent no-op.
+listing. Where each rule applies is re-scopable per repo via `falsestart.config.{ts,mts,js,mjs,json}`
+(or `--config <file>`). A TypeScript config is type-checked against the exported `FalsestartConfig`
+and `ShippedRuleId`; use a type-only import, since a `.ts` config is type-stripped and imported
+without a filesystem location. `files` is required in an override; `ignores` is optional and, when
+omitted, the rule keeps its own. Two competing default configs are an error rather than a
+precedence rule, and an override for a rule that is not loaded is an error, not a silent no-op.
 
 Rules are ast-grep documents needing `id`, `language`, and `rule`, optionally `message`,
 `severity`, `files`, `ignores`, `constraints`, `utils`. Always scope with `files`, and give every

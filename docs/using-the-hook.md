@@ -54,23 +54,39 @@ listing.
 ## Re-scoping a rule to your layout
 
 A rule ships with `files`/`ignores` chosen by an author who does not know your directory structure.
-`falsestart.config.json` re-scopes it without touching the rule:
+A config re-scopes it without touching the rule. Write it in TypeScript and the compiler checks it:
 
-```json
-{
-  "rules": {
-    "prefer-smart-constructor": { "files": ["src/domain/**/*.ts"] },
-    "no-await": { "ignores": ["src/legacy/**"] }
-  }
-}
+```ts
+// falsestart.config.ts
+import type { FalsestartConfig } from '@sledorze/falsestart'
+
+export default {
+  rules: {
+    'prefer-smart-constructor': { files: ['src/domain/**/*.ts'] },
+    'no-await': { files: ['src/**/*.ts'], ignores: ['src/legacy/**'] },
+  },
+} satisfies FalsestartConfig
 ```
 
-Pass it with `--config <file>`; it defaults to `falsestart.config.json` and is ignored if absent.
+Use a **type-only** import here. A `.ts` config has its types stripped and is imported without a
+filesystem location, so it cannot resolve a value import; `import type` is erased and works. A
+`.js`/`.mjs` config is imported from its real path and may import anything, including `defineConfig`.
+JSON works too, with the same shape and no type checking.
 
-An override changes **only the keys it names**, so setting `files` keeps the rule's own `ignores`
-— narrowing where a rule looks must not quietly discard the test-file exemption its author wrote.
+`files` is **required**. An override exists to say where a rule applies in _this_ repo, and one
+that adjusts only `ignores` leaves that answer inherited from someone who never saw your layout.
+
+`ignores` is optional, and omitting it keeps the rule's own — narrowing where a rule looks must not
+quietly discard the test-file exemption its author wrote.
+
+Without `--config`, falsestart looks for `falsestart.config.{ts,mts,js,mjs,json}` beside the rules
+directory. None present means no overrides. **Two** present is an error rather than a precedence
+rule: silently picking one of two configs is the kind of quiet wrong answer this tool exists to
+prevent. A config named explicitly with `--config` must exist.
+
 An override naming a rule that is not loaded is an error rather than a no-op, because a typo'd id
-would otherwise be a scope change that silently never happens.
+would otherwise be a scope change that silently never happens. `ShippedRuleId` is exported if you
+want that caught at compile time instead.
 
 This is the supported answer when a rule fires somewhere it should not. Editing the rule documents
 under `node_modules` is not: the next install undoes it.

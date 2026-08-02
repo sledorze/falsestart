@@ -6,21 +6,30 @@ describe('library surface', () => {
     // Named individually rather than snapshotted: removing one of these is a breaking change for
     // a consumer, and it should have to be spelled out here before it can happen.
     expect(Object.keys(falsestart).toSorted()).toEqual([
+      'ConfigError',
+      'DEFAULT_CONFIG_CANDIDATES',
       'MatchError',
       'RuleLoadError',
       'RuleParseError',
       'SEVERITIES',
+      'SHIPPED_RULE_IDS',
       'SUPPORTED_LANGUAGES',
       'appliesTo',
+      'applyScopeOverrides',
       'assessRule',
       'checkFile',
       'decide',
+      'defineConfig',
       'findUntestedRules',
       'findViolations',
       'judgesPayload',
+      'loadConfigFile',
+      'loadDefaultConfig',
       'loadRules',
+      'parseConfig',
       'parseRule',
       'respond',
+      'validateConfig',
     ])
   })
 })

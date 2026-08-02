@@ -11,9 +11,10 @@
  * Notably a block is NOT exit 2. Exit 2 does block, but the runtime discards stdout and reads
  * stderr as the reason, which throws away the structured decision.
  */
-import { Effect, FileSystem } from 'effect'
-import type { Path } from 'effect'
-import { ConfigError, EMPTY_CONFIG, applyScopeOverrides, parseConfig } from '../core/config.ts'
+import { Effect } from 'effect'
+import type { FileSystem, Path } from 'effect'
+import { loadConfigFile, loadDefaultConfig } from '../core/config-file.ts'
+import { applyScopeOverrides } from '../core/config.ts'
 import { loadRules } from '../core/loader.ts'
 import { decide, judgesPayload } from './decide.ts'
 
@@ -87,26 +88,10 @@ export const respond = (
       return problem(`could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`)
     }
 
-    // Configuration is optional: an absent file means no overrides, not an error. A file that
-    // exists but cannot be read or understood IS an error, because the author expected it to apply.
-    const fs = yield* FileSystem.FileSystem
+    // An explicit --config must exist; without one, the default names are looked for next to the
+    // rules and their absence simply means no overrides.
     const configured = yield* Effect.result(
-      configPath === undefined
-        ? Effect.succeed(EMPTY_CONFIG)
-        : fs.exists(configPath).pipe(
-            Effect.flatMap((present) =>
-              present
-                ? fs.readFileString(configPath).pipe(Effect.flatMap((contents) => parseConfig(contents, configPath)))
-                : Effect.succeed(EMPTY_CONFIG),
-            ),
-            // One handler for every way reading can fail, so a ConfigError keeps its own detail and
-            // anything else (unreadable path, a directory where a file was expected) still reports.
-            Effect.mapError((cause) =>
-              cause instanceof ConfigError
-                ? cause
-                : new ConfigError({ reasons: [`${configPath}: cannot be read (${String(cause)})`] }),
-            ),
-          ),
+      configPath === undefined ? loadDefaultConfig(rulesDirectory) : loadConfigFile(configPath),
     )
 
     if (configured._tag === 'Failure') {

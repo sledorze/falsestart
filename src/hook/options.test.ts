@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_CONFIG_PATH, DEFAULT_RULES_DIRECTORY, parseArguments } from './options.ts'
+import { DEFAULT_RULES_DIRECTORY, parseArguments } from './options.ts'
 
 describe('command line', () => {
   it('takes the rule directory from --rules', () => {
     expect(parseArguments(['--rules', 'my-rules'])).toEqual({
       _tag: 'Run',
-      configPath: DEFAULT_CONFIG_PATH,
+      configPath: undefined,
       rulesDirectory: 'my-rules',
     })
   })
@@ -13,7 +13,7 @@ describe('command line', () => {
   it('falls back to a conventional directory when given nothing', () => {
     expect(parseArguments([])).toEqual({
       _tag: 'Run',
-      configPath: DEFAULT_CONFIG_PATH,
+      configPath: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
     })
   })
@@ -58,7 +58,7 @@ describe('command line', () => {
   it('takes the last --rules when it is repeated', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
-      configPath: DEFAULT_CONFIG_PATH,
+      configPath: undefined,
       rulesDirectory: 'second',
     })
   })

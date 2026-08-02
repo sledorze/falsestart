@@ -1,6 +1,6 @@
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect } from 'effect'
-import { applyScopeOverrides, parseConfig } from './config.ts'
+import { applyScopeOverrides, defineConfig, parseConfig } from './config.ts'
 import type { Rule } from './rule.ts'
 
 const ruleOf = (id: string, files?: readonly string[], ignores?: readonly string[]): Rule => ({
@@ -40,11 +40,13 @@ describe('repo configuration', () => {
     }),
   )
 
-  effect('reads an override naming only ignores', () =>
+  effect('refuses an override that omits files', () =>
     Effect.gen(function* () {
-      const config = yield* parsed('{"rules":{"a":{"ignores":["**/generated/**"]}}}')
+      // `files` is mandatory: an override exists to state where a rule applies in THIS repo, and
+      // omitting it leaves that inherited from an author who never saw the layout.
+      const error = yield* Effect.flip(parsed('{"rules":{"a":{"ignores":["**/gen/**"]}}}'))
 
-      expect(config.rules['a']).toEqual({ ignores: ['**/generated/**'] })
+      expect(error.reasons.join(', ')).toContain('files is required')
     }),
   )
 
@@ -70,7 +72,9 @@ describe('repo configuration', () => {
 
   effect('rejects a non-string ignore glob', () =>
     Effect.gen(function* () {
-      expect((yield* Effect.flip(parsed('{"rules":{"a":{"ignores":[7]}}}'))).reasons.join(', ')).toContain('ignores')
+      expect(
+        (yield* Effect.flip(parsed('{"rules":{"a":{"files":["x"],"ignores":[7]}}}'))).reasons.join(', '),
+      ).toContain('ignores')
     }),
   )
 
@@ -88,11 +92,19 @@ describe('repo configuration', () => {
     }),
   )
 
-  effect('rejects an override naming no scope key', () =>
+  effect('rejects an empty override', () =>
     Effect.gen(function* () {
-      // An empty override is almost certainly a mistake, and silently doing nothing is the drift
-      // this whole tool exists to prevent.
       expect((yield* Effect.flip(parsed('{"rules":{"a":{}}}'))).reasons.join(', ')).toContain('files')
+    }),
+  )
+})
+
+describe('authoring helper', () => {
+  effect('defineConfig returns the config it is given, typed', () =>
+    Effect.gen(function* () {
+      const config = defineConfig({ rules: { 'no-as-any': { files: ['src/**/*.ts'] } } })
+
+      expect(yield* applyScopeOverrides([ruleOf('no-as-any')], config)).toHaveLength(1)
     }),
   )
 })
@@ -122,10 +134,12 @@ describe('applying scope overrides', () => {
 
   effect('replaces ignores when the override names them', () =>
     Effect.gen(function* () {
-      const [first] = yield* applyScopeOverrides(rules, { rules: { 'no-as-any': { ignores: ['**/legacy/**'] } } })
+      const [first] = yield* applyScopeOverrides(rules, {
+        rules: { 'no-as-any': { files: ['src/**/*.ts'], ignores: ['**/legacy/**'] } },
+      })
 
       expect(first?.ignores).toEqual(['**/legacy/**'])
-      expect(first?.files).toEqual(['**/*.ts'])
+      expect(first?.files).toEqual(['src/**/*.ts'])
     }),
   )
 

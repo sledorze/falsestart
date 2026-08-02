@@ -19,7 +19,12 @@ import { Data, Effect } from 'effect'
 import type { Rule } from './rule.ts'
 
 export interface ScopeOverride {
-  readonly files?: readonly string[]
+  /**
+   * Required. An override exists to answer "where does this rule apply in THIS repo", and an
+   * override that only adjusts `ignores` leaves that answer implicit — inherited from an author
+   * who never saw your layout. Making it mandatory means every override states it outright.
+   */
+  readonly files: readonly string[]
   readonly ignores?: readonly string[]
 }
 
@@ -30,6 +35,17 @@ export interface Config {
 export class ConfigError extends Data.TaggedError('ConfigError')<{
   readonly reasons: readonly string[]
 }> {}
+
+/**
+ * Identity, for authoring a config as a module with inference and completion:
+ *
+ *     export default defineConfig({ rules: { 'no-as-any': { files: ['src/**\/*.ts'] } } })
+ *
+ * A `.ts` config imported through the type-stripping path cannot use a VALUE import, so prefer
+ * `satisfies FalsestartConfig` with `import type` there; this helper is for `.js`/`.mjs` configs
+ * and for building a config in code.
+ */
+export const defineConfig = (config: Config): Config => config
 
 /** No file, no overrides — configuration is optional, unlike the rule tree itself. */
 export const EMPTY_CONFIG: Config = { rules: {} }
@@ -46,54 +62,59 @@ const readOverride = (value: unknown, path: string): ScopeOverride | string => {
   }
 
   const { files, ignores } = value
-  if (files !== undefined && !isGlobList(files)) {
-    return `${path}.files must be an array of glob strings`
+  if (!isGlobList(files)) {
+    return `${path}.files is required and must be an array of glob strings`
   }
   if (ignores !== undefined && !isGlobList(ignores)) {
     return `${path}.ignores must be an array of glob strings`
   }
-  if (files === undefined && ignores === undefined) {
-    return `${path} names neither files nor ignores, so it would change nothing`
-  }
 
   return {
-    ...(files === undefined ? {} : { files }),
+    files,
     ...(ignores === undefined ? {} : { ignores }),
   }
 }
+
+/**
+ * Validates an already-parsed config value.
+ *
+ * Shared by the JSON and module paths: a TypeScript config is type-checked in your editor, but by
+ * the time it reaches here it is a plain runtime value that may have been built by code, so it
+ * gets exactly the same scrutiny as hand-written JSON.
+ */
+export const validateConfig = (document: unknown, origin: string): Effect.Effect<Config, ConfigError> =>
+  Effect.suspend(() => {
+    if (!isMapping(document)) {
+      return Effect.fail(new ConfigError({ reasons: [`${origin}: config must be an object`] }))
+    }
+
+    const declared = document['rules']
+    if (declared === undefined) {
+      return Effect.succeed(EMPTY_CONFIG)
+    }
+    if (!isMapping(declared)) {
+      return Effect.fail(new ConfigError({ reasons: [`${origin}: rules must be an object`] }))
+    }
+
+    const overrides: Record<string, ScopeOverride> = {}
+    const reasons: string[] = []
+    for (const [id, raw] of Object.entries(declared)) {
+      const override = readOverride(raw, `${origin}: rules.${id}`)
+      if (typeof override === 'string') {
+        reasons.push(override)
+      } else {
+        overrides[id] = override
+      }
+    }
+
+    return reasons.length > 0 ? Effect.fail(new ConfigError({ reasons })) : Effect.succeed({ rules: overrides })
+  })
 
 export const parseConfig = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>
   Effect.try({
     catch: (cause) => new ConfigError({ reasons: [`${origin}: invalid JSON (${String(cause)})`] }),
     try: () => JSON.parse(source) as unknown,
-  }).pipe(
-    Effect.flatMap((document) => {
-      if (!isMapping(document)) {
-        return Effect.fail(new ConfigError({ reasons: [`${origin}: config must be an object`] }))
-      }
-
-      const declared = document['rules']
-      if (declared === undefined) {
-        return Effect.succeed(EMPTY_CONFIG)
-      }
-      if (!isMapping(declared)) {
-        return Effect.fail(new ConfigError({ reasons: [`${origin}: rules must be an object`] }))
-      }
-
-      const overrides: Record<string, ScopeOverride> = {}
-      const reasons: string[] = []
-      for (const [id, raw] of Object.entries(declared)) {
-        const override = readOverride(raw, `${origin}: rules.${id}`)
-        if (typeof override === 'string') {
-          reasons.push(override)
-        } else {
-          overrides[id] = override
-        }
-      }
-
-      return reasons.length > 0 ? Effect.fail(new ConfigError({ reasons })) : Effect.succeed({ rules: overrides })
-    }),
-  )
+  }).pipe(Effect.flatMap((document) => validateConfig(document, origin)))
 
 /**
  * Re-scopes loaded rules according to `config`.
