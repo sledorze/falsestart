@@ -1,10 +1,11 @@
 /**
  * Turns one agent tool-call into a verdict.
  *
- * The three outcomes map onto what a PreToolUse hook is actually able to say, and the distinction
+ * The outcomes map onto what a PreToolUse hook is actually able to say, and the distinction
  * between them is the whole policy:
  *
  * - `Deny` — the code being written breaks a rule. This is the only outcome that stops anything.
+ * - `Advise` — softer findings worth showing; the write proceeds.
  * - `Defer` — nothing to say; the normal permission flow applies.
  * - `Report` — the guard could not do its job. Surfaced to the user, but the write proceeds.
  *
@@ -13,8 +14,9 @@
  * that a typo in a rule file should hold every write in the repo hostage. Reporting keeps the
  * failure loud, which was the actual point, without turning a misconfiguration into an outage.
  *
- * Only `error`-severity findings deny. Anything softer is advice, and advice that blocks is
- * indistinguishable from an error.
+ * Only `error`-severity findings deny. Anything softer becomes `Advise`: still shown, but it does
+ * not stop the write, because advice that blocks is indistinguishable from an error. Dropping it
+ * entirely would be worse — a `warning` rule would then do nothing whatsoever.
  */
 import { Effect } from 'effect'
 import type { Finding } from '../core/engine.ts'
@@ -23,11 +25,13 @@ import { toScopingPath } from '../core/scope.ts'
 import type { Rule } from '../core/rule.ts'
 
 export type Decision =
+  /** Findings that do not block, but that the author should still see. */
+  | { readonly _tag: 'Advise'; readonly findings: readonly Finding[]; readonly note: string }
   | { readonly _tag: 'Defer' }
   | { readonly _tag: 'Deny'; readonly findings: readonly Finding[]; readonly reason: string }
   | { readonly _tag: 'Report'; readonly problem: string }
 
-const DEFER: Decision = { _tag: 'Defer' }
+const defer = (): Decision => ({ _tag: 'Defer' })
 
 /**
  * The tools that introduce source text, and where each keeps its content and its path.
@@ -96,7 +100,7 @@ export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<
     const fields = WRITE_TOOLS[toolName]
     if (fields === undefined) {
       // Not a tool that writes source. Nothing this tool knows how to judge.
-      return DEFER
+      return defer()
     }
 
     if (!isRecord(toolInput)) {
@@ -126,13 +130,23 @@ export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<
     }
 
     const blocking = outcome.success.filter((finding) => finding.severity === 'error')
-    if (blocking.length === 0) {
-      return DEFER
+
+    if (blocking.length > 0) {
+      return {
+        _tag: 'Deny',
+        findings: blocking,
+        reason: blocking.map((finding) => describe(finding)).join('\n'),
+      } as const
+    }
+
+    const advisory = outcome.success.filter((finding) => finding.severity !== 'error')
+    if (advisory.length === 0) {
+      return defer()
     }
 
     return {
-      _tag: 'Deny',
-      findings: blocking,
-      reason: blocking.map((finding) => describe(finding)).join('\n'),
+      _tag: 'Advise',
+      findings: advisory,
+      note: advisory.map((finding) => describe(finding)).join('\n'),
     } as const
   })

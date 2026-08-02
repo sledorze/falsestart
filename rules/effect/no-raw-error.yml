@@ -1,0 +1,31 @@
+id: no-raw-error
+language: tsx
+severity: error
+message: 'A built-in Error carries no type: every catch site sees `unknown` and has to guess by string-matching the message. Declare a tagged error — class WidgetMissing extends Data.TaggedError("WidgetMissing")<{ readonly id: string }> {} — and Effect.fail it, so the failure is in the type and Effect.catchTag can address it by name.'
+note: |
+  `new Error("...")` erases the one thing a caller needs: which failure this is. The error channel
+  ends up `unknown`, and recovery degrades to matching on message text, which no compiler checks
+  and any reword breaks.
+
+  A tagged error puts the failure in the type:
+
+      class WidgetMissing extends Data.TaggedError('WidgetMissing')<{ readonly id: string }> {}
+
+      const find = (id: string) =>
+        exists(id) ? Effect.succeed(widget) : Effect.fail(new WidgetMissing({ id }))
+
+  Callers then use Effect.catchTag('WidgetMissing', recover), and the compiler knows which
+  failures remain unhandled.
+
+  Subclassing Error by hand is the same problem wearing a different name: it is the tag and the
+  typed error channel that matter, not the class.
+rule:
+  pattern: new $ERR($$$ARGS)
+constraints:
+  ERR:
+    regex: '^(Error|TypeError|RangeError|SyntaxError|EvalError|ReferenceError|URIError|AggregateError)$'
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

@@ -36,8 +36,7 @@ ignores:
   - '**/*.test.{ts,tsx}'
 ```
 
-A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on
-its own a reason to touch a file.
+A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on its own a reason to touch a file.
 
 A starter corpus ships in [`rules/`](./rules): `clean-code/` is generic TypeScript, `effect/`
 assumes an Effect codebase. Point `--rules` at a directory holding only the subset you want —

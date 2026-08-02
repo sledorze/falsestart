@@ -64,6 +64,20 @@ describe('hook response', () => {
     ),
   )
 
+  effect('emits advisory findings as a system message with no permission decision', () =>
+    withRules({ 'soft.yml': `${noAsAny}severity: warning\n` }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = value as any'))
+
+        expect(response.exitCode).toBe(0)
+        const payload = JSON.parse(response.stdout ?? '{}')
+        expect(payload.systemMessage).toContain('as any erases the type')
+        // No permissionDecision: advising must not silently approve the write either.
+        expect(payload.hookSpecificOutput).toBeUndefined()
+      }),
+    ),
+  )
+
   effect('surfaces a problem without blocking when the input is not JSON', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {

@@ -1,0 +1,28 @@
+id: no-vi-mocking
+language: tsx
+severity: error
+message: "Module mocking replaces a dependency behind its consumer's back, so the test passes against a shape nothing guarantees. Inject the dependency instead: Layer.succeed(YourService, testImpl) or Layer.mock for a partial one, TestClock for time, and the component's own provider or props on the front end."
+note: |
+  `vi.mock`/`vi.fn`/`vi.spyOn` couple a test to a module graph rather than to an interface. The
+  mock is never checked against the real implementation, so it keeps passing after the real thing
+  changes shape — the failure mode is a green suite over broken code.
+
+  Inject instead of intercept:
+
+  - A service is a `Context.Service`; a test provides `Layer.succeed(Service, testImpl)`, or
+    `Layer.mock(Service, partial)` when only part of it matters.
+  - Time is `TestClock` from `effect/testing`, not `vi.useFakeTimers`.
+  - Console output is `TestConsole`.
+  - On the front end, dependencies arrive through the component's own provider or props, which is
+    the same idea without Effect.
+
+  This rule applies ONLY to test files — the inverse of every other rule here, which exempt them.
+  Mocking is a testing construct, so a test file is the only place it can appear.
+rule:
+  pattern: vi.$METHOD
+constraints:
+  METHOD:
+    regex: '^(fn|mock|doMock|unmock|mocked|spyOn|stubGlobal|stubEnv|hoisted|importMock|useFakeTimers|useRealTimers|setSystemTime|clearAllMocks|resetAllMocks|restoreAllMocks)$'
+files:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

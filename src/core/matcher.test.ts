@@ -154,72 +154,122 @@ rule:
 })
 
 describe('rule structure validation', () => {
-  effect('rejects an `all` of bare pattern/regex with no kind, as the ast-grep CLI does', () =>
+  // Every shape below was run against the real `ast-grep` CLI (@ast-grep/cli 0.45) and records
+  // what it actually decided, not what seemed reasonable. The first draft of this validator was
+  // written from reasoning and got three of these wrong in both directions.
+  const ACCEPTED: readonly (readonly [string, string])[] = [
+    ['a structured pattern', 'pattern: $X as any'],
+    ['all with one structured pattern', 'all:\n    - pattern: $X as any'],
+    ['all where a pattern narrows and a regex does not', "all:\n    - pattern: $X as any\n    - regex: 'value'"],
+    ['all of two structured patterns', 'all:\n    - pattern: $X as any\n    - pattern: value as $T'],
+    ['all with a kind alongside a regex', "all:\n    - kind: identifier\n    - regex: '^foo$'"],
+    ['all with a kind alongside a bare metavariable', 'all:\n    - pattern: $X\n    - kind: identifier'],
+    ['all of a single kind', 'all:\n    - kind: identifier'],
+    ['any where every branch narrows', 'any:\n    - pattern: $X as any\n    - pattern: value as $T'],
+    ['any of kinds', 'any:\n    - kind: identifier\n    - kind: number'],
+    ['an empty any, which matches nothing', 'any: []'],
+  ]
+
+  const REJECTED: readonly (readonly [string, string])[] = [
+    ['a bare regex', "regex: 'foo'"],
+    ['a bare metavariable pattern', 'pattern: $X'],
+    ['a bare multi-metavariable pattern', 'pattern: $$$ARGS'],
+    ['all of a bare metavariable and a regex', "all:\n    - pattern: $X\n    - regex: 'foo'"],
+    ['all of two bare metavariables', 'all:\n    - pattern: $X\n    - pattern: $Y'],
+    ['all of regexes', "all:\n    - regex: 'foo'\n    - regex: 'bad'"],
+    ['all of a single regex', "all:\n    - regex: 'foo'"],
+    ['all of a relational clause and a regex', "all:\n    - has:\n        kind: identifier\n    - regex: 'foo'"],
+    ['an empty all', 'all: []'],
+    ['any where one branch does not narrow', "any:\n    - pattern: $X as any\n    - regex: 'value'"],
+    ['any of regexes', "any:\n    - regex: 'foo'\n    - regex: 'bad'"],
+    ['a bare has', 'has:\n    kind: identifier'],
+    ['a bare inside', 'has:\n    kind: variable_declarator'],
+    ['a negated regex alone', "not:\n    regex: 'foo'"],
+    ['a negated kind alone', 'not:\n    kind: identifier'],
+    ['a nested all that narrows nothing', "any:\n    - all:\n        - pattern: $X\n        - regex: 'foo'"],
+  ]
+
+  const ruleFor = (body: string) => `id: probe\nlanguage: tsx\nrule:\n  ${body}\n`
+
+  for (const [name, body] of ACCEPTED) {
+    effect(`accepts ${name}`, () =>
+      Effect.gen(function* () {
+        const rule = yield* parseRule(ruleFor(body), 'probe.yml')
+
+        // Validation must not stand in the way of running it at all.
+        expect(yield* findViolations(rule, 'const bad = value as any')).toBeInstanceOf(Array)
+      }),
+    )
+  }
+
+  for (const [name, body] of REJECTED) {
+    effect(`rejects ${name}`, () =>
+      Effect.gen(function* () {
+        const rule = yield* parseRule(ruleFor(body), 'probe.yml')
+
+        const error = yield* Effect.flip(findViolations(rule, 'const bad = value as any'))
+
+        expect(error._tag).toBe('MatchError')
+      }),
+    )
+  }
+
+  effect('resolves a matches: reference rather than assuming it narrows nothing', () =>
     Effect.gen(function* () {
-      // The upstream CLI rejects this ("Rule must specify a set of AST kinds"); the napi binding
-      // accepts it and then matches essentially every node. Without this check a rule that the
-      // real engine considers broken silently reports a violation on almost any input.
       const rule = yield* parseRule(
         `
-id: all-without-kind
+id: uses-util
 language: tsx
+utils:
+  anyKeyword:
+    kind: predefined_type
 rule:
-  all:
-    - pattern: $X
-    - regex: 'foo'
+  matches: anyKeyword
 `,
-        'broken.yml',
+        'probe.yml',
       )
 
-      const error = yield* Effect.flip(findViolations(rule, 'const foo = 1'))
-
-      expect(error._tag).toBe('MatchError')
-      expect(error.reason).toContain('kind')
+      expect(yield* findViolations(rule, 'const bad = value as any')).toBeInstanceOf(Array)
     }),
   )
 
-  effect('still allows an `all` that does pin a kind', () =>
+  effect('surfaces a failure from ast-grep itself, not only from our own pre-check', () =>
     Effect.gen(function* () {
-      const rule = yield* parseRule(
-        `
-id: all-with-kind
-language: tsx
-rule:
-  all:
-    - kind: identifier
-    - regex: '^foo$'
-`,
-        'ok.yml',
-      )
-
-      expect(yield* findViolations(rule, 'const foo = 1')).toHaveLength(1)
-    }),
-  )
-
-  effect('allows a single-element `all`, which is unambiguous', () =>
-    Effect.gen(function* () {
-      const rule = yield* parseRule(
-        `
-id: all-single
-language: tsx
-rule:
-  all:
-    - pattern: $X as any
-`,
-        'ok.yml',
-      )
-
-      expect(yield* findViolations(rule, 'const a = b as any')).toHaveLength(1)
-    }),
-  )
-
-  effect('rejects an empty `all`', () =>
-    Effect.gen(function* () {
-      const rule = yield* parseRule('id: empty-all\nlanguage: tsx\nrule:\n  all: []\n', 'broken.yml')
+      // Narrows a kind, so it passes validation and reaches the engine — which rejects the kind.
+      const rule = yield* parseRule('id: bogus-kind\nlanguage: tsx\nrule:\n  kind: no_such_node_kind\n', 'probe.yml')
 
       const error = yield* Effect.flip(findViolations(rule, 'const a = 1'))
 
-      expect(error.reason).toContain('empty')
+      expect(error.ruleId).toBe('bogus-kind')
+    }),
+  )
+
+  effect('accepts an object-form pattern, which carries its own context', () =>
+    Effect.gen(function* () {
+      // `pattern: { context, selector }` is a mapping rather than a string, so the
+      // bare-metavariable test does not apply to it.
+      const rule = yield* parseRule(
+        'id: contextual\nlanguage: tsx\nrule:\n  pattern:\n    context: const $N = $V\n    selector: variable_declarator\n',
+        'probe.yml',
+      )
+
+      expect(yield* findViolations(rule, 'const a = 1')).toHaveLength(1)
+    }),
+  )
+
+  effect('rejects a bare string rule, which ast-grep does not accept either', () =>
+    Effect.gen(function* () {
+      const rule = yield* parseRule('id: shorthand\nlanguage: tsx\nrule: $X as any\n', 'probe.yml')
+
+      expect((yield* Effect.flip(findViolations(rule, 'const bad = value as any')))._tag).toBe('MatchError')
+    }),
+  )
+
+  effect('rejects a matcher that is not a mapping at all', () =>
+    Effect.gen(function* () {
+      const rule = yield* parseRule('id: numeric\nlanguage: tsx\nrule: 42\n', 'probe.yml')
+
+      expect((yield* Effect.flip(findViolations(rule, 'const a = 1')))._tag).toBe('MatchError')
     }),
   )
 })

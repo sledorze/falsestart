@@ -1,0 +1,37 @@
+id: no-raw-coercion
+language: tsx
+severity: error
+message: 'Raw coercion cannot fail, so a wrong value becomes a plausible one ("undefined", NaN, false) instead of an error. Decode at the boundary with Effect Schema — Schema.decodeUnknownEffect(Schema.String)(input) — so the failure lands in the error channel and the type afterwards is one you can trust.'
+note: |
+  `String(x)`/`Number(x)`/`Boolean(x)`/`!!x` are total functions: every input produces an output,
+  including inputs that are a bug. `String(undefined)` is "undefined", `Number("12abc")` is NaN,
+  `Boolean("")` is false — each a value the rest of the code carries on with.
+
+  The remedy is a decode that is allowed to fail:
+
+      const port = yield* Schema.decodeUnknownEffect(Schema.NumberFromString)(raw)
+
+  Effect Schema is the reason this rule lives under `rules/effect/` rather than `clean-code/`:
+  the message names a specific remedy, and that remedy assumes Effect.
+
+  This is a coercion rule, not a conversion ban. `value.toString()` is fine — it requires a value
+  whose type already has one. `Number.parseInt(raw, 10)` names a parse and admits failure.
+  `items.filter(Boolean)` is a reference, not a coercion of an unknown.
+constraints:
+  ARG:
+    not:
+      # Rendering a caught, genuinely-unknown throwable into a message is the one place String()
+      # is the right tool: there is no type to decode to, and the alternative is worse output.
+      # Anything not named like an error still has to be decoded.
+      regex: '(?i)^(error|err|cause|reason|failure|exception|e)$'
+rule:
+  any:
+    - pattern: String($ARG)
+    - pattern: Number($ARG)
+    - pattern: Boolean($ARG)
+    - pattern: '!!$ARG'
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'

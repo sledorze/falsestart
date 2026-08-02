@@ -1,7 +1,7 @@
 id: no-process-exit
 language: tsx
 severity: error
-message: 'process.exit tears the process down without running finalizers, so scopes never release. Fail the Effect and let the runtime exit.'
+message: 'process.exit tears the process down without running finalizers, so scopes never release. Fail the Effect with Effect.fail (or Effect.die for a defect) and let NodeRuntime.runMain exit, so finalizers run and scopes release.'
 rule:
   pattern: process.exit($$$ARGS)
 files:

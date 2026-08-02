@@ -8,8 +8,8 @@
  * operating system.
  */
 import { NodeServices } from '@effect/platform-node'
-import { beforeAll, describe, effect, expect } from '@effect/vitest'
-import { Effect, FileSystem, Path, Stream } from 'effect'
+import { expect, layer } from '@effect/vitest'
+import { Effect, FileSystem, Layer, Path, Stream } from 'effect'
 import { ChildProcess, ChildProcessSpawner } from 'effect/unstable/process'
 
 const CLI = 'dist/cli.js'
@@ -40,11 +40,19 @@ const runCliRaw = (args: readonly string[], payload: string) =>
 
 const runCli = (rulesDirectory: string, payload: string) => runCliRaw(['--rules', rulesDirectory], payload)
 
-/** Build once, so the test judges the artifact that actually ships rather than the sources. */
-const build = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-  yield* spawner.exitCode(ChildProcess.make('pnpm', ['run', 'build']))
-}).pipe(Effect.orDie)
+/**
+ * Build once, so the tests judge the artifact that actually ships rather than the sources.
+ *
+ * A Layer rather than `beforeAll`: setup that a test depends on belongs in the test's environment,
+ * where the dependency is visible, instead of in a hook that mutates shared state out of band.
+ * falsestart's own `no-test-lifecycle-hooks` rule says so, and it applies to this file.
+ */
+const Built = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    yield* spawner.exitCode(ChildProcess.make('pnpm', ['run', 'build']))
+  }).pipe(Effect.orDie),
+).pipe(Layer.provide(spawnerLayer))
 
 const withRules = <A, E>(
   files: Readonly<Record<string, string>>,
@@ -62,7 +70,7 @@ const withRules = <A, E>(
     }
 
     return yield* use(root)
-  }).pipe(Effect.scoped, Effect.provide(spawnerLayer))
+  }).pipe(Effect.scoped)
 
 const noAsAny = `
 id: no-as-any
@@ -78,12 +86,8 @@ files:
 const payloadFor = (toolInput: Record<string, unknown>, toolName = 'Write') =>
   JSON.stringify({ hook_event_name: 'PreToolUse', tool_input: toolInput, tool_name: toolName })
 
-beforeAll(async () => {
-  await Effect.runPromise(build.pipe(Effect.provide(spawnerLayer)))
-}, 120_000)
-
-describe('falsestart executable', () => {
-  effect('blocks a violating write with exit 0 and a deny decision on stdout', () =>
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart executable', (it) => {
+  it.effect('blocks a violating write with exit 0 and a deny decision on stdout', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const result = yield* runCli(rules, payloadFor({ content: 'const x = v as any', file_path: '/r/a.ts' }))
@@ -94,7 +98,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('stays completely silent on a clean write', () =>
+  it.effect('stays completely silent on a clean write', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const result = yield* runCli(rules, payloadFor({ content: 'const x = v as W', file_path: '/r/a.ts' }))
@@ -105,7 +109,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('leaves an out-of-scope path alone despite identical violating content', () =>
+  it.effect('leaves an out-of-scope path alone despite identical violating content', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const result = yield* runCli(rules, payloadFor({ content: 'const x = v as any', file_path: '/r/notes.md' }))
@@ -116,7 +120,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('refuses an unrecognised flag instead of running a different rule set', () =>
+  it.effect('refuses an unrecognised flag instead of running a different rule set', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         // Previously this fell back to the default directory and looked like a working guard.
@@ -129,7 +133,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('refuses --rules with no directory', () =>
+  it.effect('refuses --rules with no directory', () =>
     withRules({}, () =>
       Effect.gen(function* () {
         const result = yield* runCliRaw(['--rules'], payloadFor({ content: 'x', file_path: '/r/a.ts' }))
@@ -140,7 +144,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('prints usage for --help without waiting on stdin', () =>
+  it.effect('prints usage for --help without waiting on stdin', () =>
     withRules({}, () =>
       Effect.gen(function* () {
         const result = yield* runCliRaw(['--help'], '')
@@ -151,7 +155,7 @@ describe('falsestart executable', () => {
     ),
   )
 
-  effect('reports a broken rule tree without blocking, on exit 1', () =>
+  it.effect('reports a broken rule tree without blocking, on exit 1', () =>
     withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
       Effect.gen(function* () {
         const result = yield* runCli(rules, payloadFor({ content: 'const x = v as any', file_path: '/r/a.ts' }))

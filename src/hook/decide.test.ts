@@ -92,13 +92,26 @@ describe('hook decision', () => {
     }),
   )
 
-  effect('does not block on a finding below error severity', () =>
+  effect('advises rather than blocks on a finding below error severity', () =>
     Effect.gen(function* () {
       const advisory = yield* rulesOf(`${noAsAny}severity: warning\n`)
 
       const decision = yield* decide(advisory, writePayload('const x = value as any'))
 
-      expect(decision._tag).toBe('Defer')
+      // Not Deny — it must not stop the write. Not Defer either: dropping it would make a
+      // `warning` rule do nothing at all.
+      expect(decision._tag).toBe('Advise')
+      expect(decision._tag === 'Advise' && decision.note).toContain('as any erases the type')
+    }),
+  )
+
+  effect('prefers blocking over advising when both kinds are found', () =>
+    Effect.gen(function* () {
+      const mixed = yield* rulesOf(noAsAny, `${noAsAny.replace('no-as-any', 'soft-rule')}severity: warning\n`)
+
+      const decision = yield* decide(mixed, writePayload('const x = value as any'))
+
+      expect(decision._tag).toBe('Deny')
     }),
   )
 
