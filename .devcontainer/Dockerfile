@@ -17,6 +17,12 @@ RUN apt-get update && \
 RUN corepack enable
 
 # ============================================
+# CLAUDE CODE
+# ============================================
+ENV CLAUDE_CODE_VERSION="2.1.220"
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+# ============================================
 # GITHUB CLI
 # ============================================
 RUN mkdir -p /etc/apt/keyrings && \
