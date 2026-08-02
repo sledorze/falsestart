@@ -8,7 +8,8 @@ Stages: `core/rule.ts` (is this rule runnable?), `core/loader.ts` (what rules ar
 directory?), `core/scope.ts` (may this rule touch this path?), `core/matcher.ts` (where does it
 match?), `core/engine.ts` (what does this rule set find?), `hook/decide.ts` (block, ignore, or
 complain?), `hook/respond.ts` (what to emit), `cli.ts` (the only module naming a runtime or
-process). Beside the pipeline sit `core/config.ts` (per-repo scope overrides), `hook/options.ts` (what did
+process). Beside the pipeline sit `core/config.ts` (per-repo scope overrides), `core/config-file.ts`
+(finding and loading that config as TS or JSON), `core/rule-ids.ts` (the shipped id union), `hook/options.ts` (what did
 the command line ask for?),
 `testing/assess.ts` (does this rule do what its author thinks?) and `index.ts` (the consumer-facing
 surface).

@@ -12,6 +12,13 @@
 export type { Language, Rule, RuleConstraint, Severity } from './core/rule.ts'
 export { parseRule, RuleParseError, SEVERITIES, SUPPORTED_LANGUAGES } from './core/rule.ts'
 
+// Repo configuration — where each rule applies here.
+export type { Config, Config as FalsestartConfig, ScopeOverride } from './core/config.ts'
+export { applyScopeOverrides, ConfigError, defineConfig, parseConfig, validateConfig } from './core/config.ts'
+export { DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './core/config-file.ts'
+export type { ShippedRuleId } from './core/rule-ids.ts'
+export { SHIPPED_RULE_IDS } from './core/rule-ids.ts'
+
 // Rule trees — loading a directory of documents.
 export { loadRules, RuleLoadError } from './core/loader.ts'
 

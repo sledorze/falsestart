@@ -57,8 +57,27 @@ const program = Effect.gen(function* () {
   return yield* response.exitCode === 0 ? Effect.void : new Exit({ code: response.exitCode })
 })
 
+/**
+ * Node prints an ExperimentalWarning to stderr every time `stripTypeScriptTypes` is used, which is
+ * once per judged tool call for a repo with a TypeScript config. On this channel that is not a
+ * warning anybody can act on — it is noise that buries falsestart's own messages, as it did the
+ * first time a `.ts` config was run through the built binary. Only this one warning is dropped,
+ * and only in the executable: a library must not edit the host process's output policy.
+ */
+const silenceTypeStrippingWarning = (): void => {
+  const passThrough = process.emitWarning.bind(process)
+  process.emitWarning = (warning, ...rest: readonly never[]): void => {
+    if (String(warning).includes('stripTypeScriptTypes')) {
+      return
+    }
+    passThrough(warning, ...rest)
+  }
+}
+
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.layer)
 
 // Error reporting is off because every message this program has to give has already been written
 // to stderr in the shape the hook contract expects; re-reporting would double it.
+silenceTypeStrippingWarning()
+
 NodeRuntime.runMain(program.pipe(Effect.provide(platform)), { disableErrorReporting: true })

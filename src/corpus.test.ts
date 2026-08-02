@@ -12,6 +12,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 import { loadRules } from './core/loader.ts'
+import { SHIPPED_RULE_IDS } from './core/rule-ids.ts'
 import type { RuleExpectation } from './testing/assess.ts'
 import { assessRule, findUntestedRules } from './testing/assess.ts'
 
@@ -257,6 +258,16 @@ describe('shipped rule corpus', () => {
       }
 
       expect(overreaching).toEqual([])
+    }),
+  )
+
+  effect('the exported rule-id union matches what actually ships', () =>
+    Effect.gen(function* () {
+      // The union is what a TypeScript config is checked against, so it drifting from the corpus
+      // would mean the compiler blessing an id that no longer exists.
+      const rules = yield* corpus
+
+      expect([...SHIPPED_RULE_IDS].toSorted()).toEqual(rules.map((rule) => rule.id).toSorted())
     }),
   )
 

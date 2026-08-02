@@ -110,13 +110,136 @@ describe('hook response', () => {
     ),
   )
 
-  effect('ignores a config path that does not exist, since config is optional', () =>
+  effect('reports an explicitly-named config that does not exist', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
+        // Asking for a config that is not there is a misconfiguration, not an absence.
         const path = yield* Path.Path
         const response = yield* respond(rules, writeOf('const x = value as any'), path.join(rules, 'absent.json'))
 
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('no such config file')
+      }),
+    ),
+  )
+
+  effect('proceeds with no overrides when no default config is present', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = value as any'))
+
         expect(JSON.parse(response.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
+      }),
+    ),
+  )
+
+  effect('picks up a default falsestart.config.json next to the rules', () =>
+    withRules(
+      { 'falsestart.config.json': '{"rules":{"no-as-any":{"files":["nowhere/**"]}}}', 'no-as-any.yml': noAsAny },
+      (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond(rules, writeOf('const x = value as any'))
+
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
+  effect('loads a TypeScript config, so rule ids can be checked by the compiler', () =>
+    withRules(
+      {
+        'falsestart.config.ts': [
+          "import type { FalsestartConfig } from '@sledorze/falsestart'",
+          '',
+          'export default {',
+          "  rules: { 'no-as-any': { files: ['nowhere/**/*.ts'] } },",
+          '} satisfies FalsestartConfig',
+          '',
+        ].join('\n'),
+        'no-as-any.yml': noAsAny,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond(rules, writeOf('const x = value as any'))
+
+          // Re-scoped away from src/widget.ts by the typed config.
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
+  effect('refuses two competing default configs rather than picking one', () =>
+    withRules(
+      {
+        'falsestart.config.json': '{"rules":{}}',
+        'falsestart.config.ts': 'export default { rules: {} }\n',
+        'no-as-any.yml': noAsAny,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond(rules, writeOf('const x = value as any'))
+
+          expect(response.exitCode).toBe(1)
+          expect(response.stderr).toContain('more than one')
+        }),
+    ),
+  )
+
+  effect('loads a JavaScript config from its real path', () =>
+    withRules(
+      {
+        'falsestart.config.js': "export default { rules: { 'no-as-any': { files: ['nowhere/**'] } } }\n",
+        'no-as-any.yml': noAsAny,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond(rules, writeOf('const x = value as any'))
+
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
+  effect('reports a TypeScript config that does not parse', () =>
+    withRules({ 'falsestart.config.ts': 'export default { rules: {{{ }\n', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = v as any'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('falsestart.config.ts')
+      }),
+    ),
+  )
+
+  effect('reports a config directory masquerading as a TypeScript config', () =>
+    withRules({ 'falsestart.config.ts/inner.txt': 'x', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = v as any'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('cannot be read')
+      }),
+    ),
+  )
+
+  effect('reports a JavaScript config that cannot be imported', () =>
+    withRules({ 'falsestart.config.js': 'export default {{{\n', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = v as any'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('imported')
+      }),
+    ),
+  )
+
+  effect('reports a TypeScript config with no default export', () =>
+    withRules({ 'falsestart.config.ts': 'export const rules = {}\n', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond(rules, writeOf('const x = value as any'))
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('default export')
       }),
     ),
   )
