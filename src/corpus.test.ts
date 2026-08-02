@@ -105,7 +105,13 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
     path: 'src/service.test.ts',
   },
   'no-then-catch': {
-    allows: ['const r = Effect.map(effect, decode)', 'const v = thenable.thenify(x)'],
+    allows: [
+      'const r = Effect.map(effect, decode)',
+      'const v = thenable.thenify(x)',
+      // The remedy the message itself recommends must not be blocked by the rule.
+      'const r = program.pipe(Effect.catch(recover))',
+      'const r = Effect.catch(program, recover)',
+    ],
     catches: ['load().then(use)', 'load().catch(onError)', 'load().finally(cleanup)'],
   },
   'no-try-catch': {
@@ -191,7 +197,87 @@ const expectationsFor = (ruleId: string): readonly RuleExpectation[] => {
   ]
 }
 
+/**
+ * Ordinary, idiomatic, rule-abiding code. No shipped rule may flag any of it.
+ *
+ * The per-rule examples prove a rule catches what it aims at; they cannot prove it is not ALSO
+ * catching half the language. A rule matching `$OBJ.$METHOD($$$ARGS)` passes an examples-only gate
+ * with `catches: ['widget.render()']` and `allows: ['const x = 1']`, and then blocks essentially
+ * every write — measured at 148 matches across this repo's own sources. Blast radius has to be
+ * checked against realistic code, not against the examples an author chose.
+ */
+const CONFORMING = `
+import { Context, Data, Effect, Layer, Schema } from 'effect'
+
+class WidgetMissing extends Data.TaggedError('WidgetMissing')<{ readonly id: string }> {}
+
+const WidgetSchema = Schema.Struct({
+  id: Schema.String,
+  size: Schema.Number,
+})
+
+class Repository extends Context.Service<Repository, { readonly find: (id: string) => Effect.Effect<unknown> }>()(
+  'Repository',
+) {}
+
+const SIZES = ['small', 'large'] as const
+
+const decodeWidget = (payload: unknown) => Schema.decodeUnknownEffect(WidgetSchema)(payload)
+
+const findWidget = (id: string) =>
+  Effect.gen(function* () {
+    const repository = yield* Repository
+    const raw = yield* repository.find(id)
+    return yield* decodeWidget(raw)
+  })
+
+const program = findWidget('w-1').pipe(
+  Effect.map((widget) => widget.size),
+  Effect.catch(() => Effect.succeed(0)),
+)
+
+const testLayer = Layer.succeed(Repository, {
+  find: () => Effect.fail(new WidgetMissing({ id: 'w-1' })),
+})
+`
+
 describe('shipped rule corpus', () => {
+  effect('no rule fires on ordinary conforming code', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const overreaching: string[] = []
+      for (const rule of rules) {
+        const results = yield* assessRule(rule, [
+          { code: CONFORMING, expectViolation: false, name: rule.id, path: 'src/widget.ts' },
+        ])
+        overreaching.push(
+          ...results.filter((result) => !result.passed).map((result) => `${result.name}: ${result.detail}`),
+        )
+      }
+
+      expect(overreaching).toEqual([])
+    }),
+  )
+
+  effect('every rule carries examples of BOTH kinds', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      // A rule with only positive examples looks correct until it starts firing on innocent code,
+      // so "has examples" is not enough — it must have examples it must NOT fire on.
+      const lopsided = rules
+        .map((rule) => EXAMPLES[rule.id])
+        .flatMap((example, index) =>
+          example === undefined || example.allows.length === 0 || example.catches.length === 0
+            ? [rules[index]?.id ?? 'unknown']
+            : [],
+        )
+
+      expect(lopsided).toEqual([])
+    }),
+  )
+
   effect('loads cleanly', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
