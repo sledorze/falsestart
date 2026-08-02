@@ -101,8 +101,11 @@ export const loadRules = (
     const read = (entry: string) =>
       fs.readFileString(path.join(directory, entry)).pipe(Effect.mapError((cause) => `cannot read ${entry}: ${cause}`))
 
-    // `Effect.all` over a mapped list rather than `Effect.forEach(documents, ...)`: a lint rule
-    // keyed on the name `forEach` reads the second argument as an array `thisArg`.
+    // Reading a rule tree is I/O bound and the documents are independent, so they are read
+    // concurrently. The results are still assembled in list order, which is what keeps findings
+    // deterministic regardless of which read finishes first.
+    const concurrently = { concurrency: 'unbounded' } as const
+
     const utilOutcomes = yield* Effect.all(
       documents
         .filter((entry) => isSharedUtil(entry))
@@ -112,6 +115,7 @@ export const loadRules = (
             Effect.result,
           ),
         ),
+      concurrently,
     )
 
     const outcomes = yield* Effect.all(
@@ -129,6 +133,7 @@ export const loadRules = (
             Effect.result,
           ),
         ),
+      concurrently,
     )
 
     const sharedUtils: Record<string, unknown> = {}

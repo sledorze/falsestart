@@ -46,6 +46,16 @@ const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; readonly 
   Write: { content: 'content', path: 'file_path' },
 }
 
+/**
+ * The payload is validated by hand rather than with `Schema`, unlike rule documents.
+ *
+ * The shapes differ in what a good error has to say. A rule document is authored by a person who
+ * needs to know which field of which file is wrong, which is exactly what `Schema` reports. A hook
+ * payload is machine-generated, and the useful message names the TOOL and the field that tool was
+ * expected to carry (`NotebookEdit carried no new_source/notebook_path`) — per-tool knowledge that
+ * lives here, not in a schema. Validating against a union of tool shapes would report a union
+ * mismatch, which is strictly less informative.
+ */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
