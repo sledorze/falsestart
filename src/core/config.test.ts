@@ -1,6 +1,6 @@
-import { describe, effect, expect } from '@effect/vitest'
+import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { applyScopeOverrides, defineConfig, parseConfig } from './config.ts'
+import { applyScopeOverrides, makeConfig, makeConfigUnsafe, parseConfig } from './config.ts'
 import type { Rule } from './rule.ts'
 
 const ruleOf = (id: string, files?: readonly string[], ignores?: readonly string[]): Rule => ({
@@ -99,14 +99,34 @@ describe('repo configuration', () => {
   )
 })
 
-describe('authoring helper', () => {
-  effect('defineConfig returns the config it is given, typed', () =>
+describe('smart constructor', () => {
+  effect('builds a config from a valid value', () =>
     Effect.gen(function* () {
-      const config = defineConfig({ rules: { 'no-as-any': { files: ['src/**/*.ts'] } } })
+      const config = yield* makeConfig({ rules: { 'no-as-any': { files: ['src/**/*.ts'] } } })
 
-      expect(yield* applyScopeOverrides([ruleOf('no-as-any')], config)).toHaveLength(1)
+      expect(config.rules['no-as-any']?.files).toEqual(['src/**/*.ts'])
     }),
   )
+
+  effect('refuses a value that is not a config, rather than asserting it is one', () =>
+    Effect.gen(function* () {
+      // The point of a constructor over a typed literal: input it was never given a guarantee
+      // about still gets checked.
+      const error = yield* Effect.flip(makeConfig({ rules: { 'no-as-any': { files: 'src/**' } } }))
+
+      expect(error.reasons.join(', ')).toContain('files is required')
+    }),
+  )
+
+  it('builds unsafely for a config module, where a throw is the clearest failure', () => {
+    const config = makeConfigUnsafe({ rules: { 'no-as-any': { files: ['src/**/*.ts'] } } })
+
+    expect(config.rules['no-as-any']?.files).toEqual(['src/**/*.ts'])
+  })
+
+  it('throws rather than returning something that is not a config', () => {
+    expect(() => makeConfigUnsafe({ rules: { 'no-as-any': {} } })).toThrow(/files is required/)
+  })
 })
 
 describe('applying scope overrides', () => {

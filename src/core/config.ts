@@ -34,18 +34,18 @@ export interface Config {
 
 export class ConfigError extends Data.TaggedError('ConfigError')<{
   readonly reasons: readonly string[]
-}> {}
-
-/**
- * Identity, for authoring a config as a module with inference and completion:
- *
- *     export default defineConfig({ rules: { 'no-as-any': { files: ['src/**\/*.ts'] } } })
- *
- * A `.ts` config imported through the type-stripping path cannot use a VALUE import, so prefer
- * `satisfies FalsestartConfig` with `import type` there; this helper is for `.js`/`.mjs` configs
- * and for building a config in code.
- */
-export const defineConfig = (config: Config): Config => config
+}> {
+  /**
+   * The reasons, as the error's own message.
+   *
+   * Without this the message is empty, and `makeConfigUnsafe` — whose whole contract is to fail by
+   * throwing — reports nothing a reader can act on. An error thrown at a config module's import is
+   * the entire error report for that run.
+   */
+  override get message(): string {
+    return this.reasons.join('\n')
+  }
+}
 
 /** No file, no overrides — configuration is optional, unlike the rule tree itself. */
 export const EMPTY_CONFIG: Config = { rules: {} }
@@ -142,3 +142,30 @@ export const applyScopeOverrides = (
       }),
     )
   })
+
+/**
+ * Smart constructor for a `Config`.
+ *
+ * falsestart ships a rule telling you to build values through a constructor that owns their
+ * invariants rather than asserting a shape onto a literal. An identity `defineConfig(...)` helper
+ * would be exactly the assertion that rule objects to: it types the literal and checks nothing, so
+ * a config built from a CSV column, an environment variable, or another tool's output is accepted
+ * unexamined and only fails later, somewhere else.
+ *
+ * This takes `unknown` deliberately. A constructor that only accepts an already-correct `Config`
+ * has nothing left to verify, and its caller has already done the part that can go wrong.
+ *
+ * Use `makeConfigUnsafe` when authoring a config file by hand, where a throw at import is the
+ * clearest possible failure and there is no error channel to thread.
+ */
+export const makeConfig = (input: unknown): Effect.Effect<Config, ConfigError> => validateConfig(input, 'config')
+
+/**
+ * `makeConfig`, failing by throwing.
+ *
+ * For a config module, where the failure has nowhere to go but the import that loaded it, and the
+ * whole run is about to be abandoned regardless:
+ *
+ *     export default makeConfigUnsafe({ rules: { 'no-as-any': { files: ['src/**\/*.ts'] } } })
+ */
+export const makeConfigUnsafe = (input: unknown): Config => Effect.runSync(makeConfig(input))

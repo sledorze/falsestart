@@ -58,16 +58,31 @@ const program = Effect.gen(function* () {
 })
 
 /**
- * Node prints an ExperimentalWarning to stderr every time `stripTypeScriptTypes` is used, which is
- * once per judged tool call for a repo with a TypeScript config. On this channel that is not a
- * warning anybody can act on — it is noise that buries falsestart's own messages, as it did the
- * first time a `.ts` config was run through the built binary. Only this one warning is dropped,
- * and only in the executable: a library must not edit the host process's output policy.
+ * Warnings Node emits while loading a config, once per judged tool call.
+ *
+ * `stripTypeScriptTypes` is experimental, and a `.js` config in a package without
+ * `"type": "module"` triggers a reparse warning. Both fire on every single write an agent makes,
+ * on the same stream falsestart reports real problems on — the first `.ts` config run through the
+ * built binary had its actual error buried under one. Neither is actionable from inside a hook.
+ *
+ * Only these two are dropped, matched by name, and only in the executable: a library has no
+ * business editing the host process's output policy.
  */
-const silenceTypeStrippingWarning = (): void => {
+const SILENCED_WARNINGS = ['stripTypeScriptTypes', 'MODULE_TYPELESS_PACKAGE_JSON']
+
+const silenceConfigLoadingWarnings = (): void => {
   const passThrough = process.emitWarning.bind(process)
+
   process.emitWarning = (warning, ...rest: readonly never[]): void => {
-    if (String(warning).includes('stripTypeScriptTypes')) {
+    // The identifying code can arrive in any of the trailing arguments, including inside an
+    // options object, so every one is folded into the text before matching. Checking only the
+    // first silently let MODULE_TYPELESS_PACKAGE_JSON through.
+    const described = (rest as readonly unknown[]).map((argument) =>
+      typeof argument === 'string' ? argument : JSON.stringify(argument),
+    )
+    const text = [String(warning), ...described].join(' ')
+
+    if (SILENCED_WARNINGS.some((silenced) => text.includes(silenced))) {
       return
     }
     passThrough(warning, ...rest)
@@ -78,6 +93,6 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.
 
 // Error reporting is off because every message this program has to give has already been written
 // to stderr in the shape the hook contract expects; re-reporting would double it.
-silenceTypeStrippingWarning()
+silenceConfigLoadingWarnings()
 
 NodeRuntime.runMain(program.pipe(Effect.provide(platform)), { disableErrorReporting: true })
