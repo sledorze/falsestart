@@ -29,3 +29,4 @@ files:
 ignores:
   - '**/*.test.{ts,tsx}'
   - '**/*.spec.{ts,tsx}'
+  - '**/*.bench.{ts,tsx}'
