@@ -31,25 +31,31 @@ stale, or a link is broken. Treat green `check` as a hard requirement, not a nic
 
 ## Workflow when you edit docs
 
-When you create or edit any doc:
+When you create or edit any doc — **or any source file a doc links to**:
 
 1. If the doc is longer than the threshold, create or update its `X.summary.md` to
    reflect the new content.
 2. Update the `_SUMMARY.md` of every affected directory, walking **up** the tree
    leaves-first, and keep a link to every child file and sub-directory.
 3. Run the stamp command to (re)write the sidecar hashes under `.cairn/` bottom-up:
-   `pnpm stamp` (`cairn check --summaries-only --stamp`).
+   `pnpm stamp` (`cairn check --summaries-only --refs --stamp`).
 4. Run `pnpm check` and ensure it exits 0 (green) before you finish.
 5. Commit your doc changes **together with** the `.cairn/` sidecar changes — a doc
    edit without its matching sidecar update is exactly what `check` is designed to catch.
 
 ## Commands
 
-- `pnpm check` — check summaries + links (exit 1 on any problem).
+- `pnpm check` — check summaries + links + **reference drift** (exit 1 on any problem).
+  `--refs` is what makes a doc's claim about a source file re-checkable: every `[text](../src/x.ts)`
+  link has its target's content hashed, and a later run fails when that content has changed. Without
+  it cairn verifies only that the PATH resolves — `src/core/scope.ts` could be replaced wholesale
+  with `export const appliesTo = () => true` and the check would stay green.
 - `cairn check --summaries-only` / `--links-only`.
 - `cairn check --links-only --fix` — auto-repair unambiguous dead links.
-- `pnpm stamp` — write the `.cairn/` sidecar hash of EXISTING summaries bottom-up.
-  It does **not** author prose; you write the content, then stamp.
+- `pnpm stamp` — write the `.cairn/` sidecar hashes of EXISTING summaries bottom-up, and of every
+  source file the docs link to. It does **not** author prose; you write the content, then stamp.
+  Re-stamping after a source change is the point, not a chore: it is where you say the doc's claim
+  about that file is still true.
 - `cairn check --prune` — delete orphan summaries and orphan `.cairn/` sidecars
   (source doc deleted, renamed, or below threshold).
 
