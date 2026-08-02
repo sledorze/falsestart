@@ -72,6 +72,39 @@ ignores:
 Scope every rule with `files`. A rule with no `files` runs against every path, including ones
 where its language makes no sense.
 
+Globs are matched against the path **relative to the project root** the hook reports (`cwd`), so
+`src/**/*.ts` works as written. A file outside that root keeps its absolute path, and a rule can
+still reach it with a leading `**/`.
+
+Notebooks are scoped by the notebook's own path, not by the cell's language. A rule scoped to
+`**/*.ts` will not see TypeScript typed into a `.ipynb` cell — add `**/*.ipynb` to its `files` if
+you want it to.
+
+## Shared matchers
+
+A matcher needed by several rules goes in a `_utils/` directory inside the rule tree, where every
+rule can reference it by name:
+
+```yaml
+# rules/_utils/any-keyword.yml
+id: anyKeyword
+rule:
+  kind: predefined_type
+  regex: '^any$'
+```
+
+```yaml
+# rules/type-safety/no-any-assertion.yml
+rule:
+  kind: as_expression
+  has:
+    matches: anyKeyword
+```
+
+Documents under `_utils/` are fragments, not rules: they need only `id` and `rule`, and they never
+match on their own. A rule's own `utils:` block wins a name collision — the shared set is a
+default, not an override.
+
 Give every rule worked examples of both kinds — code it must catch and code it must leave alone.
 `assessRule` runs them, and the second kind is the one that matters: a rule with only positive
 examples looks correct right up until it fires on something nobody meant to forbid.

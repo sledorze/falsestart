@@ -128,3 +128,106 @@ describe('rule tree loading', () => {
     ),
   )
 })
+
+describe('shared utility rules', () => {
+  const anyKeyword = `
+id: anyKeyword
+rule:
+  kind: predefined_type
+  regex: '^any$'
+`
+
+  const usesShared = `
+id: uses-shared
+language: tsx
+rule:
+  kind: as_expression
+  has:
+    matches: anyKeyword
+`
+
+  effect('makes a util defined under _utils available to every rule in the tree', () =>
+    withTree({ '_utils/any-keyword.yml': anyKeyword, 'type/uses.yml': usesShared }, (directory) =>
+      Effect.gen(function* () {
+        const [loaded] = yield* loadRules(directory)
+
+        expect(loaded?.utils?.['anyKeyword']).toBeDefined()
+      }),
+    ),
+  )
+
+  effect('does not surface util documents as rules of their own', () =>
+    withTree({ '_utils/any-keyword.yml': anyKeyword, 'type/uses.yml': usesShared }, (directory) =>
+      Effect.gen(function* () {
+        const loaded = yield* loadRules(directory)
+
+        expect(loaded.map((entry) => entry.id)).toEqual(['uses-shared'])
+      }),
+    ),
+  )
+
+  effect("lets a rule's own utils win a name collision with a shared one", () =>
+    withTree(
+      {
+        '_utils/any-keyword.yml': anyKeyword,
+        'type/uses.yml': `${usesShared}utils:\n  anyKeyword:\n    kind: type_identifier\n`,
+      },
+      (directory) =>
+        Effect.gen(function* () {
+          const [loaded] = yield* loadRules(directory)
+
+          expect(loaded?.utils?.['anyKeyword']).toEqual({ kind: 'type_identifier' })
+        }),
+    ),
+  )
+
+  effect('reports a malformed util document rather than ignoring it', () =>
+    withTree({ '_utils/broken.yml': 'rule:\n  kind: x\n', 'type/uses.yml': usesShared }, (directory) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(loadRules(directory))
+
+        expect(error.reasons.join('\n')).toContain('broken.yml')
+      }),
+    ),
+  )
+
+  effect('reports a shared util whose YAML is malformed', () =>
+    withTree({ '_utils/bad.yml': 'id: "unterminated' }, (directory) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(loadRules(directory))
+
+        expect(error.reasons.join('\n')).toContain('YAML')
+      }),
+    ),
+  )
+
+  effect('reports a shared util that is not a mapping', () =>
+    withTree({ '_utils/bad.yml': '- a\n- b\n' }, (directory) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(loadRules(directory))
+
+        expect(error.reasons.join('\n')).toContain('mapping')
+      }),
+    ),
+  )
+
+  effect('reports a shared util that defines no matcher', () =>
+    withTree({ '_utils/bad.yml': 'id: lonely\n' }, (directory) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(loadRules(directory))
+
+        expect(error.reasons.join('\n')).toContain('needs a rule')
+      }),
+    ),
+  )
+
+  effect('leaves a tree with no shared utils exactly as it was', () =>
+    withTree({ 'a.yml': rule('alpha') }, (directory) =>
+      Effect.gen(function* () {
+        const [loaded] = yield* loadRules(directory)
+
+        expect(loaded?.utils).toBeUndefined()
+      }),
+    ),
+  )
+})
