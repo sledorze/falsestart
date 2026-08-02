@@ -69,8 +69,25 @@ export default {
 ```
 
 Use a **type-only** import here. A `.ts` config has its types stripped and is imported without a
-filesystem location, so it cannot resolve a value import; `import type` is erased and works. A
-`.js`/`.mjs` config is imported from its real path and may import anything, including `defineConfig`.
+filesystem location, so it cannot resolve a value import; `import type` is erased and works.
+
+A `.mjs` config is imported from its real path and may import anything, including the smart
+constructor:
+
+```js
+// falsestart.config.mjs
+import { makeConfigUnsafe } from '@sledorze/falsestart'
+
+export default makeConfigUnsafe({
+  rules: { 'prefer-smart-constructor': { files: ['src/domain/**/*.ts'] } },
+})
+```
+
+`makeConfigUnsafe` validates and throws at import, so a malformed config fails at the config file
+rather than somewhere downstream. `makeConfig` is the same check returning an `Effect`, for
+building a config in code. Prefer `.mjs` over `.js`: a `.js` config in a package without
+`"type": "module"` makes Node reparse it and warn.
+
 JSON works too, with the same shape and no type checking.
 
 `files` is **required**. An override exists to say where a rule applies in _this_ repo, and one
