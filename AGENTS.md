@@ -58,6 +58,14 @@ When you create or edit any doc — **or any source file a doc links to**:
   about that file is still true.
 - `cairn check --prune` — delete orphan summaries and orphan `.cairn/` sidecars
   (source doc deleted, renamed, or below threshold).
+- `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
+  `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
+  `pnpm check`. It found a changeset citing a rule path months after the rule moved.
+- `checks.coverage` — **config only, absent from `--help`**, so you will not find it by asking the
+  tool. Declares document _kinds_ by path glob and _rules_ between them ("every explanation doc must
+  link to a reference doc"), then reports the ones missing. It is the check that would notice a
+  missing Diátaxis quadrant. Not enabled here: with four documents the rules would be asserted both
+  in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
 
 You author the prose. The tool only verifies and stamps — and it never touches your prose to do it.
 
