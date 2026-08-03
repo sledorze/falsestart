@@ -1,8 +1,8 @@
-import { describe, effect, expect } from '@effect/vitest'
+import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { Rule } from '../checking/rule.ts'
 import { parseRule } from '../checking/rule.ts'
-import { decide } from './decide.ts'
+import { decide, judgesPayload } from './decide.ts'
 
 const rulesOf = (...sources: readonly string[]) => Effect.all(sources.map((source) => parseRule(source, 'test.yml')))
 
@@ -244,4 +244,32 @@ describe('notebook writes', () => {
       expect(decision._tag).toBe('Report')
     }),
   )
+
+  // `judgesPayload` had no direct test — it was only ever exercised through `respond`, which always
+  // hands it a well-formed object. Mutation testing found every conjunct of its record guard
+  // survivable: nothing fed it `null`, an array, or a non-object, so `typeof value === 'object'`,
+  // `value !== null` and `!Array.isArray(value)` could each be deleted with the suite still green.
+  // Line coverage was 100% throughout.
+  describe('payload triage', () => {
+    it('treats a malformed payload as a candidate rather than skipping it', () => {
+      // True means "this is mine to judge", and `decide` then reports the problem. Skipping here
+      // would silently swallow exactly the case worth reporting, per the function's own docstring.
+      expect(judgesPayload(null)).toBeTruthy()
+      expect(judgesPayload([{ tool_name: 'Write' }])).toBeTruthy()
+      expect(judgesPayload('Write')).toBeTruthy()
+      expect(judgesPayload(undefined)).toBeTruthy()
+    })
+
+    it('claims a record whose tool_name is absent or not a string, for the same reason', () => {
+      expect(judgesPayload({})).toBeTruthy()
+      expect(judgesPayload({ tool_name: 7 })).toBeTruthy()
+    })
+
+    it('passes on a well-formed call to a tool it does not judge', () => {
+      expect(judgesPayload({ tool_name: 'Bash' })).toBeFalsy()
+      expect(judgesPayload({ tool_name: 'Write' })).toBeTruthy()
+      expect(judgesPayload({ tool_name: 'Edit' })).toBeTruthy()
+      expect(judgesPayload({ tool_name: 'NotebookEdit' })).toBeTruthy()
+    })
+  })
 })

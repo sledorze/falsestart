@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "pnpm",
-  "plugins": ["@stryker-mutator/vitest-runner"],
+  "plugins": [
+    "@stryker-mutator/vitest-runner"
+  ],
   "testRunner": "vitest",
   "vitest": {
     "configFile": "vitest.config.ts"
@@ -14,13 +16,22 @@
     "!src/testSupport/**",
     "!src/cli.ts"
   ],
-  "reporters": ["html", "clear-text", "progress"],
+  "reporters": [
+    "html",
+    "json",
+    "clear-text",
+    "progress"
+  ],
   "coverageAnalysis": "perTest",
-  "_inPlaceComment": "Required: Stryker's sandbox-mode tsconfig rewriter calls a TypeScript config-parsing API (ts.parseConfigFileTextToJson) that TypeScript 7 removed, crashing before a single mutant runs. inPlace mode skips that preprocessor entirely (it mutates real files directly, one mutant at a time, backing up to .stryker-tmp/ and restoring after every run). Revisit once Stryker ships TS7 support.",
+  "_inPlaceComment": "Required: Stryker's sandbox-mode tsconfig rewriter calls ts.parseConfigFileTextToJson, which TypeScript 7 removed, so it crashes before a single mutant runs (re-verified). inPlace skips that preprocessor and mutates real files, backing up to .stryker-tmp/ and restoring after each run. Because that is unsafe to point at a working tree, scripts/mutate-changed.sh runs it inside a disposable git worktree; a full `pnpm mutation` does mutate this checkout, so do not run it with uncommitted work you cannot recover. Revisit once Stryker supports TS7.",
   "inPlace": true,
   "thresholds": {
-    "high": 90,
-    "low": 80,
-    "break": 77
-  }
+    "high": 95,
+    "low": 88,
+    "break": 88
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/mutation.json"
+  },
+  "_thresholdComment": "Break raised from 77 to 88 once the measured score reached 90.89. A ratchet, like the coverage thresholds: set just under the achieved score so a regression fails while ordinary variation does not. Raise it again when the score does \u2014 the first pass found 95 survivors at 100% line coverage, so there is room left."
 }

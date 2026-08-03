@@ -6,3 +6,4 @@ coverage
 .stryker-tmp
 reports
 /.scratch/
+stryker-setup-*.js

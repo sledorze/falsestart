@@ -17,7 +17,11 @@ it may touch_ structurally — by path or declared role — never by a content p
 always fire on a file it was not meant for. Pair such a change with a negative test proving an
 adjacent, similar-looking file is left alone.
 
-**Shipping one iteration well.** Full local verify before every push. Dogfood the real behaviour
-against the scenario a feature is meant to catch, including the negative case, then convert that
-proof into a permanent test. Treat a structural claim in a doc as unverified until checked, not
-merely re-read. One concern per PR, branched off the right parent.
+**Shipping one iteration well.** Full local verify before every push — `pre-push` runs
+typecheck+test+build+docs+coverage+mutation. Dogfood the real behaviour against the scenario a
+feature is meant to catch, including the negative case, then convert that proof into a permanent
+test. Treat a structural claim in a doc as unverified until checked, not merely re-read. Before
+pushing, get an adversarial review from ONE subagent prompted to refute, given the artifact rather
+than your reasoning, told that finding nothing is a valid answer — and verify each finding yourself,
+in a scratch directory outside this repo, before acting on it. One concern per PR, branched off the
+right parent.

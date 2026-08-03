@@ -23,6 +23,18 @@ import { loadDefaultConfig } from './config/config-file.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
+/**
+ * Stryker's `inPlace` mode rewrites the real source files, and this suite reads them from disk — so
+ * under mutation testing it judges Stryker's instrumentation rather than what is committed. It found
+ * 13 violations in that instrumentation and failed the dry run before a single mutant could be
+ * evaluated, which made the whole mutation suite unrunnable.
+ *
+ * The property asserted here is about the COMMITTED source; an instrumented copy is not a thing it
+ * has an opinion about. `process.env` is read directly because `no-process-env` exempts test files
+ * and no Effect service models "am I running inside another tool's worker".
+ */
+const underMutationTesting = process.env['STRYKER_MUTATOR_WORKER'] !== undefined
+
 const sourceFiles = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const entries = yield* fs.readDirectory('src', { recursive: true })
@@ -30,7 +42,7 @@ const sourceFiles = Effect.gen(function* () {
 })
 
 layer(platform)('falsestart judged by its own rules', (it) => {
-  it.effect('blocks nothing in its own source', () =>
+  it.effect.skipIf(underMutationTesting)('blocks nothing in its own source', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const shipped = yield* loadRules('rules')
@@ -55,7 +67,7 @@ layer(platform)('falsestart judged by its own rules', (it) => {
   // The exemption must be doing real work. If `matcher.ts` ever stops needing it — because the seam
   // moved or a validated type replaced the assertion — this fails and the override should be
   // deleted rather than left behind as a permanent hole nobody re-examines.
-  it.effect('needs every override its config declares', () =>
+  it.effect.skipIf(underMutationTesting)('needs every override its config declares', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const rules = yield* loadRules('rules')
