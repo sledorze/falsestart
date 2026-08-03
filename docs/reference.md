@@ -104,9 +104,14 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 | `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
 | `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
 
-Every shipped rule is scoped to `**/*.{ts,tsx}`. `.mts`, `.cts`, `.js` and `.jsx` are **not**
-matched by any of them, so a repo using those extensions needs its own `files` globs or a config
-override — otherwise the guard is installed and inert.
+Every shipped rule is scoped to `**/*.{ts,tsx,mts,cts}` — all four TypeScript extensions, with
+`*.test.*`, `*.spec.*` and `*.bench.*` variants exempt (the three test-only rules invert that).
+
+`.js`, `.jsx`, `.mjs` and `.cjs` are **not** matched, deliberately. The four assertion rules match
+syntax that does not exist in JavaScript, and a `.js` file in a TypeScript repo is usually a build
+script or generated output. A repo that wants them adds a `files` override for the rules it cares
+about; that is one line, and easier to reach for than to undo being silently guarded. A test asserts
+both halves of this.
 
 All 20 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and

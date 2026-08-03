@@ -5,8 +5,8 @@ message: 'await drops out of the Effect world: no typed error channel and no int
 rule:
   kind: await_expression
 files:
-  - '**/*.{ts,tsx}'
+  - '**/*.{ts,tsx,mts,cts}'
 ignores:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
-  - '**/*.bench.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'
+  - '**/*.bench.{ts,tsx,mts,cts}'

@@ -12,6 +12,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 import { loadRules } from './checking/loader.ts'
+import { appliesTo } from './checking/scope.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import type { RuleExpectation } from './testing/assess.ts'
 import { assessRule, findUntestedRules } from './testing/assess.ts'
@@ -19,6 +20,18 @@ import { assessRule, findUntestedRules } from './testing/assess.ts'
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
 const corpus = loadRules('rules').pipe(Effect.provide(platform), Effect.orDie)
+
+/** Which extensions the shipped corpus is meant to reach, and which it must stay off. */
+const EXTENSION_EXPECTATIONS = [
+  ['ts', true],
+  ['tsx', true],
+  ['mts', true],
+  ['cts', true],
+  ['js', false],
+  ['jsx', false],
+  ['mjs', false],
+  ['cjs', false],
+] as const
 
 const src = 'src/service.ts'
 
@@ -407,6 +420,31 @@ describe('shipped rule corpus', () => {
   // The inverse, which nothing checked: an EXAMPLES key naming a rule that does not exist is inert.
   // It reads as coverage, runs nothing, and survives a rule being renamed or deleted. Found by
   // writing the examples for `no-json-global` before the rule and watching the suite pass.
+  // Extensions are scope, and scope is behaviour. `.mts` and `.cts` are TypeScript and were silently
+  // unguarded — a repo using them installed falsestart and got nothing, with no signal at all.
+  // `.js`/`.jsx` stay out deliberately: the four assertion rules match syntax that does not exist in
+  // JavaScript, and `.js` in a TypeScript repo is usually build scripts and generated output. A repo
+  // that wants them adds one config override; being silently guarded is not as easy to undo.
+  effect('covers every TypeScript extension and no JavaScript one', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const misscoped = rules.flatMap((rule) => {
+        // Three rules are the inverse — they apply only to tests — so they are probed at a test path.
+        const testOnly = (rule.files ?? []).some((glob) => glob.includes('.test.'))
+        const at = (extension: string) => `src/a.${testOnly ? 'test.' : ''}${extension}`
+
+        return EXTENSION_EXPECTATIONS.flatMap(([extension, covered]) =>
+          appliesTo(rule, at(extension)) === covered
+            ? []
+            : [`${rule.id}: ${covered ? 'does not cover' : 'reaches'} .${extension}`],
+        )
+      })
+
+      expect(misscoped).toEqual([])
+    }),
+  )
+
   effect('has no examples for a rule that does not exist', () =>
     Effect.gen(function* () {
       const rules = yield* corpus

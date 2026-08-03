@@ -24,5 +24,5 @@ constraints:
   METHOD:
     regex: '^(fn|mock|doMock|unmock|mocked|spyOn|stubGlobal|stubEnv|hoisted|importMock|useFakeTimers|useRealTimers|setSystemTime|clearAllMocks|resetAllMocks|restoreAllMocks)$'
 files:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'

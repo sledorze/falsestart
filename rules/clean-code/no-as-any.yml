@@ -5,8 +5,8 @@ message: '`as any` erases the type rather than establishing it. Narrow with a ty
 rule:
   pattern: $X as any
 files:
-  - '**/*.{ts,tsx}'
+  - '**/*.{ts,tsx,mts,cts}'
 ignores:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
-  - '**/*.bench.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'
+  - '**/*.bench.{ts,tsx,mts,cts}'

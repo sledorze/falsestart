@@ -31,8 +31,8 @@ rule:
     - pattern: JSON.parse($$$ARGS)
     - pattern: JSON.stringify($$$ARGS)
 files:
-  - '**/*.{ts,tsx}'
+  - '**/*.{ts,tsx,mts,cts}'
 ignores:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
-  - '**/*.bench.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'
+  - '**/*.bench.{ts,tsx,mts,cts}'
