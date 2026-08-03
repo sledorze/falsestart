@@ -113,7 +113,7 @@ but "an adjacent, superficially-similar file is provably left untouched."
 **Full local verify before every push, every time — not just before "done."**
 `pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check` (`pnpm verify` runs
 all five). `lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
-lint/format, `pre-push` runs typecheck+test+build+coverage+docs — but that's not a reason
+lint/format+docs, `pre-push` runs typecheck+test+build+docs+coverage+mutation — but that's not a reason
 to treat it as covered: hooks are skippable (`git ... --no-verify`), and no hook can
 construct the actual scenario a feature is meant to catch for you (see "Dogfood," next).
 Treat the hooks as the backstop, not the practice.

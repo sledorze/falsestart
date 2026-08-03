@@ -21,7 +21,15 @@ jobs:
       # invoked by nothing, so `pnpm format:check` never ran anywhere that could block a merge.
       - run: pnpm format:check
       - run: pnpm typecheck
-      - run: pnpm test
+      # Coverage, not bare tests: the thresholds in vitest.config.ts were enforced only by the local
+      # pre-push hook, which `git push --no-verify` skips. `autoUpdate` is off here — it exists so
+      # the ratchet self-raises as coverage improves, and a CI run must measure against the
+      # committed numbers rather than quietly rewrite them.
+      - run: pnpm coverage:ci
       - run: pnpm build
       # Dogfood: cairn checks this repo's own docs/ (summaries + dead links).
       - run: pnpm check
+      # The repo-wide mutation ratchet (break 88 in stryker.config.json). The pre-push hook only
+      # mutates changed files against a low floor, because `--mutate <file>` scores the whole file
+      # and three files sit below 88 — so without this the ratchet was enforced nowhere.
+      - run: pnpm mutation

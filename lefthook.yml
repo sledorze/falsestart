@@ -75,14 +75,28 @@ pre-push:
     checks:
       priority: 1
       run: pnpm typecheck && pnpm test && pnpm build
-    # Coverage ratchet, local-only (not run in CI — see ci.yml, which calls
-    # plain `pnpm test`): fails only if coverage regresses below the
-    # thresholds committed in vitest.config.ts; autoUpdate means those
-    # numbers self-raise as coverage improves, so this never needs manual
-    # bumping to stay meaningful.
+    # Coverage ratchet. CI now runs this too (`pnpm coverage:ci`, with autoUpdate off), so this is
+    # the fast local copy rather than the only place it is enforced. `autoUpdate` here lets the
+    # committed numbers self-raise as coverage improves.
     coverage:
-      priority: 2
-      run: pnpm coverage
-    docs:
       priority: 3
+      run: pnpm coverage
+    # Mutation testing, on what THIS branch changed. Line coverage says a line ran; it does not say
+    # a test would notice if that line were wrong. The first full run scored 89.94% with 100% line
+    # coverage, and among the survivors was every conjunct of `isRecord` — nothing fed it `null`, an
+    # array, or a non-object, so all three guards could be deleted with the suite green.
+    #
+    # Scoped to changed files because a full run takes ~52s and, more importantly, because the score
+    # that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when the
+    # branch touched no mutatable source.
+    #
+    # It cannot touch your working tree. Stryker must run `inPlace` here (sandbox mode crashes on
+    # TypeScript 7 — see stryker.config.json), which overwrites real files, so the script runs it in
+    # a throwaway `git worktree` of HEAD and discards it. A pre-push hook must not be able to damage
+    # the work you are pushing.
+    mutation:
+      priority: 4
+      run: pnpm mutation:changed
+    docs:
+      priority: 2
       run: pnpm check
