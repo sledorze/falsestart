@@ -11,7 +11,7 @@
  * check exists rather than a promise to be careful.
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { describe, effect, expect } from '@effect/vitest'
+import { expect, layer } from '@effect/vitest'
 import { Config, Context, Data, Effect, Layer, Schema } from 'effect'
 import { TestClock, TestConsole } from 'effect/testing'
 import { loadRules } from './checking/loader.ts'
@@ -41,10 +41,10 @@ const NOT_A_MEMBER = new Set(['Effect.Config', 'Effect.Schema', 'Effect.Layer'])
 
 const referencesIn = (text: string): readonly string[] => [...text.matchAll(REFERENCE)].map((match) => match[0])
 
-describe('rule messages', () => {
-  effect('only name Effect APIs that exist', () =>
+layer(platform)('rule messages', (it) => {
+  it.effect('only name Effect APIs that exist', () =>
     Effect.gen(function* () {
-      const rules = yield* loadRules('rules').pipe(Effect.provide(platform), Effect.orDie)
+      const rules = yield* loadRules('rules')
 
       const missing: string[] = []
       for (const rule of rules) {
@@ -66,11 +66,11 @@ describe('rule messages', () => {
     }),
   )
 
-  effect('name at least one concrete remedy in every Effect rule', () =>
+  it.effect('name at least one concrete remedy in every Effect rule', () =>
     Effect.gen(function* () {
       // `rules/effect/` exists to give Effect-specific advice. A message there that names no API
       // is advice the reader still has to go and look up, which is most of the work.
-      const rules = yield* loadRules('rules/effect').pipe(Effect.provide(platform), Effect.orDie)
+      const rules = yield* loadRules('rules/effect')
 
       const vague = rules
         .filter((rule) => referencesIn(`${rule.message ?? ''}\n${rule.note ?? ''}`).length === 0)

@@ -1,5 +1,5 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { describe, effect, expect } from '@effect/vitest'
+import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { respond } from './respond.ts'
 
@@ -29,7 +29,7 @@ const withRules = <A, E>(
     }
 
     return yield* use(root)
-  }).pipe(Effect.scoped, Effect.provide(platform))
+  }).pipe(Effect.scoped)
 
 const writeOf = (content: string) =>
   JSON.stringify({
@@ -38,8 +38,8 @@ const writeOf = (content: string) =>
     tool_name: 'Write',
   })
 
-describe('hook response', () => {
-  effect('emits a deny decision in the shape the hook contract defines', () =>
+layer(platform)('hook response', (it) => {
+  it.effect('emits a deny decision in the shape the hook contract defines', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -58,7 +58,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('stays silent when the write is clean', () =>
+  it.effect('stays silent when the write is clean', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -74,7 +74,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('emits advisory findings as a system message with no permission decision', () =>
+  it.effect('emits advisory findings as a system message with no permission decision', () =>
     withRules({ 'soft.yml': `${noAsAny}severity: warning\n` }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -92,7 +92,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('honours a per-repo scope override so a rule can be narrowed without editing it', () =>
+  it.effect('honours a per-repo scope override so a rule can be narrowed without editing it', () =>
     withRules(
       { 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"no-as-any":{"files":["src/domain/**/*.ts"]}}}' },
       (rules) =>
@@ -114,7 +114,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('still applies a rule where the override admits it', () =>
+  it.effect('still applies a rule where the override admits it', () =>
     withRules(
       { 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"no-as-any":{"files":["**/widget.ts"]}}}' },
       (rules) =>
@@ -132,7 +132,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports an explicitly-named config that does not exist', () =>
+  it.effect('reports an explicitly-named config that does not exist', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         // Asking for a config that is not there is a misconfiguration, not an absence.
@@ -150,7 +150,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('proceeds with no overrides when no default config is present', () =>
+  it.effect('proceeds with no overrides when no default config is present', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -164,7 +164,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('picks up a default falsestart.config.json next to the rules', () =>
+  it.effect('picks up a default falsestart.config.json next to the rules', () =>
     withRules(
       { 'falsestart.config.json': '{"rules":{"no-as-any":{"files":["nowhere/**"]}}}', 'no-as-any.yml': noAsAny },
       (rules) =>
@@ -180,7 +180,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('loads a TypeScript config, so rule ids can be checked by the compiler', () =>
+  it.effect('loads a TypeScript config, so rule ids can be checked by the compiler', () =>
     withRules(
       {
         'falsestart.config.ts': [
@@ -207,7 +207,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('refuses two competing default configs rather than picking one', () =>
+  it.effect('refuses two competing default configs rather than picking one', () =>
     withRules(
       {
         'falsestart.config.json': '{"rules":{}}',
@@ -228,7 +228,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('loads a JavaScript config from its real path', () =>
+  it.effect('loads a JavaScript config from its real path', () =>
     withRules(
       {
         'falsestart.config.js': "export default { rules: { 'no-as-any': { files: ['nowhere/**'] } } }\n",
@@ -247,7 +247,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a TypeScript config that does not parse', () =>
+  it.effect('reports a TypeScript config that does not parse', () =>
     withRules({ 'falsestart.config.ts': 'export default { rules: {{{ }\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -262,7 +262,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a config directory masquerading as a TypeScript config', () =>
+  it.effect('reports a config directory masquerading as a TypeScript config', () =>
     withRules({ 'falsestart.config.ts/inner.txt': 'x', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -277,7 +277,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a JavaScript config that cannot be imported', () =>
+  it.effect('reports a JavaScript config that cannot be imported', () =>
     withRules({ 'falsestart.config.js': 'export default {{{\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -292,7 +292,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a TypeScript config with no default export', () =>
+  it.effect('reports a TypeScript config with no default export', () =>
     withRules({ 'falsestart.config.ts': 'export const rules = {}\n', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -307,7 +307,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a config file that exists but cannot be understood', () =>
+  it.effect('reports a config file that exists but cannot be understood', () =>
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{oops' }, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
@@ -324,7 +324,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports a config path that is not a readable file', () =>
+  it.effect('reports a config path that is not a readable file', () =>
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json/inner.txt': 'x' }, (rules) =>
       Effect.gen(function* () {
         // A DIRECTORY named like the config file: it exists, but reading it as one fails.
@@ -342,7 +342,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('reports an override naming a rule that is not loaded', () =>
+  it.effect('reports an override naming a rule that is not loaded', () =>
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"typo":{"files":["x"]}}}' }, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
@@ -359,7 +359,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('finds a default config in the project, not beside the rules', () =>
+  it.effect('finds a default config in the project, not beside the rules', () =>
     // Regression: with `--preset` the rules live inside node_modules. Looking for the config
     // beside them meant a repo's own config was silently ignored and rules applied unchanged.
     withRules({ 'no-as-any.yml': noAsAny }, (rulesElsewhere) =>
@@ -377,7 +377,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('surfaces a problem without blocking when the input is not JSON', () =>
+  it.effect('surfaces a problem without blocking when the input is not JSON', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({ input: 'this is not json', projectDirectory: rules, rulesDirectory: rules })
@@ -390,7 +390,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('surfaces a problem without blocking when the rules cannot be loaded', () =>
+  it.effect('surfaces a problem without blocking when the rules cannot be loaded', () =>
     withRules({}, (rules) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
@@ -407,7 +407,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('surfaces a problem without blocking when a rule document is malformed', () =>
+  it.effect('surfaces a problem without blocking when a rule document is malformed', () =>
     withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -422,7 +422,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('surfaces a problem without blocking when a judgeable payload is incomplete', () =>
+  it.effect('surfaces a problem without blocking when a judgeable payload is incomplete', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         // A Write with no file_path: judgeable in principle, but there is no path to scope by.
@@ -438,7 +438,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('has no opinion about a tool that writes no source', () =>
+  it.effect('has no opinion about a tool that writes no source', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
@@ -453,7 +453,7 @@ describe('hook response', () => {
     ),
   )
 
-  effect('does not load rules for a tool it will not judge', () =>
+  it.effect('does not load rules for a tool it will not judge', () =>
     // A broken rule tree must not turn an unrelated Bash call into an error notice.
     withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
       Effect.gen(function* () {

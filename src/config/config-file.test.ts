@@ -1,5 +1,5 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { describe, effect, expect } from '@effect/vitest'
+import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { loadConfigFile, loadDefaultConfig } from './config-file.ts'
 
@@ -21,15 +21,15 @@ const withFiles = <A, E>(
     }
 
     return yield* use(root)
-  }).pipe(Effect.scoped, Effect.provide(platform))
+  }).pipe(Effect.scoped)
 
 const unstattable = Layer.mergeAll(
   NodePath.layer,
   FileSystem.layerNoop({ exists: () => Effect.fail(new Error('cannot stat') as never) }),
 )
 
-describe('loading a config file', () => {
-  effect('reports a JSON config that exists but cannot be read', () =>
+layer(platform)('loading a config file', (it) => {
+  it.effect('reports a JSON config that exists but cannot be read', () =>
     withFiles({ 'falsestart.config.json/inner.txt': 'x' }, (directory) =>
       Effect.gen(function* () {
         // A DIRECTORY with the config's name: it exists, but is not a document.
@@ -41,7 +41,7 @@ describe('loading a config file', () => {
     ),
   )
 
-  effect('treats a filesystem it cannot even question as no config at all', () =>
+  it.effect('treats a filesystem it cannot even question as no config at all', () =>
     Effect.gen(function* () {
       // Forced rather than contrived: the point is that an unstattable path and an absent one lead
       // the caller to the same next step, so they get the same answer.
@@ -51,7 +51,7 @@ describe('loading a config file', () => {
     }).pipe(Effect.provide(unstattable)),
   )
 
-  effect('finds nothing when a directory holds no config', () =>
+  it.effect('finds nothing when a directory holds no config', () =>
     withFiles({ 'unrelated.txt': 'x' }, (directory) =>
       Effect.gen(function* () {
         expect((yield* loadDefaultConfig(directory)).rules).toEqual({})

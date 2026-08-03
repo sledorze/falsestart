@@ -57,6 +57,21 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
     allows: ['const w = value as Widget', 'const u: unknown = value'],
     catches: ['const w = value as unknown as Widget'],
   },
+  'no-manual-effect-run-in-tests': {
+    allows: [
+      "layer(platform)('loading', (it) => { it.effect('works', () => Effect.gen(function* () {})) })",
+      "effect('works', () => Effect.gen(function* () {}))",
+      // Providing a different layer for one case is the point of layers, not a workaround.
+      'const r = program.pipe(Effect.provide(failingFileSystem))',
+    ],
+    catches: [
+      'const r = await Effect.runPromise(program)',
+      'const v = Effect.runSync(program)',
+      'const e = Effect.runPromiseExit(program)',
+    ],
+    exempt: 'src/service.ts',
+    path: 'src/service.test.ts',
+  },
   'no-new-promise': {
     allows: ['const p = Effect.async<number>((resume) => resume(Effect.succeed(1)))'],
     catches: ['const p = new Promise((resolve) => resolve(1))'],
