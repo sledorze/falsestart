@@ -2,7 +2,7 @@
 '@sledorze/falsestart': patch
 ---
 
-Wires mutation testing into CI and the pre-push gate, and puts the coverage threshold in CI.
+Wires mutation testing into the pre-push gate, and puts the coverage threshold in CI.
 
 Stryker was configured and wired to nothing — two devDependencies, a config file, and a `mutation`
 script no workflow or hook invoked. Its first run did not even reach a mutant: `inPlace` mode
@@ -17,12 +17,15 @@ Among the survivors: every conjunct of `isRecord` in `decide.ts`. Nothing had ev
 had no direct test at all, only indirect exercise through `respond`, which always hands it a
 well-formed object. Adding one took `decide.ts` from 82% to 91% and the repo to 90.89%.
 
-**Two gates, because they answer different questions.** CI runs the full `pnpm mutation` against the
-repo-wide ratchet, now raised from 77 to 88. The pre-push hook runs `pnpm mutation:changed` — only
-the files the branch touched, in ~5 seconds rather than ~52, free on docs-only pushes — against a
-deliberate floor of 70 rather than 88. `--mutate <file>` scores the _whole file_, not your change,
-and three files sit below 88 today, so a break of 88 there would have rejected a comment-only edit
-to any of them.
+**Pre-push only, deliberately not CI.** A full run costs about a minute per push, and the value of
+mutation testing is in reading which mutants survived rather than in a red tick. So
+`pnpm mutation:changed` runs on pre-push over the files the branch touched (~5 seconds rather than
+~52, free on docs-only pushes), and the full `pnpm mutation` — repo-wide ratchet raised from 77 to
+88 — stays a command you run when you want that reading.
+
+The pre-push floor is 70, not 88. `--mutate <file>` scores the _whole file_, not your change, and
+three files sit below 88 today, so a break of 88 there would reject a comment-only edit to any of
+them. The floor catches a change that guts a file's testability; it does not police history.
 
 **The hook cannot touch your working tree.** `inPlace` is forced — sandbox mode crashes before it
 starts, because its tsconfig preprocessor calls `ts.parseConfigFileTextToJson`, which TypeScript 7
