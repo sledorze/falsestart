@@ -8,9 +8,20 @@ note: |
   `Result.getOrElse` makes you say what happens instead.
 
   The namespace list is pinned rather than matching the suffix alone, because the suffix is a
-  convention anyone may adopt: `myOwnHelper.readUnsafe(path)` is not this rule's business. The list
-  is the set of Effect namespaces that actually export such a name, and it is kept honest by the
-  API-surface lock rather than by anyone remembering to update it.
+  convention anyone may adopt: `myOwnHelper.readUnsafe(path)` is not this rule's business.
+
+  Two things about that list you should know before trusting it.
+
+  It is **hand-maintained**. Nothing verifies it; someone has to remember. It is correct as of
+  effect 4.0.0-beta.102 — all 38 namespaces exist and each exports at least one such member, with
+  none missing and none redundant — but that is a fact about today, not a property of the rule.
+
+  It covers the **root import only**. 21 further risky APIs live in subpath modules that
+  `import ... from 'effect'` does not re-export, and none of them is matched:
+  `Cookies.makeCookieUnsafe`, `EventJournal.makeEntryIdUnsafe`, `AsyncResult.getOrThrow`,
+  `WorkflowEngine.makeUnsafe` and others under `effect/unstable/*`. Widening the list to reach them
+  would pull in names like `Headers` and `Worker`, which are ordinary identifiers in most
+  codebases, so the gap is left open deliberately rather than traded for false positives.
 rule:
   pattern: $NS.$METHOD($$$ARGS)
 constraints:

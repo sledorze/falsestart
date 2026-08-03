@@ -127,8 +127,22 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
       // The remedy the message itself recommends must not be blocked by the rule.
       'const r = program.pipe(Effect.catch(recover))',
       'const r = Effect.catch(program, recover)',
+      // Any namespace exposing a `catch` combinator, not just the ones someone remembered to list.
+      // `HttpClient` lives in `effect/unstable/http`, which the root import does not re-export.
+      'const c = HttpClient.catch("RequestError", recover)',
+      'const s = Cookies.finally(cleanup)',
     ],
-    catches: ['load().then(use)', 'load().catch(onError)', 'load().finally(cleanup)'],
+    catches: [
+      'load().then(use)',
+      'load().catch(onError)',
+      'load().finally(cleanup)',
+      // A lowercase receiver is an ordinary promise value: still blocked.
+      'promise.catch(onError)',
+      // Capitalised, but a call expression rather than a namespace reference — the exemption is
+      // structural (an identifier node), not "the text starts with a capital".
+      'Promise.resolve(v).catch(onError)',
+      'Promise.all(xs).then(use)',
+    ],
   },
   'no-throwing-decode': {
     allows: [
