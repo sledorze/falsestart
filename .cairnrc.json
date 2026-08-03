@@ -1,9 +1,17 @@
 {
-  "ignore": ["**/node_modules/**"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/.agents/**",
+    "**/.claude/**",
+    "**/.changeset/**",
+    "**/.github/**",
+    "**/dist/**",
+    "**/coverage/**"
+  ],
   "naming": {
     "dirSummary": "_SUMMARY.md",
     "fileSummarySuffix": ".summary.md"
   },
-  "roots": ["docs"],
+  "roots": ["."],
   "thresholdLines": 30
 }
