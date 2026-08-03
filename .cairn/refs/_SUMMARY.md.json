@@ -19,6 +19,10 @@
     {
       "hash": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
       "target": "./CLAUDE.md"
+    },
+    {
+      "hash": "f9d5eeae7f090749ad5976740d5daa69e7f9f58723dce77d462fc49ac84b2948",
+      "target": "./docs/_SUMMARY.md"
     }
   ]
 }
