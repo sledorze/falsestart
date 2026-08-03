@@ -1,5 +1,5 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { describe, effect, expect } from '@effect/vitest'
+import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { loadRules } from './loader.ts'
 
@@ -22,7 +22,7 @@ const withTree = <A, E>(
     }
 
     return yield* use(root)
-  }).pipe(Effect.scoped, Effect.provide(platform))
+  }).pipe(Effect.scoped)
 
 const rule = (id: string) => `
 id: ${id}
@@ -31,8 +31,8 @@ rule:
   pattern: $X as any
 `
 
-describe('rule tree loading', () => {
-  effect('loads every rule in a flat directory', () =>
+layer(platform)('rule tree loading', (it) => {
+  it.effect('loads every rule in a flat directory', () =>
     withTree({ 'a.yml': rule('alpha'), 'b.yaml': rule('beta') }, (directory) =>
       Effect.gen(function* () {
         const loaded = yield* loadRules(directory)
@@ -42,7 +42,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('descends into subdirectories', () =>
+  it.effect('descends into subdirectories', () =>
     withTree({ 'promise/b.yml': rule('beta'), 'type/a.yml': rule('alpha') }, (directory) =>
       Effect.gen(function* () {
         const loaded = yield* loadRules(directory)
@@ -52,7 +52,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('ignores files that are not rule documents', () =>
+  it.effect('ignores files that are not rule documents', () =>
     withTree({ 'README.md': '# not a rule', 'a.yml': rule('alpha'), 'notes.txt': 'hello' }, (directory) =>
       Effect.gen(function* () {
         const loaded = yield* loadRules(directory)
@@ -62,7 +62,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('orders rules by path so output is stable across runs', () =>
+  it.effect('orders rules by path so output is stable across runs', () =>
     withTree({ 'a/one.yml': rule('one'), 'b/two.yml': rule('two'), 'c/three.yml': rule('three') }, (directory) =>
       Effect.gen(function* () {
         const loaded = yield* loadRules(directory)
@@ -72,7 +72,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('returns an empty set for an empty directory', () =>
+  it.effect('returns an empty set for an empty directory', () =>
     withTree({}, (directory) =>
       Effect.gen(function* () {
         expect(yield* loadRules(directory)).toEqual([])
@@ -80,7 +80,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('reports every malformed rule, not just the first', () =>
+  it.effect('reports every malformed rule, not just the first', () =>
     withTree(
       { 'bad1.yml': 'id: 7\nlanguage: tsx', 'bad2.yml': 'language: nope', 'ok.yml': rule('fine') },
       (directory) =>
@@ -95,7 +95,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('refuses a tree where two rules share an id', () =>
+  it.effect('refuses a tree where two rules share an id', () =>
     withTree({ 'one.yml': rule('duplicated'), 'two.yml': rule('duplicated') }, (directory) =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(loadRules(directory))
@@ -105,7 +105,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('reports a rule-shaped entry it cannot read as a document', () =>
+  it.effect('reports a rule-shaped entry it cannot read as a document', () =>
     // A DIRECTORY named `*.yml` is listed by the walk and passes the extension test, but reading
     // it as a file fails. The walk yielding a name is not proof that a document is behind it.
     withTree({ 'looks-like.yml/inner.txt': 'not a rule' }, (directory) =>
@@ -117,7 +117,7 @@ describe('rule tree loading', () => {
     ),
   )
 
-  effect('fails when the rule directory does not exist', () =>
+  it.effect('fails when the rule directory does not exist', () =>
     withTree({}, (directory) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
@@ -129,7 +129,7 @@ describe('rule tree loading', () => {
   )
 })
 
-describe('shared utility rules', () => {
+layer(platform)('shared utility rules', (it) => {
   const anyKeyword = `
 id: anyKeyword
 rule:
@@ -146,7 +146,7 @@ rule:
     matches: anyKeyword
 `
 
-  effect('makes a util defined under _utils available to every rule in the tree', () =>
+  it.effect('makes a util defined under _utils available to every rule in the tree', () =>
     withTree({ '_utils/any-keyword.yml': anyKeyword, 'type/uses.yml': usesShared }, (directory) =>
       Effect.gen(function* () {
         const [loaded] = yield* loadRules(directory)
@@ -156,7 +156,7 @@ rule:
     ),
   )
 
-  effect('does not surface util documents as rules of their own', () =>
+  it.effect('does not surface util documents as rules of their own', () =>
     withTree({ '_utils/any-keyword.yml': anyKeyword, 'type/uses.yml': usesShared }, (directory) =>
       Effect.gen(function* () {
         const loaded = yield* loadRules(directory)
@@ -166,7 +166,7 @@ rule:
     ),
   )
 
-  effect("lets a rule's own utils win a name collision with a shared one", () =>
+  it.effect("lets a rule's own utils win a name collision with a shared one", () =>
     withTree(
       {
         '_utils/any-keyword.yml': anyKeyword,
@@ -181,7 +181,7 @@ rule:
     ),
   )
 
-  effect('reports a malformed util document rather than ignoring it', () =>
+  it.effect('reports a malformed util document rather than ignoring it', () =>
     withTree({ '_utils/broken.yml': 'rule:\n  kind: x\n', 'type/uses.yml': usesShared }, (directory) =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(loadRules(directory))
@@ -191,7 +191,7 @@ rule:
     ),
   )
 
-  effect('reports a shared util whose YAML is malformed', () =>
+  it.effect('reports a shared util whose YAML is malformed', () =>
     withTree({ '_utils/bad.yml': 'id: "unterminated' }, (directory) =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(loadRules(directory))
@@ -201,7 +201,7 @@ rule:
     ),
   )
 
-  effect('reports a shared util that is not a mapping', () =>
+  it.effect('reports a shared util that is not a mapping', () =>
     withTree({ '_utils/bad.yml': '- a\n- b\n' }, (directory) =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(loadRules(directory))
@@ -211,7 +211,7 @@ rule:
     ),
   )
 
-  effect('reports a shared util that defines no matcher', () =>
+  it.effect('reports a shared util that defines no matcher', () =>
     withTree({ '_utils/bad.yml': 'id: lonely\n' }, (directory) =>
       Effect.gen(function* () {
         const error = yield* Effect.flip(loadRules(directory))
@@ -221,7 +221,7 @@ rule:
     ),
   )
 
-  effect('leaves a tree with no shared utils exactly as it was', () =>
+  it.effect('leaves a tree with no shared utils exactly as it was', () =>
     withTree({ 'a.yml': rule('alpha') }, (directory) =>
       Effect.gen(function* () {
         const [loaded] = yield* loadRules(directory)

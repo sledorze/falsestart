@@ -79,9 +79,15 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 | `no-vi-mocking`            | effect     | "Module mocking replaces a dependency behind its consumer's back, so the… |
 | `prefer-smart-constructor` | effect     | An object literal with a declared type asserts the shape is valid withou… |
 
-Every rule is `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
-TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking` and
-`no-test-lifecycle-hooks` apply **only** to test files — the inverse of every other rule.
+All 18 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
+TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and
+`no-manual-effect-run-in-tests` apply **only** to test files — the inverse of every other rule.
+
+`Schema.Class`, `ErrorClass`, `TaggedClass` and `TaggedErrorClass` constructors do validate and
+throw — `new Widget({ id: 42 })` raises `Expected string, got 42`. There is deliberately **no rule**
+for them: banning `new Widget({ id, size })` would contradict `prefer-smart-constructor`, which
+recommends exactly that. The construct is not the problem, the provenance of its input is, and a
+syntactic matcher cannot tell a decoded value from a raw payload.
 
 ## Library exports
 

@@ -1,0 +1,32 @@
+id: no-manual-effect-run-in-tests
+language: tsx
+severity: error
+message: 'Running an Effect by hand inside a test discards what the test framework gives you — the runtime, the scope, and a readable failure. Use it.effect inside layer(MyLayer)(...) from @effect/vitest, or the standalone effect(...) when no layer is needed, and return the Effect instead of running it.'
+note: |
+  `Effect.runPromise(program)` in a test body means the test supplies its own runtime and then
+  reports whatever escapes. Requirements vanish from the type, a scope is opened and closed around
+  a single call, and a failure arrives as a rejected promise rather than as the test's own result.
+
+      layer(platform)('rule tree loading', (it) => {
+        it.effect('loads every rule', () =>
+          Effect.gen(function* () {
+            const loaded = yield* loadRules(directory)
+            expect(loaded).toHaveLength(3)
+          }))
+      })
+
+  `Effect.provide` inside a test is deliberately NOT flagged. Providing a different layer for one
+  case — a filesystem that fails on demand, a stubbed clock — is the point of layers, not a
+  workaround. Preferring a suite-level `layer()` for the COMMON environment is a matter of taste
+  that a syntactic rule cannot judge, and a rule that fires on correct code teaches people to route
+  around the guard.
+rule:
+  pattern: $NS.$METHOD($$$ARGS)
+constraints:
+  NS:
+    regex: '^Effect$'
+  METHOD:
+    regex: '^run(Sync|Promise|Fork|Callback)'
+files:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
