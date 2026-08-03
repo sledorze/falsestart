@@ -14,6 +14,26 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward. |
 | `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                               |
 
+### Judged tool calls
+
+falsestart inspects the content a tool call is about to write. Three tool names carry that, and
+anything else is allowed in silence:
+
+| `tool_name`    | path field      | content field |
+| -------------- | --------------- | ------------- |
+| `Write`        | `file_path`     | `content`     |
+| `Edit`         | `file_path`     | `new_string`  |
+| `NotebookEdit` | `notebook_path` | `new_source`  |
+
+That is the complete set of Claude Code built-ins that carry file content — there is no `MultiEdit`.
+A tool name outside this table produces no output and exit 0, indistinguishable from a clean write,
+so a future write tool would be unguarded without any signal. The list is asserted against the code
+by a test rather than maintained here by hand.
+
+`Bash` is deliberately absent. falsestart judges the text a write tool carries, so a heredoc or a
+shell redirect writes a file it never sees. That is a real hole, not an oversight: judging shell
+commands would mean predicting what they do.
+
 ### Exit codes
 
 | Code                 | Meaning                                                            |
@@ -114,6 +134,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `applyScopeOverrides`       | function    | config   |
 | `assessRule`                | function    | testing  |
 | `checkFile`                 | function    | checking |
+| `WRITE_TOOLS`               | constant    | hook     |
 | `decide`                    | function    | hook     |
 | `findUntestedRules`         | function    | testing  |
 | `findViolations`            | function    | checking |

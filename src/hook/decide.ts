@@ -42,7 +42,16 @@ const defer = (): Decision => ({ _tag: 'Defer' })
  * resulting file, which the hook never sees. An edit is therefore checked for what it ADDS; it
  * cannot be checked for what it leaves behind elsewhere in the file.
  */
-const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; readonly path: string }>> = {
+/**
+ * The tool calls falsestart judges, and where each one carries its path and its content.
+ *
+ * Exported so `docs/reference.md` can be checked against it rather than describing it from memory.
+ * Anything absent here is allowed in silence — which is right, since most tool calls write nothing,
+ * but it also means a write tool that is not listed is one falsestart does not guard and says
+ * nothing about. Confirmed complete for Claude Code as of August 2026: `Write`, `Edit` and
+ * `NotebookEdit` are the only built-in tools that carry file content. `MultiEdit` does not exist.
+ */
+export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; readonly path: string }>> = {
   Edit: { content: 'new_string', path: 'file_path' },
   NotebookEdit: { content: 'new_source', path: 'notebook_path' },
   Write: { content: 'content', path: 'file_path' },

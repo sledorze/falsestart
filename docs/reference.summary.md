@@ -2,6 +2,11 @@
 
 The lists: command line, rule document format, configuration, shipped rules, library exports.
 
+**Judged tool calls:** `Write` (`file_path`/`content`), `Edit` (`file_path`/`new_string`),
+`NotebookEdit` (`notebook_path`/`new_source`) — the complete set of Claude Code built-ins carrying
+file content. Anything else is allowed in silence. `Bash` is deliberately absent, so a shell
+redirect writes a file falsestart never sees.
+
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
 `--config <file>`, `--help`. Exit 0 with JSON blocks, exit 0 with no output defers, exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
