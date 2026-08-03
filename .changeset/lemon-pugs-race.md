@@ -23,9 +23,9 @@ package looks for:
   is a behaviour change — rules name its APIs — rather than a routine bump.
 - **No badges.** CI and licence only; an npm version badge would 404 until this actually publishes.
 
-Also: mutation testing moved to its own CI job. Run in sequence it took the required check from ~25s
-to 8m45s, and lint or a stale doc stamp is what fails day to day. Both jobs are required, so nothing
-merges on the quick one alone.
+Also: `main` had no branch protection at all, so a pull request could merge with CI red, and a
+branch could merge without ever being current with main. `build-test` is now a required check,
+enforced on admins, with force pushes and deletions refused and history kept linear.
 
 `private: true` stays, so none of this publishes yet — that remains a deliberate decision rather
 than an oversight.

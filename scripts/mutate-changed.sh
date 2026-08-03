@@ -11,11 +11,14 @@
 # push would publish, not whatever is dirty alongside it.
 #
 # WHAT IT ENFORCES, AND WHAT IT DOES NOT. `--mutate <file>` mutates the WHOLE file, not your hunk,
-# so the score here is the file's, not your change's. The repo-wide ratchet (break 88) is enforced
-# by the full `pnpm mutation` run in CI. This gate uses a deliberately low floor: it exists to catch
-# a change that guts a file's testability, not to hold every file to the repo average. Three files
-# sit below 88 today (doctor.ts 76, rule.ts 84, config-file.ts 85), so a break of 88 here would
-# reject a comment-only edit to any of them.
+# so the score here is the file's, not your change's. This gate uses a deliberately low floor: it
+# catches a change that guts a file's testability, not every file below the repo average. Three
+# files sit under 88 today (doctor.ts 76, rule.ts 84, config-file.ts 85), so a break of 88 here
+# would reject a comment-only edit to any of them.
+#
+# The repo-wide ratchet (break 88) belongs to `pnpm mutation`, which is deliberately NOT in CI — a
+# full run costs about a minute per push and the value is in reading the survivors, not in a red
+# tick. Run it when you want that reading; nothing runs it for you.
 set -euo pipefail
 
 repo="$(git rev-parse --show-toplevel)"

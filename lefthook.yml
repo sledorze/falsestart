@@ -81,10 +81,12 @@ pre-push:
     coverage:
       priority: 3
       run: pnpm coverage
-    # Mutation testing, on what THIS branch changed. Line coverage says a line ran; it does not say
-    # a test would notice if that line were wrong. The first full run scored 89.94% with 100% line
-    # coverage, and among the survivors was every conjunct of `isRecord` — nothing fed it `null`, an
-    # array, or a non-object, so all three guards could be deleted with the suite green.
+    # Mutation testing, on what THIS branch changed — and the only place it runs automatically, by
+    # choice: a full run in CI costs about a minute per push for a signal whose value is in reading
+    # the survivors. Line coverage says a line ran; it does not say a test would notice if that line
+    # were wrong. The first full run scored 89.94% at 100% line coverage, and among the survivors
+    # was every conjunct of `isRecord` — nothing fed it `null`, an array, or a non-object, so all
+    # three guards could be deleted with the suite green.
     #
     # Scoped to changed files because a full run takes ~52s and, more importantly, because the score
     # that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when the

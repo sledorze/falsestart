@@ -26,5 +26,5 @@
   "jsonReporter": {
     "fileName": "reports/mutation/mutation.json"
   },
-  "_thresholdComment": "Break raised from 77 to 88 once the measured score reached 90.89. A ratchet, like the coverage thresholds: set just under the achieved score so a regression fails while ordinary variation does not. Raise it again when the score does \u2014 the first pass found 95 survivors at 100% line coverage, so there is room left."
+  "_thresholdComment": "Break 88 applies to a FULL `pnpm mutation` run, which nothing invokes automatically \u2014 it is a local reading, not a gate. The automatic gate is scripts/mutate-changed.sh on pre-push, which scores only the changed files against a floor of 70, because --mutate <file> scores the whole file and three files sit below 88. Raise 88 when a full run beats it: the first pass found 95 survivors at 100% line coverage, so there is room."
 }
