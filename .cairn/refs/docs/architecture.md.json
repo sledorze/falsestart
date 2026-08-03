@@ -29,7 +29,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "5de14a574379e56b539094c54576b33a3eb0009260f1f09e24d11e7790e27f63",
+      "hash": "5cbb8e4210b04f6d99bf67cad49b364a633f510596e7f2cf82f541bf6cc3d6c0",
       "target": "../src/cli.ts"
     }
   ]

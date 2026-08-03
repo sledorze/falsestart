@@ -47,8 +47,16 @@ export class ConfigError extends Data.TaggedError('ConfigError')<{
   }
 }
 
-/** No file, no overrides — configuration is optional, unlike the rule tree itself. */
-export const EMPTY_CONFIG: Config = { rules: {} }
+/**
+ * No file, no overrides — configuration is optional, unlike the rule tree itself.
+ *
+ * `satisfies` rather than a type annotation: an annotated literal asserts a shape nothing checked,
+ * which is what `prefer-smart-constructor` objects to, and this cannot go through `makeConfig` —
+ * `validateConfig` returns this very value, so building it that way is circular. `satisfies` gets
+ * the conformance checked by the compiler without the assertion, and an empty rule set has no
+ * invariant left for a smart constructor to establish.
+ */
+export const EMPTY_CONFIG = { rules: {} } satisfies Config
 
 const isMapping = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)

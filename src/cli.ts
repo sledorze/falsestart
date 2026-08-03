@@ -141,14 +141,19 @@ const SILENCED_WARNINGS = ['stripTypeScriptTypes', 'MODULE_TYPELESS_PACKAGE_JSON
 const silenceConfigLoadingWarnings = (): void => {
   const passThrough = process.emitWarning.bind(process)
 
+  // `never[]` is what makes the spread at the end assignable to every `emitWarning` overload.
+  // Reading the arguments needs them widened, and a widening ASSIGNMENT is checked where an
+  // assertion is not — `never` is assignable to `unknown`, so nothing is being claimed here.
   process.emitWarning = (warning, ...rest: readonly never[]): void => {
+    const args: readonly unknown[] = rest
+
     // The identifying code can arrive in any of the trailing arguments, including inside an
     // options object, so every one is folded into the text before matching. Checking only the
     // first silently let MODULE_TYPELESS_PACKAGE_JSON through.
-    const described = (rest as readonly unknown[]).map((argument) =>
-      typeof argument === 'string' ? argument : JSON.stringify(argument),
-    )
-    const text = [String(warning), ...described].join(' ')
+    const described = args.map((argument) => (typeof argument === 'string' ? argument : JSON.stringify(argument)))
+    // `String(warning)` is a raw coercion of a `string | Error`, which cannot fail and so hides a
+    // wrong value. Naming both cases says which text is actually being matched against.
+    const text = [warning instanceof Error ? warning.message : warning, ...described].join(' ')
 
     if (SILENCED_WARNINGS.some((silenced) => text.includes(silenced))) {
       return

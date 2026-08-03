@@ -1,0 +1,69 @@
+/**
+ * falsestart passes its own rules.
+ *
+ * This was true by inspection and false in fact. A hand count found four source files that the
+ * shipped corpus blocked — three `no-type-assertion`, one `prefer-smart-constructor` — and nothing
+ * in `verify`, `lefthook` or CI had ever said so. A guard whose own codebase would be denied by it
+ * is not one anybody should adopt.
+ *
+ * The count only stays at zero if something checks it, so this is that check rather than a note in
+ * a changelog. AGENTS.md: convert every manual dogfooding proof into a permanent test.
+ *
+ * It runs the real corpus through the real scope overrides, so `falsestart.config.ts` is exercised
+ * too — the exemption for the `@ast-grep/napi` seam in `matcher.ts` has to be a real, reviewed
+ * override rather than a rule nobody enabled.
+ */
+import { NodeFileSystem, NodePath } from '@effect/platform-node'
+import { expect, layer } from '@effect/vitest'
+import { Effect, FileSystem, Layer } from 'effect'
+import { checkFile } from './checking/engine.ts'
+import { loadRules } from './checking/loader.ts'
+import { applyScopeOverrides } from './config/config.ts'
+import { loadDefaultConfig } from './config/config-file.ts'
+
+const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+
+const sourceFiles = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const entries = yield* fs.readDirectory('src', { recursive: true })
+  return entries.map((entry) => `src/${entry}`).filter((file) => file.endsWith('.ts'))
+})
+
+layer(platform)('falsestart judged by its own rules', (it) => {
+  it.effect('blocks nothing in its own source', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const shipped = yield* loadRules('rules')
+      const config = yield* loadDefaultConfig('.')
+      const rules = yield* applyScopeOverrides(shipped, config)
+
+      const files = yield* sourceFiles
+      const findings = yield* Effect.all(
+        files.map((path) =>
+          Effect.gen(function* () {
+            const content = yield* fs.readFileString(path)
+            const violations = yield* checkFile(rules, { content, path })
+            return violations.map((violation) => `${path}: ${violation.ruleId} (${violation.line})`)
+          }),
+        ),
+      )
+
+      expect(findings.flat()).toEqual([])
+    }),
+  )
+
+  // The exemption must be doing real work. If `matcher.ts` ever stops needing it — because the seam
+  // moved or a validated type replaced the assertion — this fails and the override should be
+  // deleted rather than left behind as a permanent hole nobody re-examines.
+  it.effect('needs every override its config declares', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const rules = yield* loadRules('rules')
+
+      const content = yield* fs.readFileString('src/checking/matcher.ts')
+      const violations = yield* checkFile(rules, { content, path: 'src/checking/matcher.ts' })
+
+      expect(violations.map((violation) => violation.ruleId)).toContain('no-type-assertion')
+    }),
+  )
+})
