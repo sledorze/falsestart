@@ -15,7 +15,7 @@
  * otherwise be a scope change that silently never happens, which is exactly the failure this tool
  * exists to catch elsewhere.
  */
-import { Data, Effect } from 'effect'
+import { Data, Effect, Schema } from 'effect'
 import type { Rule } from '../checking/index.ts'
 
 export interface ScopeOverride {
@@ -119,10 +119,13 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
   })
 
 export const parseConfig = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>
-  Effect.try({
-    catch: (cause) => new ConfigError({ reasons: [`${origin}: invalid JSON (${String(cause)})`] }),
-    try: () => JSON.parse(source) as unknown,
-  }).pipe(Effect.flatMap((document) => validateConfig(document, origin)))
+  // `Schema.UnknownFromJsonString` rather than `JSON.parse`: the malformed-document case lands in
+  // the error channel instead of being thrown and re-caught, and the result is `unknown` because it
+  // genuinely is — no assertion needed before `validateConfig` looks at it.
+  Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(source).pipe(
+    Effect.mapError((cause) => new ConfigError({ reasons: [`${origin}: invalid JSON (${String(cause)})`] })),
+    Effect.flatMap((document) => validateConfig(document, origin)),
+  )
 
 /**
  * Re-scopes loaded rules according to `config`.

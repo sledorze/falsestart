@@ -11,7 +11,7 @@
  * Notably a block is NOT exit 2. Exit 2 does block, but the runtime discards stdout and reads
  * stderr as the reason, which throws away the structured decision.
  */
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import type { FileSystem, Path } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
 import { loadRules } from '../checking/index.ts'
@@ -83,12 +83,10 @@ export const respond = (
 ): Effect.Effect<HookResponse, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const { configPath, input, projectDirectory, rulesDirectory } = options
-    const parsed = yield* Effect.result(
-      Effect.try({
-        catch: String,
-        try: () => JSON.parse(input) as unknown,
-      }),
-    )
+    // The payload arrives from another process, so a malformed one is an ordinary outcome rather
+    // than an exception to catch. `UnknownFromJsonString` keeps it in the error channel and hands
+    // back `unknown`, which is what it is until `judgesPayload` has looked at it.
+    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(input))
 
     if (parsed._tag === 'Failure') {
       return problem(`could not read the hook payload as JSON (${parsed.failure})`)
