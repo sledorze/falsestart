@@ -1,0 +1,12 @@
+{
+  "refs": [
+    {
+      "hash": "3e2dd9a4f169856f86ca6108d77ce5cc1474e8744768367fa88fe001199edddc",
+      "target": "./CONTRIBUTING.md"
+    },
+    {
+      "hash": "a8ee8cb94122758d6dd6ebe3e292581c8852d870cacb371978d069454a603911",
+      "target": "./SECURITY.md"
+    }
+  ]
+}

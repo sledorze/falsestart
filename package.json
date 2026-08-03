@@ -98,6 +98,11 @@
     "yaml": "^2.9.0"
   },
   "publishConfig": {
-    "access": "public"
-  }
+    "access": "public",
+    "provenance": true
+  },
+  "bugs": {
+    "url": "https://github.com/sledorze/falsestart/issues"
+  },
+  "homepage": "https://github.com/sledorze/falsestart#readme"
 }

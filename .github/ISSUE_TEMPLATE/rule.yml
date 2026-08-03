@@ -1,0 +1,21 @@
+name: Rule proposal
+description: A pattern falsestart should block.
+labels: [rule]
+body:
+  - type: textarea
+    id: catches
+    attributes:
+      label: Code it must block
+    validations: { required: true }
+  - type: textarea
+    id: allows
+    attributes:
+      label: Adjacent code it must NOT block
+      description: The half that matters most. A rule with only positive examples looks correct until it fires on something nobody meant to forbid.
+    validations: { required: true }
+  - type: textarea
+    id: remedy
+    attributes:
+      label: The remedy the message should name
+      description: It must be an API that exists — this is checked against the installed package.
+    validations: { required: true }

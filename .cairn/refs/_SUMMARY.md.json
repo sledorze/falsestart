@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "c712c73fbacbe8a06b90c47622e7d48423bbe480b0514af04bf9f8036578a1af",
+      "hash": "b7445fcddaee819650a555e993e3c006e80847d88dded9addb049ee380ba967f",
       "target": "./README.md"
     },
     {
-      "hash": "d0facb37340f278847ec0418452c0e9eb402a78b3aec32c4abb5d17c672c4e78",
+      "hash": "46477cea2702734888e0c2137e339cd1304e1f0ea0218c238c28e76f98dc87fe",
       "target": "./README.summary.md"
     },
     {
@@ -15,6 +15,18 @@
     {
       "hash": "7cb64ebdfadcb945c0b93a384c3da1acca1cd8c36452af8e2ba2af3700025d3a",
       "target": "./AGENTS.summary.md"
+    },
+    {
+      "hash": "3e2dd9a4f169856f86ca6108d77ce5cc1474e8744768367fa88fe001199edddc",
+      "target": "./CONTRIBUTING.md"
+    },
+    {
+      "hash": "a8ee8cb94122758d6dd6ebe3e292581c8852d870cacb371978d069454a603911",
+      "target": "./SECURITY.md"
+    },
+    {
+      "hash": "43dc9e54c5853d1011cd0374d89fc9f31ff111079249a4b7546159783e6f62ca",
+      "target": "./CODE_OF_CONDUCT.md"
     },
     {
       "hash": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
