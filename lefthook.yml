@@ -1,27 +1,43 @@
 # Lefthook - Git hooks manager (https://github.com/evilmartians/lefthook)
 # Installed automatically via `pnpm prepare`. Skip once: git commit --no-verify.
 
+# `piped`, not `parallel`, and the order matters: `oxlint --fix` and `prettier --write` REWRITE the
+# files that `docs` then hashes. Run concurrently, the docs check can read a file prettier is about
+# to change, pass, and leave a stale `.cairn/` stamp in the commit — which only surfaces at push,
+# after the commit exists.
+#
+# Reproduced: hand-edit a markdown table with narrow column padding, `pnpm stamp`, then let prettier
+# realign it. The stamp was made against the unformatted text and no longer matches. That cost two
+# amend cycles in one session before the cause was found.
+#
+# The hook still only CHECKS. Stamping is where you assert a doc's claim about a source file is
+# still true, so a hook that stamped for you would turn the gate into a reflex — the exact failure
+# AGENTS.md records against re-stamping without reading the diff.
 pre-commit:
-  parallel: true
+  piped: true
   commands:
     # Prevent secrets from being committed
     gitleaks:
+      priority: 1
       glob: '*.{js,cjs,mjs,ts,tsx,json,yaml,yml,env,sh}'
       run: gitleaks protect --staged --no-banner
 
     # Lint Dockerfiles
     hadolint:
+      priority: 2
       glob: '**/Dockerfile*'
       run: hadolint {staged_files}
 
     # Lint + auto-fix TypeScript
     oxlint:
+      priority: 3
       glob: '*.{js,cjs,mjs,ts,tsx}'
       run: pnpm oxlint --fix {staged_files} && git add {staged_files}
       stage_fixed: true
 
     # Format + auto-fix
     prettier:
+      priority: 4
       glob: '*.{js,cjs,mjs,ts,tsx,json,md,yml,yaml,css,html}'
       run: pnpm prettier --write {staged_files} && git add {staged_files}
       stage_fixed: true
@@ -30,6 +46,7 @@ pre-commit:
     # source file has silently gone stale. The glob covers *.ts too, because `--refs` drift is
     # caused by SOURCE edits — a docs-only glob would only notice at push time.
     docs:
+      priority: 5
       glob: '*.{md,ts}'
       run: pnpm check
 
