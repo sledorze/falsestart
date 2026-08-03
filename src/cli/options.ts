@@ -90,7 +90,9 @@ Exit codes:
   0  Decision made (JSON on stdout to block) or nothing to say.
   1  falsestart could not do its job. Reported, and the write proceeds.`
 
-const isPreset = (value: string): value is Preset => (PRESETS as readonly string[]).includes(value)
+// `PRESETS.includes(value)` needs the tuple widened to `readonly string[]`, and widening by
+// assertion is exactly what `no-type-assertion` objects to. A comparison needs no widening.
+const isPreset = (value: string): value is Preset => PRESETS.some((preset) => preset === value)
 
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {

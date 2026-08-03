@@ -38,7 +38,29 @@ const runCliRaw = (args: readonly string[], payload: string) =>
     return { exitCode: exitCode as number, stderr, stdout } satisfies CliResult
   }).pipe(Effect.scoped, Effect.orDie)
 
-const runCli = (rulesDirectory: string, payload: string) => runCliRaw(['--rules', rulesDirectory], payload)
+/**
+ * Every run passes an explicit empty `--config`, so the executable is judged on the rule set the
+ * test gave it and nothing else.
+ *
+ * Without this the spawned process inherits the repo's own `falsestart.config.ts` from `cwd`, whose
+ * overrides name rules these temp directories do not contain — and an override for an unloaded rule
+ * is a deliberate hard error, so three of these tests started exiting 1 the moment this repo grew a
+ * config. A developer's config must not be able to change what the e2e suite measures.
+ */
+const withEmptyConfig = (directory: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const configPath = path.join(directory, 'empty.config.json')
+    yield* fs.writeFileString(configPath, JSON.stringify({ rules: {} }))
+    return configPath
+  })
+
+const runCli = (rulesDirectory: string, payload: string) =>
+  Effect.gen(function* () {
+    const configPath = yield* withEmptyConfig(rulesDirectory)
+    return yield* runCliRaw(['--rules', rulesDirectory, '--config', configPath], payload)
+  })
 
 /**
  * Build once, so the tests judge the artifact that actually ships rather than the sources.

@@ -52,16 +52,24 @@ const failure = (reason: string) => new ConfigError({ reasons: [reason] })
 /** A path we cannot stat is treated as absent: the caller's next step is the same either way. */
 const absent = () => false
 
+/**
+ * A dynamic import is typed `any`, so nothing about the imported shape has been established. Taking
+ * it as `unknown` and narrowing says that honestly; asserting `Promise<{ default?: unknown }>` — as
+ * this did — claims a shape no one checked, which is what `no-type-assertion` exists to stop.
+ */
+const hasDefault = (module: unknown): module is { readonly default: unknown } =>
+  typeof module === 'object' && module !== null && 'default' in module && module.default !== undefined
+
 /** Imports a module and returns its default export, which is where a config must live. */
 const importDefault = (url: string, origin: string): Effect.Effect<unknown, ConfigError> =>
   Effect.tryPromise({
     catch: (cause) => failure(`${origin}: could not be imported (${String(cause)})`),
-    try: () => import(url) as Promise<{ default?: unknown }>,
+    try: async (): Promise<unknown> => import(url),
   }).pipe(
     Effect.flatMap((module) =>
-      module.default === undefined
-        ? Effect.fail(failure(`${origin}: must have a default export`))
-        : Effect.succeed(module.default),
+      hasDefault(module)
+        ? Effect.succeed(module.default)
+        : Effect.fail(failure(`${origin}: must have a default export`)),
     ),
   )
 
