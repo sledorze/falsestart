@@ -14,4 +14,4 @@ export {
   parseConfig,
   validateConfig,
 } from './config.ts'
-export { DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config-file.ts'
+export { DEFAULT_CONFIG_CANDIDATES, findDefaultConfigs, loadConfigFile, loadDefaultConfig } from './config-file.ts'

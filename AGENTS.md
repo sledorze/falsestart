@@ -137,8 +137,36 @@ on each other" are exactly the kind of claim that silently rots as a codebase gr
 Verify by construction: grep every import, confirm every doc-linked path resolves,
 confirm every real source file is named somewhere. For anything you can't easily
 self-check (you wrote both the code and the doc, so you're not a neutral reader of
-either), get an independent read — a fresh subagent with no context beyond "verify this
-claim," not a re-read of your own reasoning.
+either), get an independent read — see the adversarial-review convention below, which
+applies to structural claims as much as to code.
+
+**Always get an adversarial subagent review before you push — prompted to refute, with no access
+to your reasoning.** Not "review this", not "check my work": the subagent must be told to assume the
+change is wrong and to find where it does not hold, and it must be given the artifact rather than
+your account of it. You wrote both the code and the justification, so you are not a neutral reader
+of either; a reviewer who has seen your reasoning inherits your blind spots along with it.
+
+What makes it worth the tokens rather than a ritual:
+
+- **Give it the diff, the branch, and the claim** — "this change claims X; verify X" — and tell it
+  to run things rather than reason about them. Findings that cite a command and its output are the
+  only ones worth acting on.
+- **Name what to attack**: the coverage claims, the measurements, the failure modes, what the change
+  is silent about. A reviewer with no target defaults to style.
+- **Tell it that finding nothing is a valid answer**, so it does not manufacture findings to look
+  useful — and that restating a limitation you already documented is worthless.
+- **Verify every finding yourself before acting on it.** Subagents are confidently wrong often
+  enough that an unverified finding is a rumour — and run the check in a scratch directory outside
+  this repo, because this repo's own config silently changes the answer for anything involving
+  presets or overrides.
+- **Adopt or refute each finding explicitly** where you record the change. A finding you decided
+  against is more useful to the next reader than one you quietly dropped.
+
+Not enforceable by CI — nothing can observe whether you asked. It is a convention, and the reason to
+keep it is that it earns its cost: on the change that introduced this paragraph it found a diagnostic
+that reported a broken rule set as healthy, a flag that hung the process with no output, and three
+doc summaries re-stamped without their prose being updated — the one convention below that the same
+change had broken.
 
 **One logical concern per PR, based on the right parent branch.** If work B genuinely
 depends on work A landing first, branch B off A's branch, not off `main` — don't let a

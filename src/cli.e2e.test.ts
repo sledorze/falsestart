@@ -155,6 +155,46 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  it.effect('--doctor reports and exits without ever reading stdin', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        // Deliberately no payload. The unit tests cannot observe this: a hang is a property of the
+        // process, and the flag that caused one parsed into a perfectly well-formed `Run`.
+        // The explicit config is the same isolation `runCli` uses — spawned in this repo, the
+        // process would otherwise pick up its `falsestart.config.ts` and reject overrides for rules
+        // this temp directory does not contain.
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('rule(s) apply to')
+      }),
+    ),
+  )
+
+  it.effect('refuses a flag where a value belongs, rather than waiting on a payload', () =>
+    Effect.gen(function* () {
+      // `--rules -x` consumed the flag as the directory and blocked on stdin forever, with no
+      // output to explain itself. Single dash counts: `-h` is a documented flag.
+      const result = yield* runCliRaw(['--rules', '-x'], '')
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain('--rules needs a value')
+    }),
+  )
+
+  it.effect('prints the version, and refuses it when a value was forgotten', () =>
+    Effect.gen(function* () {
+      const printed = yield* runCliRaw(['--version'], '')
+      expect(printed.exitCode).toBe(0)
+      expect(printed.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/)
+
+      // `--version` must not short-circuit validation: this is a forgotten `--rules` value.
+      const refused = yield* runCliRaw(['--rules', '--version'], '')
+      expect(refused.exitCode).toBe(1)
+    }),
+  )
+
   it.effect('refuses --rules with no directory', () =>
     withRules({}, () =>
       Effect.gen(function* () {

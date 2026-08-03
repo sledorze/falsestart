@@ -12,6 +12,8 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                                               |
 | `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.                                 |
 | `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward. |
+| `--doctor`           | Report what falsestart resolved and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.             |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                   |
 | `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                               |
 
 ### Judged tool calls
@@ -141,6 +143,8 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `checkFile`                 | function    | checking |
 | `WRITE_TOOLS`               | constant    | hook     |
 | `decide`                    | function    | hook     |
+| `diagnose`                  | function    | hook     |
+| `findDefaultConfigs`        | function    | config   |
 | `findUntestedRules`         | function    | testing  |
 | `findViolations`            | function    | checking |
 | `judgesPayload`             | function    | hook     |

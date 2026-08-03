@@ -43,6 +43,15 @@ export type Preset = (typeof PRESETS)[number]
 export type Options =
   | { readonly _tag: 'Help'; readonly text: string }
   | { readonly _tag: 'Invalid'; readonly problem: string }
+  | { readonly _tag: 'Version' }
+  | {
+      /** Same resolution as `Run`, but reports what it resolved instead of judging a payload. */
+      readonly _tag: 'Doctor'
+      readonly configPath: string | undefined
+      readonly preset: Preset | undefined
+      readonly rulesPackage: string | undefined
+      readonly rulesDirectory: string
+    }
   | {
       readonly _tag: 'Run'
       readonly configPath: string | undefined
@@ -74,6 +83,12 @@ Options:
                   Optional; without it falsestart looks for
                   falsestart.config.{ts,mts,js,mjs,json} and proceeds with no
                   overrides if none is present.
+  --doctor        Report what falsestart resolved — rules, config, per-path
+                  rule counts — then send a real violation through the
+                  decision path. Reads no stdin. Exits 1 when a step did not
+                  resolve or the sample could not be judged. Use this to
+                  check a hook is actually guarding something.
+  --version       Print the version.
   -h, --help      Show this message.
 
 Config format (falsestart.config.ts):
@@ -104,6 +119,8 @@ export const parseArguments = (args: readonly string[]): Options => {
   let preset: Preset | undefined
   let rulesPackage: string | undefined
   let sawRules = false
+  let doctor = false
+  let version = false
 
   // `entries()` rather than an index loop: it yields a defined element, so there is no
   // possibly-undefined fallback branch that no input can ever reach.
@@ -115,12 +132,29 @@ export const parseArguments = (args: readonly string[]): Options => {
       continue
     }
 
+    // Valueless flags, handled before a value is read. `--version` is NOT short-circuited ahead of
+    // the loop: doing that made `--rules --version` print a version for a command whose value was
+    // forgotten, and `--bogus --version` exit 0 on an unrecognised flag.
+    if (argument === '--doctor') {
+      doctor = true
+      continue
+    }
+
+    if (argument === '--version') {
+      version = true
+      continue
+    }
+
     if (argument !== '--rules' && argument !== '--config' && argument !== '--preset') {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
     const value = args[index + 1]
-    if (value === undefined) {
+    // A flag-shaped value means the real value was forgotten. Swallowing it silently ran the
+    // judging path with the default rule set AND consumed the next flag, so `--rules --doctor`
+    // waited on a payload that was never coming — a hang with no output at all. Single dash counts:
+    // `-h` is a documented flag, and `--rules -x` hung exactly the same way.
+    if (value === undefined || value.startsWith('-')) {
       return { _tag: 'Invalid', problem: `${argument} needs a value` }
     }
 
@@ -151,5 +185,11 @@ export const parseArguments = (args: readonly string[]): Options => {
     return { _tag: 'Invalid', problem: '--preset and --rules cannot be combined' }
   }
 
-  return { _tag: 'Run', configPath, preset, rulesDirectory, rulesPackage }
+  if (version) {
+    return { _tag: 'Version' }
+  }
+
+  return doctor
+    ? { _tag: 'Doctor', configPath, preset, rulesDirectory, rulesPackage }
+    : { _tag: 'Run', configPath, preset, rulesDirectory, rulesPackage }
 }

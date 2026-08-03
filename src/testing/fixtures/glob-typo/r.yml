@@ -1,0 +1,8 @@
+id: glob-typo
+language: tsx
+severity: error
+message: 'Scoped with `src/**.ts`, which reaches top-level files only.'
+rule:
+  pattern: $X as any
+files:
+  - 'src/**.ts'

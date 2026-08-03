@@ -5,7 +5,7 @@
       "target": "./docs/overview.md"
     },
     {
-      "hash": "c2a73426d553d96ae22d75c858fffe2604e59ea4fd9756c6615d6d0b911071b3",
+      "hash": "e18b19dca6bc1fdb090a4f0c527d7d6d1ec18639c75e5424f4b14d67efdcd521",
       "target": "./docs/using-the-hook.md"
     },
     {
@@ -13,7 +13,7 @@
       "target": "./docs/architecture.md"
     },
     {
-      "hash": "d9aa811a9299a36f77b746b8a1853f33b769a463026464d1b700cafa8e539ae1",
+      "hash": "c578bf32c9684b76714bf43434d5f6418f8a4297084e47eab0252540192a4c6b",
       "target": "./AGENTS.md"
     }
   ]

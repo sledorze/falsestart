@@ -137,15 +137,14 @@ export const loadConfigFile = (
   })
 
 /**
- * Loads the first config that exists among the default names, or none.
+ * The default-named config files present in `directory`, as full paths.
  *
- * Absence is not an error here, unlike an explicit `--config`: a repo with nothing to re-scope
- * should not need a file. More than one is refused rather than resolved by precedence — silently
- * picking one of two configs is the kind of quiet wrong answer this tool exists to prevent.
+ * Shared with the doctor rather than duplicated: it reports which config was picked up, and a second
+ * copy of this scan would be a second thing to keep in step with `DEFAULT_CONFIG_CANDIDATES`.
  */
-export const loadDefaultConfig = (
+export const findDefaultConfigs = (
   directory: string,
-): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
@@ -158,6 +157,22 @@ export const loadDefaultConfig = (
         present.push(full)
       }
     }
+
+    return present
+  })
+
+/**
+ * Loads the first config that exists among the default names, or none.
+ *
+ * Absence is not an error here, unlike an explicit `--config`: a repo with nothing to re-scope
+ * should not need a file. More than one is refused rather than resolved by precedence — silently
+ * picking one of two configs is the kind of quiet wrong answer this tool exists to prevent.
+ */
+export const loadDefaultConfig = (
+  directory: string,
+): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const present = yield* findDefaultConfigs(directory)
 
     const [only, ...rest] = present
     if (only === undefined) {

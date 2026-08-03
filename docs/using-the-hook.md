@@ -37,6 +37,43 @@ Two details that are easy to get wrong and fail silently:
   `Bash` is deliberately absent: falsestart judges the text a write tool carries, so a heredoc
   redirect is outside what it can see.
 
+### Check it is actually guarding something
+
+Every misconfiguration falsestart has degrades to the same place — exit 1, a line on stderr the agent
+runtime swallows, and the write proceeding. A registered hook that enforces nothing looks exactly
+like one that found nothing to complain about. `--doctor` is the difference:
+
+```bash
+node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
+```
+
+```
+falsestart 0.0.1
+
+rules    …/rules/clean-code — 4 loaded
+config   searched /repo — 0 override(s)
+tools    Edit, NotebookEdit, Write — any other tool call is ignored
+scope
+           4 rule(s) apply to src/a.ts
+           4 rule(s) apply to src/nested/deep/a.ts
+           4 rule(s) apply to src/a.mts
+           0 rule(s) apply to src/a.test.ts
+           0 rule(s) apply to src/a.js
+
+check    the sample `const widget = payload as any` at src/nested/example.ts was blocked
+```
+
+It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
+is not there, a config that cannot be read, or an override for a rule the current preset does not
+load. That last one is easy to hit: narrowing `--preset all` to `--preset clean-code` while keeping a
+config that names an Effect rule turns the whole guard off.
+
+**Read the scope block, not just the last line.** A nested path is probed on purpose: `src/**.ts` and
+`src/**/*.ts` look alike and behave completely differently, and a rule set with that typo guards
+top-level files while leaving every nested source file — nearly the whole codebase — untouched. It
+also exits 1 when no rule reaches any probed path, since a rule set whose globs all miss is loaded,
+valid, and enforcing nothing.
+
 Rules can come from three places:
 
 | Source                  | How                                                     |

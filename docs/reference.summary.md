@@ -8,7 +8,8 @@ file content. Anything else is allowed in silence. `Bash` is deliberately absent
 redirect writes a file falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
-`--config <file>`, `--help`. Exit 0 with JSON blocks, exit 0 with no output defers, exit 1 reports a
+`--config <file>`, `--doctor`, `--version`, `--help`. `--doctor` reports what was resolved and probes
+five paths for reachability, reading no stdin. Exit 0 with JSON blocks, exit 0 with no output defers, exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
 
 **Rule document:** `id`, `language` and `rule` required; `message`, `note`, `severity`, `files`,

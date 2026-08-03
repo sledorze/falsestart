@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "d01b12b942740ae295ed54b17f461a7c184a76b1804521878521aa045ddfa173",
+      "hash": "4d7c0e64531d03d8358b0cd158945d7b8986f9a1bda4ed026ddfcc3bce004599",
       "target": "./reference.md"
     },
     {
-      "hash": "c2a73426d553d96ae22d75c858fffe2604e59ea4fd9756c6615d6d0b911071b3",
+      "hash": "e18b19dca6bc1fdb090a4f0c527d7d6d1ec18639c75e5424f4b14d67efdcd521",
       "target": "./using-the-hook.md"
     },
     {
@@ -13,11 +13,11 @@
       "target": "../src/checking/index.ts"
     },
     {
-      "hash": "aa11f5277861fd14b50f6054f49a375dfa3e93d9ccc7f7c2539f7fded71ba4d7",
+      "hash": "d77b4d12de6e19d7edef9b061177794d85f04bece878db2c28ec94cebce8a4f2",
       "target": "../src/config/index.ts"
     },
     {
-      "hash": "71d3536a43a8866762ec660f9cc0bd2473284a512ca6f45d2421a0a807abd1eb",
+      "hash": "73131da6394a0241b91a8e9ff94bcd440f858b59bb77e98d050cefcc236150fe",
       "target": "../src/hook/index.ts"
     },
     {
@@ -29,7 +29,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "5cbb8e4210b04f6d99bf67cad49b364a633f510596e7f2cf82f541bf6cc3d6c0",
+      "hash": "088067771731fa388f440fd6fb9c6e5c46490eedff9128d17130274d4f07f268",
       "target": "../src/cli.ts"
     }
   ]

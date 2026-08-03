@@ -1,6 +1,6 @@
 # AGENTS.md — summary
 
-The conventions this repository holds contributors to. Four of them.
+The conventions this repository holds contributors to. Five of them.
 
 **Documentation summaries.** Every Markdown file past the line threshold has a sibling
 `X.summary.md`; every in-scope directory has a `_SUMMARY.md` linking to all of its children.
