@@ -19,6 +19,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Schema } from 'effect'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
+import { WRITE_TOOLS } from './hook/decide.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -121,6 +122,24 @@ layer(platform)('documentation covers the source', (it) => {
       )
 
       expect(invalid.flat()).toEqual([])
+    }),
+  )
+
+  // Which tool calls get judged is the most consequential fact about this hook, and until now the
+  // docs never stated it — a reader could not tell whether their write tool was covered. Anything
+  // outside the map is allowed in silence, which is indistinguishable from a clean write, so a
+  // fourth write tool appearing upstream would go unguarded with no signal at all.
+  it.effect('the reference documents exactly the tool calls that are judged', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      const documented = [...reference.matchAll(/^\| `(\w+)`\s+\| `(\w+)`\s+\| `(\w+)`\s+\|$/gm)].map((row) =>
+        [row[1], row[2], row[3]].join('/'),
+      )
+      const actual = Object.entries(WRITE_TOOLS).map(([name, fields]) => `${name}/${fields.path}/${fields.content}`)
+
+      expect(documented.toSorted()).toEqual(actual.toSorted())
     }),
   )
 

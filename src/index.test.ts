@@ -14,6 +14,7 @@ describe('library surface', () => {
       'SEVERITIES',
       'SHIPPED_RULE_IDS',
       'SUPPORTED_LANGUAGES',
+      'WRITE_TOOLS',
       'appliesTo',
       'applyScopeOverrides',
       'assessRule',
