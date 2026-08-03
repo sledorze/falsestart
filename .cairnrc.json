@@ -1,13 +1,5 @@
 {
-  "ignore": [
-    "**/node_modules/**",
-    "**/.agents/**",
-    "**/.claude/**",
-    "**/.changeset/**",
-    "**/.github/**",
-    "**/dist/**",
-    "**/coverage/**"
-  ],
+  "ignore": ["node_modules/**", ".agents/**", ".claude/**", ".changeset/**", ".github/**", "dist/**", "coverage/**"],
   "naming": {
     "dirSummary": "_SUMMARY.md",
     "fileSummarySuffix": ".summary.md"

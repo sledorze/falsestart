@@ -38,7 +38,8 @@ When you create or edit any doc — **or any source file a doc links to**:
 2. Update the `_SUMMARY.md` of every affected directory, walking **up** the tree
    leaves-first, and keep a link to every child file and sub-directory.
 3. Run the stamp command to (re)write the sidecar hashes under `.cairn/` bottom-up:
-   `pnpm stamp` (`cairn check --summaries-only --refs --stamp`).
+   `pnpm stamp` (`cairn check --summaries-only --refs --stamp`). Stamp AFTER formatting: prettier
+   reflows markdown tables, and a stamp taken before it is stale the moment the formatter runs.
 4. Run `pnpm check` and ensure it exits 0 (green) before you finish.
 5. Commit your doc changes **together with** the `.cairn/` sidecar changes — a doc
    edit without its matching sidecar update is exactly what `check` is designed to catch.
@@ -60,7 +61,13 @@ When you create or edit any doc — **or any source file a doc links to**:
   (source doc deleted, renamed, or below threshold).
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
-  `pnpm check`. It found a changeset citing a rule path months after the rule moved.
+  `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid.
+- `--report-deletions` — informational, never affects the exit code: names what a deleted document
+  took with it (its outbound references and headings) when nothing else in the tree carries them.
+  On in `pnpm check`, comparing against the working tree; pass `--deletions-since <ref>` to check
+  deletions already committed on a branch. This exists because a lossy dedup here removed the only
+  description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - `checks.coverage` — **config only, absent from `--help`**, so you will not find it by asking the
   tool. Declares document _kinds_ by path glob and _rules_ between them ("every explanation doc must
   link to a reference doc"), then reports the ones missing. It is the check that would notice a
