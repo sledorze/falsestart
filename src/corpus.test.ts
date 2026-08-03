@@ -115,6 +115,20 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
     ],
     catches: ['load().then(use)', 'load().catch(onError)', 'load().finally(cleanup)'],
   },
+  'no-throwing-decode': {
+    allows: [
+      'const w = yield* Schema.decodeUnknownEffect(WidgetSchema)(payload)',
+      'const r = Schema.decodeUnknownResult(WidgetSchema)(payload)',
+      // Lazy-thunk constructors also end in Sync and are correct.
+      'const e = Effect.failSync(() => new Boom())',
+      'const d = Deferred.failSync(deferred, cause)',
+    ],
+    catches: [
+      'const w = Schema.decodeUnknownSync(WidgetSchema)(payload)',
+      'const w = Schema.decodeSync(WidgetSchema)(raw)',
+      'const s = Schema.encodeSync(WidgetSchema)(widget)',
+    ],
+  },
   'no-try-catch': {
     allows: ['const r = Effect.try({ try: () => parse(raw), catch: onError })'],
     catches: ['try { parse(raw) } catch (error) { report(error) }'],
@@ -131,6 +145,20 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
       'if (isWidget(value)) { use(value) }',
     ],
     catches: ['const w = value as Widget', 'const w = value as any', 'call(payload as Widget)'],
+  },
+  'no-unsafe-api': {
+    allows: [
+      'const c = yield* Context.get(Repository)',
+      'const head = Chunk.head(items)',
+      'const v = Result.getOrElse(res, onNone)',
+      // Not an Effect namespace: someone else's API may use the same suffix.
+      'const v = myOwnHelper.readUnsafe(path)',
+    ],
+    catches: [
+      'const c = Context.makeUnsafe(tag)',
+      'const h = Chunk.headUnsafe(items)',
+      'const v = Result.getOrThrow(res)',
+    ],
   },
   'no-vi-mocking': {
     allows: [

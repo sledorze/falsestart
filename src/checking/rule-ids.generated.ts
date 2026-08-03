@@ -22,6 +22,8 @@ export type ShippedRuleId =
   | 'no-raw-coercion'
   | 'no-raw-error'
   | 'no-test-lifecycle-hooks'
+  | 'no-throwing-decode'
+  | 'no-unsafe-api'
   | 'no-then-catch'
   | 'no-try-catch'
   | 'no-type-assertion'
@@ -39,6 +41,8 @@ export const SHIPPED_RULE_IDS: readonly ShippedRuleId[] = [
   'no-raw-coercion',
   'no-raw-error',
   'no-test-lifecycle-hooks',
+  'no-throwing-decode',
+  'no-unsafe-api',
   'no-then-catch',
   'no-try-catch',
   'no-type-assertion',
