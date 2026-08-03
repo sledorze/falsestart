@@ -8,4 +8,4 @@ Blocks risky code patterns the instant an AI writes them — before the file lan
 - [SECURITY](./SECURITY.md) — how to report a vulnerability, and what this tool executes on your behalf.
 - [CODE_OF_CONDUCT](./CODE_OF_CONDUCT.md) — Contributor Covenant 2.1.
 - [CLAUDE.md](./CLAUDE.md) — points at AGENTS.md.
-- [docs/](./docs) ([index](./docs/_SUMMARY.md)) — overview, how-to, reference, and the reasoning behind the design.
+- [docs/](./docs/_SUMMARY.md) — overview, how-to, reference, and the reasoning behind the design.
