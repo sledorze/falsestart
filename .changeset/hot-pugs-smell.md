@@ -31,7 +31,7 @@ Two documentation defects fixed alongside:
   search. Following the first put the file where falsestart never looks, and the override was
   silently ignored.
 
-Also now stated: every shipped rule matches `**/*.{ts,tsx}` only, so a repo written in `.mts`,
+Also now stated: at the time of this change every shipped rule matched `**/*.{ts,tsx}` only, so a repo written in `.mts`,
 `.cts` or `.js` needs its own `files` globs or the guard is installed and inert.
 
 No behaviour change — the code is untouched apart from `files` in `package.json`.

@@ -146,6 +146,11 @@ change is wrong and to find where it does not hold, and it must be given the art
 your account of it. You wrote both the code and the justification, so you are not a neutral reader
 of either; a reviewer who has seen your reasoning inherits your blind spots along with it.
 
+**One agent, not a fleet.** A single reviewer with a sharp prompt outperforms three with vague ones,
+and three vague ones cost three times as much to produce overlapping style notes. If you are tempted
+to fan out by "lens" — correctness, then idiom, then docs — write those as targets in one prompt
+instead. Reach for a second agent only when the first returns something you cannot verify yourself.
+
 What makes it worth the tokens rather than a ritual:
 
 - **Give it the diff, the branch, and the claim** — "this change claims X; verify X" — and tell it

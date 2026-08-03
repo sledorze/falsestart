@@ -26,6 +26,7 @@ leaves that inherited from an author who never saw your layout. `ignores` stays 
 omitted, the rule keeps its own.
 
 Without `--config`, falsestart now looks for `falsestart.config.{ts,mts,js,mjs,json}` beside the
-rules directory; previously it looked only for `falsestart.config.json`. Two present is an error
+rules directory — _superseded by a later change: the lookup is in the project directory, since
+`--preset` and `pkg:` both put the rules inside `node_modules`_ — previously it looked only for `falsestart.config.json`. Two present is an error
 rather than a precedence rule. A config named explicitly with `--config` must now exist, where
 before a missing one was silently ignored.

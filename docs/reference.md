@@ -159,10 +159,13 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `toScopingPath`             | function    | checking |
 | `validateConfig`            | function    | config   |
 
-Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `Config`,
-`FalsestartConfig`, `ScopeOverride`, `HookResponse`, `RespondOptions`, `Options`, `Preset`,
+Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `Diagnosis`,
+`DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `HookResponse`, `RespondOptions`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
+
+`Options` and `Preset` are **not** exported: `src/index.ts` re-exports the `checking`, `config`,
+`hook` and `testing` entry points, and argument parsing is the CLI's own business.
 
 `effect` is a required peer dependency; `@effect/platform-node` is optional, needed only for the
 helpers that touch the filesystem.

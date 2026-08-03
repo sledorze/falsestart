@@ -140,6 +140,26 @@ rule:
     }),
   )
 
+  effect('reports one finding per rule per position, not one per matching alternative', () =>
+    Effect.gen(function* () {
+      // An `any:` rule can match several of its alternatives at the same node. Shipped,
+      // `load().then(d).catch(e)` tripped `no-then-catch` twice at identical coordinates, and a
+      // reader of the blocked-write message sees two problems with nothing to tell them apart.
+      const overlapping: Rule = {
+        id: 'overlapping',
+        language: 'tsx',
+        rule: { any: [{ pattern: '$E.then($$$A)' }, { pattern: '$E.catch($$$A)' }] },
+      }
+
+      // A chain: `.then` and `.catch` are different alternatives whose matched nodes START at the
+      // same offset, so both report line 1 column 11.
+      const source = 'const r = load().then((d) => d).catch((e) => handle(e))'
+      const findings = yield* checkFile([overlapping], { content: source, path: 'src/a.ts' })
+
+      expect(findings).toHaveLength(1)
+    }),
+  )
+
   effect('fails rather than under-reporting when a rule cannot be run', () =>
     Effect.gen(function* () {
       const broken: Rule = { id: 'broken', language: 'tsx', rule: { nonsense: true } }

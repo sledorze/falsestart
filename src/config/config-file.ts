@@ -10,9 +10,10 @@
  * types` — a flag falsestart cannot set, because the hook is launched by the agent runtime, not by
  * us. The alternatives were a runtime transpiler dependency (a second native binary on a hot path
  * that already costs ~75ms) or refusing TypeScript configs. Stripping types with Node's own
- * `stripTypeScriptTypes` and importing the result is the cheapest correct option, and it is the
- * one direct `node:` API in this codebase — used because no Effect service exposes the capability
- * at all, not for convenience.
+ * `stripTypeScriptTypes` and importing the result is the cheapest correct option. It is used because
+ * no Effect service exposes the capability at all, not for convenience. Direct `node:` imports are
+ * confined to this file and `cli.ts` — module resolution, path-to-URL and type stripping, none of
+ * which Effect models — and nowhere else in the codebase.
  *
  * ## What a TypeScript config may contain
  *

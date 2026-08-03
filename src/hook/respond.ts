@@ -101,8 +101,9 @@ export const respond = (
       return problem(`could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`)
     }
 
-    // An explicit --config must exist; without one, the default names are looked for next to the
-    // rules and their absence simply means no overrides.
+    // An explicit --config must exist; without one, the default names are looked for in
+    // `projectDirectory` — never beside the rules, which `--preset` and `pkg:` both put inside
+    // node_modules — and their absence simply means no overrides.
     const configured = yield* Effect.result(
       configPath === undefined ? loadDefaultConfig(projectDirectory) : loadConfigFile(configPath),
     )

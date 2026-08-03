@@ -164,7 +164,10 @@ layer(platform)('hook response', (it) => {
     ),
   )
 
-  it.effect('picks up a default falsestart.config.json next to the rules', () =>
+  // Named for what it proves: `projectDirectory` and `rulesDirectory` are the same temp directory
+  // here, so this exercises the PROJECT lookup. It was called "next to the rules", which is the
+  // behaviour this codebase deliberately does not have — see the regression test further down.
+  it.effect('picks up a default falsestart.config.json from the project directory', () =>
     withRules(
       { 'falsestart.config.json': '{"rules":{"no-as-any":{"files":["nowhere/**"]}}}', 'no-as-any.yml': noAsAny },
       (rules) =>

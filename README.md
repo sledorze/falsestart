@@ -16,7 +16,8 @@ npm pack                       # in a checkout of this repo
 pnpm add -D ./sledorze-falsestart-0.0.1.tgz
 ```
 
-`effect` is only needed if you import the library. The hook binary bundles what it needs.
+`effect` is a required peer dependency, so installing this installs it too. The hook binary itself
+inlines what it needs and never loads yours — the peer is for the library entry point.
 
 ## Wire it up
 
@@ -46,13 +47,13 @@ command, so a bare name exits 127 and the hook silently does nothing while still
 registered. `npx falsestart --preset clean-code` also works.
 
 **Pick the preset deliberately.** `clean-code` is four TypeScript rules and assumes nothing else.
-`effect` is fifteen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
-`new Promise`, `.then`, `JSON.parse` and `process.env`, so on an ordinary async function `all` (both
+`effect` is sixteen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
+`new Promise`, `.then`, `JSON.parse`, `fetch` and `process.env`, so on an ordinary async function `all` (both
 sets) produces seven blocks. That is intended in an Effect repo and wrong everywhere else. `--rules
 <dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at another package's.
 
-Shipped rules match `**/*.{ts,tsx}` only. A repo written in `.mts`, `.cts` or `.js` needs its own
-`files` globs, or the guard is installed and inert.
+Shipped rules match `**/*.{ts,tsx,mts,cts}`. `.js`, `.jsx`, `.mjs` and `.cjs` are excluded by
+design, so a repo written in those needs its own `files` globs or the guard is installed and inert.
 
 ### Check it works
 
