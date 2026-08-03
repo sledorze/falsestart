@@ -2,12 +2,30 @@ id: no-then-catch
 language: tsx
 severity: error
 message: 'Promise chaining has no typed error channel and no interruption. Use Effect.map / Effect.catch / Effect.ensuring on an Effect.tryPromise instead.'
+note: |
+  `Effect.catch(...)` is the remedy this rule recommends, so matching it would block the fix — and
+  the same holds for every other namespace exposing a `catch`/`finally`-shaped combinator.
+
+  The exemption is structural rather than a list of names. The receiver must be an `identifier`
+  NODE that is capitalised: a namespace reference, by the convention every module object follows.
+  A list was tried first and was wrong twice over. It named ten namespaces of which five —
+  `Fiber`, `Exit`, `Option`, `Result`, `Schedule` — export no such member at all, and it missed
+  `HttpClient.catch`, because `effect/unstable/http` is not re-exported by the root import and
+  nobody thinks to enumerate subpaths. Any list of somebody else's namespaces is a claim that goes
+  stale on their release schedule, not ours.
+
+  Requiring the identifier node is what keeps this honest: `Promise.resolve(v).catch(onError)` is
+  capitalised too, but its receiver is a `call_expression`, so it stays blocked. Testing the text
+  for a leading capital would have exempted it.
+
+  Known limit: a promise held in a capitalised variable (`const P = fetch(u); P.catch(h)`) is not
+  matched. That is rarer than a missed namespace, and it fails toward allowing rather than toward
+  blocking correct code.
 constraints:
   EXPR:
     not:
-      # `Effect.catch(...)` is the remedy this rule recommends; matching it would block the fix.
-      # Same for the other Effect namespaces that expose a `catch`/`finally`-shaped combinator.
-      regex: '^(Effect|Stream|Layer|Fiber|Exit|Option|Result|Schedule|Sink|Channel)$'
+      kind: identifier
+      regex: '^[A-Z]'
 rule:
   any:
     - pattern: $EXPR.then($$$ARGS)
