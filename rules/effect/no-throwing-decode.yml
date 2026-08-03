@@ -1,0 +1,27 @@
+id: no-throwing-decode
+language: tsx
+severity: error
+message: 'A *Sync decoder throws on invalid input, so the failure leaves the type system and lands wherever the nearest try/catch happens to be. Use Schema.decodeUnknownEffect (or decodeUnknownResult when you want a value rather than an Effect) so the failure is in the error channel and the caller can see it.'
+note: |
+  `Schema.decodeUnknownSync(WidgetSchema)(payload)` returns a Widget or throws. The signature
+  promises a Widget unconditionally, which is exactly the lie decoding exists to stop telling.
+
+      const widget = yield* Schema.decodeUnknownEffect(WidgetSchema)(payload)
+
+  The namespace and the verb are both pinned deliberately. `Sync` alone is not a signal: in Effect
+  it also marks the LAZY constructors — `Effect.failSync`, `Deferred.failSync`, `Channel.endSync`
+  take a thunk and throw nothing. Only decode/encode (and `Effect.runSync`, which belongs at the
+  edge) run and throw.
+rule:
+  pattern: $NS.$METHOD($$$ARGS)
+constraints:
+  NS:
+    regex: '^(Schema|SchemaParser)$'
+  METHOD:
+    regex: '^(decode|encode)(Unknown)?Sync$'
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
+  - '**/*.bench.{ts,tsx}'

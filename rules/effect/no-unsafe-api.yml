@@ -1,0 +1,26 @@
+id: no-unsafe-api
+language: tsx
+severity: error
+message: 'Effect marks a partial or throwing API with an Unsafe or OrThrow suffix — it is the escape hatch, not the API. Use the total counterpart (Context.get, Chunk.head, Result.getOrElse), which returns an Option, a Result or an Effect instead of throwing.'
+note: |
+  These are deliberate escape hatches, and the suffix is the warning label. `Chunk.headUnsafe`
+  throws on an empty chunk where `Chunk.head` returns an Option; `Result.getOrThrow` throws where
+  `Result.getOrElse` makes you say what happens instead.
+
+  The namespace list is pinned rather than matching the suffix alone, because the suffix is a
+  convention anyone may adopt: `myOwnHelper.readUnsafe(path)` is not this rule's business. The list
+  is the set of Effect namespaces that actually export such a name, and it is kept honest by the
+  API-surface lock rather than by anyone remembering to update it.
+rule:
+  pattern: $NS.$METHOD($$$ARGS)
+constraints:
+  NS:
+    regex: '^(Array|BigDecimal|BigInt|Chunk|Context|Cron|DateTime|Deferred|Duration|Effect|Equal|FiberHandle|FiberMap|FiberSet|HashMap|Iterable|Latch|Layer|Match|Metric|MutableList|Number|Option|PartitionedSemaphore|PubSub|Queue|Redacted|Ref|Result|Scope|ScopedRef|Semaphore|SubscriptionRef|SynchronizedRef|Trie|TxChunk|TxRef|UndefinedOr)$'
+  METHOD:
+    regex: '(Unsafe|OrThrow)$'
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
+  - '**/*.bench.{ts,tsx}'
