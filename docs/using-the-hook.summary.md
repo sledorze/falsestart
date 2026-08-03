@@ -1,7 +1,9 @@
 # Using the hook — summary
 
 falsestart runs as a Claude Code `PreToolUse` hook: register it in `.claude/settings.json` with a
-`Edit|Write` matcher and `falsestart --rules <dir>`. `--rules` is searched recursively and defaults
+`Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
+`node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
+Settings must be strict JSON. `--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 
