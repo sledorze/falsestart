@@ -1,0 +1,27 @@
+name: Bug report
+description: Something falsestart did that it should not have, or did not do that it should have.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run `falsestart --doctor --preset <yours>` first and paste the output — it reports what was
+        resolved and whether the guard is actually enforcing anything, which is the first question.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: '`--doctor` output'
+      render: text
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: If a rule fired on code it should have allowed, include the smallest snippet that reproduces it.
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: falsestart version
+      description: '`falsestart --version`'
+    validations: { required: true }

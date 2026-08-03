@@ -1,5 +1,8 @@
 # falsestart
 
+[![CI](https://github.com/sledorze/falsestart/actions/workflows/ci.yml/badge.svg)](https://github.com/sledorze/falsestart/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+
 Blocks risky code patterns the instant an AI writes them — before the file lands, not
 just at CI. Can also be used to enforce structure/architecture conventions.
 
@@ -107,6 +110,9 @@ export default {
 - [Overview](./docs/overview.md) — what it does.
 - [Using the hook](./docs/using-the-hook.md) — setup, choosing rules, writing one.
 - [Architecture](./docs/architecture.md) — how the pieces fit, and why.
+- [Reference](./docs/reference.md) — flags, exit codes, rule format, config, exports.
+- [Contributing](./CONTRIBUTING.md) — the three gates a new rule has to pass.
+- [Security](./SECURITY.md) — what this tool executes, and what it cannot see.
 
 ## Development
 

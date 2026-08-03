@@ -17,3 +17,7 @@ Rules come from three places: `--preset all|clean-code|effect` for the shipped c
 re-scopable per repo through a typed `falsestart.config.ts`.
 
 Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, docs check).
+
+Also linked from the README: [CONTRIBUTING](./CONTRIBUTING.md) (how to run the checks and the three
+gates a new rule passes), [SECURITY](./SECURITY.md) (what the tool executes on your behalf — a
+TypeScript config is imported, so it runs — and what it cannot see), and the reference doc.

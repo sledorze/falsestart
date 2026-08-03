@@ -1,0 +1,17 @@
+version: 2
+updates:
+  # `effect` is a 4.0.0-beta peer dependency, so an update is a real behaviour change here rather
+  # than a routine bump: rules name its APIs, and `src/remedies.test.ts` fails when a named one
+  # stops existing. Grouped so one PR carries the whole surface change.
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 5
+    groups:
+      effect:
+        patterns: ['effect', '@effect/*']
+      dev:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
