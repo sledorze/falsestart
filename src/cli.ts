@@ -13,7 +13,7 @@ import { Data, Effect, Layer, Stdio, Stream } from 'effect'
 import type { Preset } from './cli/index.ts'
 import { parseArguments } from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
-import { respond } from './hook/index.ts'
+import { diagnose, respond } from './hook/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
@@ -44,6 +44,12 @@ const emit = (response: HookResponse) =>
  * package manager put the package — including pnpm's content-addressed store, where guessing
  * `node_modules/@sledorze/falsestart/rules` does not work.
  */
+/**
+ * Read from the installed manifest rather than baked in at build time, so it cannot drift from the
+ * package a consumer actually has — the same `import.meta.url` anchor `presetDirectory` relies on.
+ */
+const VERSION: string = createRequire(import.meta.url)('../package.json').version
+
 const presetDirectory = (preset: Preset): string => {
   const packaged = fileURLToPath(new URL('../rules', import.meta.url))
   return preset === 'all' ? packaged : `${packaged}/${preset}`
@@ -79,6 +85,10 @@ const program = Effect.gen(function* () {
     return yield* write(`${options.text}\n`, stdio.stdout())
   }
 
+  if (options._tag === 'Version') {
+    return yield* write(`${VERSION}\n`, stdio.stdout())
+  }
+
   if (options._tag === 'Invalid') {
     // Refusing the run is itself the non-blocking error notice: the write proceeds, but the
     // misconfiguration is visible rather than silently running some other rule set.
@@ -86,8 +96,6 @@ const program = Effect.gen(function* () {
     return yield* new Exit({ code: 1 })
   }
 
-  // Read stdin only once there is something to do with it.
-  const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
   const projectDirectory = process.cwd()
 
   const located = yield* Effect.result(
@@ -110,6 +118,23 @@ const program = Effect.gen(function* () {
     yield* write(`falsestart: could not resolve rules package (${located.failure})\n`, stdio.stderr())
     return yield* new Exit({ code: 1 })
   }
+
+  // `--doctor` answers a question about the installation, so it must not wait on a payload that
+  // will never arrive. Reading stdin below happens only on the judging path.
+  if (options._tag === 'Doctor') {
+    const diagnosis = yield* diagnose({
+      configPath: options.configPath,
+      projectDirectory,
+      rulesDirectory: located.success,
+      version: VERSION,
+    })
+
+    yield* write(`${diagnosis.lines.join('\n')}\n`, stdio.stdout())
+    return yield* diagnosis.healthy ? Effect.void : new Exit({ code: 1 })
+  }
+
+  // Read stdin only once there is something to do with it.
+  const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
 
   const response = yield* respond({
     configPath: options.configPath,

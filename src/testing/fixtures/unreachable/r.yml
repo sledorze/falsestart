@@ -1,0 +1,8 @@
+id: unreachable-probe
+language: tsx
+severity: error
+message: 'A fixture rule whose glob matches nothing the doctor probes.'
+rule:
+  pattern: $X as any
+files:
+  - 'nowhere/**/*.ts'

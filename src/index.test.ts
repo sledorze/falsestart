@@ -20,6 +20,8 @@ describe('library surface', () => {
       'assessRule',
       'checkFile',
       'decide',
+      'diagnose',
+      'findDefaultConfigs',
       'findUntestedRules',
       'findViolations',
       'judgesPayload',

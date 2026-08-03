@@ -22,6 +22,34 @@ describe('command line', () => {
     })
   })
 
+  it('recognises --doctor, keeping the resolution it would have run with', () => {
+    expect(parseArguments(['--doctor', '--rules', 'my-rules'])).toEqual({
+      _tag: 'Doctor',
+      configPath: undefined,
+      preset: undefined,
+      rulesDirectory: 'my-rules',
+      rulesPackage: undefined,
+    })
+  })
+
+  it('recognises --doctor after the flags it reports on', () => {
+    expect(parseArguments(['--preset', 'all', '--doctor'])._tag).toBe('Doctor')
+  })
+
+  it('recognises --version ahead of everything else', () => {
+    expect(parseArguments(['--version'])).toEqual({ _tag: 'Version' })
+    expect(parseArguments(['--rules', 'x', '--version'])).toEqual({ _tag: 'Version' })
+  })
+
+  it('refuses a flag where a value belongs rather than swallowing it', () => {
+    // `--rules --doctor` consumed `--doctor` as the directory, fell through to the judging path,
+    // and waited on a payload that was never coming — a hang with no output to explain itself.
+    const parsed = parseArguments(['--rules', '--doctor'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed).toMatchObject({ problem: '--rules needs a value' })
+  })
+
   it('refuses --rules with no directory rather than quietly using the default', () => {
     // Silently falling back would run a DIFFERENT rule set than the one asked for, and look
     // completely normal while doing it.

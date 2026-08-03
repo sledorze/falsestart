@@ -1,0 +1,8 @@
+id: broken-at-match-time
+language: tsx
+severity: error
+message: 'Parses as a rule document, but ast-grep rejects the body when it runs.'
+rule:
+  matches: no-such-util
+files:
+  - '**/*.{ts,tsx}'
