@@ -121,5 +121,5 @@ pnpm install
 pnpm verify   # lint + typecheck + test + build + check
 ```
 
-See [AGENTS.md](./AGENTS.md) for the documentation, release, and shipping conventions
+See [AGENTS.md](https://github.com/sledorze/falsestart/blob/main/AGENTS.md) for the documentation, release, and shipping conventions
 this repo follows.

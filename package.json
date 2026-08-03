@@ -34,6 +34,9 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "dist",
     "docs",
     "rules"

@@ -143,6 +143,34 @@ layer(platform)('documentation covers the source', (it) => {
     }),
   )
 
+  // A README link is read on npmjs.com, where only `files` exists. `docs/` was once omitted, which
+  // killed three links in the tarball; adding CONTRIBUTING/SECURITY links repeated it within the
+  // hour. Nothing noticed either time, because the repo checkout resolves them fine.
+  it.effect('every relative README link resolves to a file the package ships', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const readme = yield* fs.readFileString('README.md')
+      const manifest = yield* fs.readFileString('package.json')
+      const shipped: readonly string[] = yield* Effect.orDie(
+        Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+          Effect.map((parsed) => (parsed as { readonly files: readonly string[] }).files),
+        ),
+      )
+
+      // npm always includes these regardless of `files`.
+      const always = new Set(['README.md', 'LICENSE', 'package.json'])
+      const targets = [...readme.matchAll(/\]\((\.\/[^)]+)\)/g)].flatMap((match) =>
+        match[1] === undefined ? [] : [match[1].replace('./', '')],
+      )
+
+      const unshipped = targets.filter(
+        (target) => !always.has(target) && !shipped.some((entry) => target === entry || target.startsWith(`${entry}/`)),
+      )
+
+      expect(unshipped).toEqual([])
+    }),
+  )
+
   it.effect('every area holds an entry point', () =>
     Effect.gen(function* () {
       const files = yield* sourceFiles
