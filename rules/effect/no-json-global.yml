@@ -1,0 +1,38 @@
+id: no-json-global
+language: tsx
+severity: error
+message: 'JSON.parse returns any and throws on malformed input, so a decode failure becomes a crash and a wrong shape becomes a plausible value. Decode through a schema instead: Schema.decodeUnknownEffect(Schema.fromJsonString(Widget))(text), or Schema.UnknownFromJsonString when the shape is checked later. Encode with Schema.encodeEffect on the same codec.'
+note: |
+  `JSON.parse` fails in both directions at once. It **throws** on a malformed document, so the
+  failure leaves the type system entirely and arrives as an exception at whatever frame happens to
+  be running. And it is typed `any`, so a document with the wrong shape parses happily and every
+  property access afterwards is unchecked — the value looks plausible right up until it is used.
+
+  `Schema.fromJsonString(Widget)` is one codec covering both steps: the parse and the shape. A
+  malformed document and a wrong shape are the same kind of thing — a decode failure in the error
+  channel — and the value that comes out is typed. `Schema.UnknownFromJsonString` is the narrower
+  form for when parsing and validation are genuinely separate phases.
+
+  `JSON.stringify` is included because it is the other half of the same codec, and because it is
+  partial in ways its signature hides: it throws on a circular structure or a BigInt, and returns
+  `string | undefined` — `undefined` for a function, a symbol, or `undefined` itself. Encoding
+  through `Schema.encodeEffect` makes the shape being written down an explicit, declared thing
+  rather than whatever the value happened to be.
+
+  Only the `JSON` global is matched. `yaml.parse(source)` and `Number.parseInt(raw, 10)` are
+  somebody else's API and this rule has no opinion about them.
+
+  There is one honest exception, and falsestart takes it for itself in `falsestart.config.ts`:
+  serializing a literal to satisfy an EXTERNAL wire protocol, where the shape is fixed by someone
+  else's contract and there is no decode side to keep in step. A hook response written to stdout is
+  that case. Parsing is never that case.
+rule:
+  any:
+    - pattern: JSON.parse($$$ARGS)
+    - pattern: JSON.stringify($$$ARGS)
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
+  - '**/*.bench.{ts,tsx}'

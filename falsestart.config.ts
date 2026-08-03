@@ -20,6 +20,20 @@ import type { FalsestartConfig } from './src/config/index.ts'
  */
 export default {
   rules: {
+    // Serialising a literal to satisfy an EXTERNAL wire protocol: the Claude Code hook response on
+    // stdout, whose shape is fixed by someone else's contract and has no decode side to keep in
+    // step. Encoding it through a schema would turn two pure functions into Effects on the path
+    // that runs before every tool call, and buy nothing — an inline object literal cannot be
+    // circular, cannot hold a BigInt, and cannot stringify to `undefined`.
+    //
+    // `cli.ts` renders an arbitrary `unknown` warning argument to text purely to substring-match it
+    // for suppression. There is no shape to declare, because the value is whatever Node emitted.
+    //
+    // Both are the exception the rule's own note names. PARSING is never in this list.
+    'no-json-global': {
+      files: ['**/*.{ts,tsx}'],
+      ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', '**/*.bench.{ts,tsx}', 'src/hook/respond.ts', 'src/cli.ts'],
+    },
     'no-type-assertion': {
       files: ['**/*.{ts,tsx}'],
       // An override REPLACES the rule's scope rather than merging with it, so the rule's own

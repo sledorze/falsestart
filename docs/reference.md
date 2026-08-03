@@ -61,25 +61,29 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 
 ## Shipped rules
 
-| Rule                       | Set        | Catches                                                                   |
-| -------------------------- | ---------- | ------------------------------------------------------------------------- |
-| `no-as-any`                | clean-code | `as any` erases the type rather than establishing it. Narrow with a type… |
-| `no-as-never`              | clean-code | `as never` silences an exhaustiveness error without resolving it. Handle… |
-| `no-double-cast`           | clean-code | Casting through `unknown` defeats every check the compiler would have ma… |
-| `no-type-assertion`        | clean-code | A type assertion tells the compiler to stop checking rather than establi… |
-| `no-await`                 | effect     | await drops out of the Effect world: no typed error channel and no inter… |
-| `no-new-promise`           | effect     | A hand-rolled Promise has no typed error channel and cannot be interrupt… |
-| `no-process-env`           | effect     | Reading process.env directly makes configuration an untracked, untyped g… |
-| `no-process-exit`          | effect     | process.exit tears the process down without running finalizers, so scope… |
-| `no-raw-coercion`          | effect     | Raw coercion cannot fail, so a wrong value becomes a plausible one ("und… |
-| `no-raw-error`             | effect     | A built-in Error carries no type: every catch site sees `unknown` and ha… |
-| `no-test-lifecycle-hooks`  | effect     | Lifecycle hooks set up state out of band: the test reads as if its depen… |
-| `no-then-catch`            | effect     | Promise chaining has no typed error channel and no interruption. Use Eff… |
-| `no-try-catch`             | effect     | try/catch produces an untyped `unknown` error that the compiler cannot h… |
-| `no-vi-mocking`            | effect     | "Module mocking replaces a dependency behind its consumer's back, so the… |
-| `prefer-smart-constructor` | effect     | An object literal with a declared type asserts the shape is valid withou… |
+| Rule                            | Set        | Catches                                                                                         |
+| ------------------------------- | ---------- | ----------------------------------------------------------------------------------------------- |
+| `no-as-any`                     | clean-code | `as any` erases the type rather than establishing it. Narrow with a type…                       |
+| `no-as-never`                   | clean-code | `as never` silences an exhaustiveness error without resolving it. Handle…                       |
+| `no-double-cast`                | clean-code | Casting through `unknown` defeats every check the compiler would have ma…                       |
+| `no-type-assertion`             | clean-code | A type assertion tells the compiler to stop checking rather than establi…                       |
+| `no-await`                      | effect     | await drops out of the Effect world: no typed error channel and no inter…                       |
+| `no-json-global`                | effect     | JSON.parse returns any and throws on malformed input, and JSON.stringify is partial in ways it… |
+| `no-manual-effect-run-in-tests` | effect     | Running an Effect by hand in a test supplies its own runtime, so requirements vanish from the … |
+| `no-new-promise`                | effect     | A hand-rolled Promise has no typed error channel and cannot be interrupt…                       |
+| `no-process-env`                | effect     | Reading process.env directly makes configuration an untracked, untyped g…                       |
+| `no-process-exit`               | effect     | process.exit tears the process down without running finalizers, so scope…                       |
+| `no-raw-coercion`               | effect     | Raw coercion cannot fail, so a wrong value becomes a plausible one ("und…                       |
+| `no-raw-error`                  | effect     | A built-in Error carries no type: every catch site sees `unknown` and ha…                       |
+| `no-test-lifecycle-hooks`       | effect     | Lifecycle hooks set up state out of band: the test reads as if its depen…                       |
+| `no-then-catch`                 | effect     | Promise chaining has no typed error channel and no interruption. Use Eff…                       |
+| `no-throwing-decode`            | effect     | Schema's *Sync decoders return a value or throw, so a decode failure lea…                       |
+| `no-try-catch`                  | effect     | try/catch produces an untyped `unknown` error that the compiler cannot h…                       |
+| `no-unsafe-api`                 | effect     | Effect marks a partial or throwing API with an Unsafe or OrThrow suffix…                        |
+| `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
+| `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
 
-All 18 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
+All 19 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and
 `no-manual-effect-run-in-tests` apply **only** to test files — the inverse of every other rule.
 
