@@ -1,7 +1,7 @@
 import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import { applyScopeOverrides, makeConfig, makeConfigUnsafe, parseConfig } from './config.ts'
-import type { Rule } from './rule.ts'
+import type { Rule } from '../checking/rule.ts'
 
 const ruleOf = (id: string, files?: readonly string[], ignores?: readonly string[]): Rule => ({
   id,

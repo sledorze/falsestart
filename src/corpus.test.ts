@@ -11,8 +11,8 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
-import { loadRules } from './core/loader.ts'
-import { SHIPPED_RULE_IDS } from './core/rule-ids.ts'
+import { loadRules } from './checking/loader.ts'
+import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import type { RuleExpectation } from './testing/assess.ts'
 import { assessRule, findUntestedRules } from './testing/assess.ts'
 

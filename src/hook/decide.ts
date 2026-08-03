@@ -19,10 +19,8 @@
  * entirely would be worse — a `warning` rule would then do nothing whatsoever.
  */
 import { Effect } from 'effect'
-import type { Finding } from '../core/engine.ts'
-import { checkFile } from '../core/engine.ts'
-import { toScopingPath } from '../core/scope.ts'
-import type { Rule } from '../core/rule.ts'
+import type { Finding, Rule } from '../checking/index.ts'
+import { checkFile, toScopingPath } from '../checking/index.ts'
 
 export type Decision =
   /** Findings that do not block, but that the author should still see. */

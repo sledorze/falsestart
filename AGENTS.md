@@ -48,7 +48,7 @@ When you create or edit any doc — **or any source file a doc links to**:
 - `pnpm check` — check summaries + links + **reference drift** (exit 1 on any problem).
   `--refs` is what makes a doc's claim about a source file re-checkable: every `[text](../src/x.ts)`
   link has its target's content hashed, and a later run fails when that content has changed. Without
-  it cairn verifies only that the PATH resolves — `src/core/scope.ts` could be replaced wholesale
+  it cairn verifies only that the PATH resolves — `src/checking/scope.ts` could be replaced wholesale
   with `export const appliesTo = () => true` and the check would stay green.
 - `cairn check --summaries-only` / `--links-only`.
 - `cairn check --links-only --fix` — auto-repair unambiguous dead links.

@@ -1,30 +1,30 @@
-# Architecture — summary
+# Why falsestart is built this way — summary
 
-falsestart is a one-directional pipeline: a YAML rule document is parsed, scoped to a path,
-matched against source text, judged into a decision, and rendered as process output. Each stage is
-its own module and none knows about the next.
+Explanation rather than a map; [Reference](./reference.md) has the lists.
 
-Stages: `core/rule.ts` (is this rule runnable?), `core/loader.ts` (what rules are in this
-directory?), `core/scope.ts` (may this rule touch this path?), `core/matcher.ts` (where does it
-match?), `core/engine.ts` (what does this rule set find?), `hook/decide.ts` (block, ignore, or
-complain?), `hook/respond.ts` (what to emit), `cli.ts` (the only module naming a runtime or
-process). Beside the pipeline sit `core/config.ts` (per-repo scope overrides), `core/config-file.ts`
-(finding and loading that config as TS or JSON), `core/rule-ids.ts` (the shipped id union), `hook/options.ts` (what did
-the command line ask for?),
-`testing/assess.ts` (does this rule do what its author thinks?) and `index.ts` (the consumer-facing
-surface).
+The design follows from the moment it occupies — between an agent deciding to write and the bytes
+landing. So it **judges text, not files** (the content is not on disk yet, and an edit is judged by
+what it adds, never by what it leaves behind); it **runs on every tool call**, so the first question
+asked is the cheapest one, and a tool that writes no source is answered without loading a rule; and
+**being wrong is asymmetric**, since blocking good code teaches people to route around the guard,
+which protects nothing.
 
-Load-bearing decisions:
+**Scope before content, always.** A rule acts on a file only when its path admits it. Breaking this
+is silent in both directions, so path scoping is its own concern with its own negative tests.
 
-- **Scope precedes content.** A rule is filtered by path before its matcher runs, so content
-  matching alone can never cause a rule to act on a file.
-- **Content is a string, not a file.** The guard judges text about to be written; `loader.ts` is
-  the only module touching the filesystem, and only to read rule documents. An `Edit` is judged by
-  what it adds.
-- **`constraints`/`utils` go to ast-grep verbatim**, because a reimplementation's gaps become
-  silently under-matching rules — notably negated constraints and Rust-dialect `(?i)` regexes.
-- **A rule that cannot run is not "found nothing".** The engine propagates the failure; `decide.ts`
-  turns it into a visible-but-non-blocking report.
-- **Only `error` severity blocks.**
-- **Loading is all-or-nothing**, reports every problem at once, refuses duplicate ids, and sorts by
-  path because the directory walk's order is not dependable.
+**Borrowed semantics.** `constraints`/`utils` go to ast-grep untouched, because every gap between a
+copy and the original becomes a rule that silently under-matches. One deliberate exception: the
+native binding accepts matcher shapes the real CLI rejects and then matches nearly every node, so a
+narrow check — modelled on measured CLI behaviour — rejects them.
+
+**Three failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
+guard could not run (say so loudly, do not block). A rule that cannot run is never reported as
+"found nothing", but a typo in a rule file must not hold a repository hostage.
+
+**Rules are programs, so they are wrong until shown otherwise** — worked examples of both kinds,
+a blast-radius corpus no rule may flag, and a check that every API a message names is real.
+
+**Five areas, separated by what each may know:** `checking/` (rule documents and source text),
+`config/` (a repo's overrides), `hook/` (the agent protocol), `cli/` (the command line), `testing/`
+(helpers for testing your own rules). Only `cli.ts` knows a process exists. Documents cite entry
+points, never internals, so staleness means the offering changed; `*.generated.ts` is tool-written.

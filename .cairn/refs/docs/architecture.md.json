@@ -1,60 +1,36 @@
 {
   "refs": [
     {
-      "hash": "6db8b5ad5f0f9dd3b9315efcc0fbb6a2c6d64b7945e907c8f0b547f5245491cd",
-      "target": "../src/core/rule.ts"
+      "hash": "ce97d0040472f865de328ea236128ce1219ef42693c0a3bb1fc10da03afb391b",
+      "target": "./reference.md"
     },
     {
-      "hash": "70adaf6335a6294192f4708a35825837e3c525421f8e0d1fc1a82686f0c9d33a",
-      "target": "../src/core/loader.ts"
+      "hash": "63830af9cd264a7bdb8c8b6f39dc3ab3692ff2c5003b670c42d7b912cd1d21b6",
+      "target": "./using-the-hook.md"
     },
     {
-      "hash": "ca18201494013b4f94e5cf6a1881b0e7b7b2379d1d22685cf28fee9df9d777b7",
-      "target": "../src/core/scope.ts"
+      "hash": "1a0f79f06f074e3f3e1e676ae2830a520ab377dab89a3c4aa0a94ce3b3f061ef",
+      "target": "../src/checking/index.ts"
     },
     {
-      "hash": "0ad9a6d8893a235c55cb761b8bd41613663e74de0999b3920e0c9b7731d751c0",
-      "target": "../src/core/matcher.ts"
+      "hash": "aa11f5277861fd14b50f6054f49a375dfa3e93d9ccc7f7c2539f7fded71ba4d7",
+      "target": "../src/config/index.ts"
     },
     {
-      "hash": "f50581a936398888b4f11e4368200f99ae589e4c5326e70171730dab83e21ca5",
-      "target": "../src/core/engine.ts"
+      "hash": "10c8d9d575939c9f8af18b41ae040a1acc2ec1910a6c0cc7c4af10518f8b42ac",
+      "target": "../src/hook/index.ts"
     },
     {
-      "hash": "350754cf7c4b7fa75aa0b08bda1ca327c3b38c37889c22b46a4725a1c3d3ab1c",
-      "target": "../src/hook/decide.ts"
+      "hash": "3707f9938c13d5845d38ff50039472f6afd0321adc0f0f06827ba608fe846f0b",
+      "target": "../src/cli/index.ts"
     },
     {
-      "hash": "aa2497360453dcbc18f70a43012f51854348c34a31cec323596eca727fbdec40",
-      "target": "../src/hook/respond.ts"
+      "hash": "4deaaae14ef6ad7dd91d90025712045f569677cde6a9fc88383d3b49a2f22879",
+      "target": "../src/testing/index.ts"
     },
     {
-      "hash": "0476d440e74ede366a26716eb0fdead7935613fec814407f21ef9fb6a6dd0fea",
+      "hash": "5de14a574379e56b539094c54576b33a3eb0009260f1f09e24d11e7790e27f63",
       "target": "../src/cli.ts"
-    },
-    {
-      "hash": "81eae0884e74293b5c2c7a2947657ab2fab1dc8d98d631a934b106c9721470af",
-      "target": "../src/core/config.ts"
-    },
-    {
-      "hash": "9a811bde5edfc23cf4701c8f9b3a4899ce2c8f56e913166d5059a9ca111e5a9c",
-      "target": "../src/core/config-file.ts"
-    },
-    {
-      "hash": "8b582d63ee123a12b5de3f95be846cc383ddeb8aa537c2ade03425abc8c3613e",
-      "target": "../src/core/rule-ids.ts"
-    },
-    {
-      "hash": "5aabe6582b388fa132aaaf4a05e88c2efb74341d24fce982bbfb7bae21788209",
-      "target": "../src/hook/options.ts"
-    },
-    {
-      "hash": "0da2cb573a783f4c0273a9fb21d97bf0741387ec92d82e7e220c6bf2d6d683ba",
-      "target": "../src/testing/assess.ts"
-    },
-    {
-      "hash": "5cfc18dfb74fae642af87ee5e35aac8075a0fa08eb3a9aaea13d13b5647c1f97",
-      "target": "../src/index.ts"
     }
   ]
 }

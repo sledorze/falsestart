@@ -15,8 +15,8 @@ describe('rule file scoping', () => {
   it('applies only where a files glob matches', () => {
     const rule = scoped(['**/*.ts'])
 
-    expect(appliesTo(rule, 'src/core/rule.ts')).toBeTruthy()
-    expect(appliesTo(rule, 'src/core/rule.tsx')).toBeFalsy()
+    expect(appliesTo(rule, 'src/checking/rule.ts')).toBeTruthy()
+    expect(appliesTo(rule, 'src/checking/rule.tsx')).toBeFalsy()
   })
 
   it('matches a bare filename against a leading double star', () => {
@@ -24,7 +24,7 @@ describe('rule file scoping', () => {
   })
 
   it('matches absolute paths, which is what a write-time hook actually receives', () => {
-    expect(appliesTo(scoped(['**/*.ts']), '/workspaces/project/src/core/rule.ts')).toBeTruthy()
+    expect(appliesTo(scoped(['**/*.ts']), '/workspaces/project/src/checking/rule.ts')).toBeTruthy()
   })
 
   it('honours brace alternation', () => {
@@ -45,14 +45,14 @@ describe('rule file scoping', () => {
   it('subtracts ignores from an otherwise matching path', () => {
     const rule = scoped(['**/*.ts'], ['**/*.test.ts'])
 
-    expect(appliesTo(rule, 'src/core/rule.ts')).toBeTruthy()
-    expect(appliesTo(rule, 'src/core/rule.test.ts')).toBeFalsy()
+    expect(appliesTo(rule, 'src/checking/rule.ts')).toBeTruthy()
+    expect(appliesTo(rule, 'src/checking/rule.test.ts')).toBeFalsy()
   })
 
   it('applies ignores even when the rule declares no files globs', () => {
     const rule = scoped(undefined, ['**/generated/**'])
 
-    expect(appliesTo(rule, 'src/core/rule.ts')).toBeTruthy()
+    expect(appliesTo(rule, 'src/checking/rule.ts')).toBeTruthy()
     expect(appliesTo(rule, 'src/generated/schema.ts')).toBeFalsy()
   })
 
@@ -60,7 +60,7 @@ describe('rule file scoping', () => {
     const rule = scoped(['src/*.ts'])
 
     expect(appliesTo(rule, 'src/rule.ts')).toBeTruthy()
-    expect(appliesTo(rule, 'src/core/rule.ts')).toBeFalsy()
+    expect(appliesTo(rule, 'src/checking/rule.ts')).toBeFalsy()
   })
 
   it('treats a literal directory segment as a real constraint, not a substring', () => {
@@ -78,7 +78,7 @@ describe('rule file scoping', () => {
 
 describe('scoping path', () => {
   it('expresses a path inside the project root relative to it', () => {
-    expect(toScopingPath('/repo/src/core/rule.ts', '/repo')).toBe('src/core/rule.ts')
+    expect(toScopingPath('/repo/src/checking/rule.ts', '/repo')).toBe('src/checking/rule.ts')
   })
 
   it('is what makes a repo-relative glob match a payload that carries an absolute path', () => {
@@ -86,8 +86,8 @@ describe('scoping path', () => {
     // the project, and matching one against the other silently never fires.
     const rule = { files: ['src/**/*.ts'] }
 
-    expect(appliesTo(rule, '/repo/src/core/rule.ts')).toBeFalsy()
-    expect(appliesTo(rule, toScopingPath('/repo/src/core/rule.ts', '/repo'))).toBeTruthy()
+    expect(appliesTo(rule, '/repo/src/checking/rule.ts')).toBeFalsy()
+    expect(appliesTo(rule, toScopingPath('/repo/src/checking/rule.ts', '/repo'))).toBeTruthy()
   })
 
   it('still admits a leading-globstar rule after normalisation', () => {

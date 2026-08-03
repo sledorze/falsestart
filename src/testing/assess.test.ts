@@ -1,6 +1,6 @@
 import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { parseRule } from '../core/rule.ts'
+import { parseRule } from '../checking/rule.ts'
 import { assessRule, findUntestedRules } from './assess.ts'
 
 const noAsAny = parseRule(

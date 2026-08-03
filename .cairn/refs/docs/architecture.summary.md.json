@@ -1,0 +1,8 @@
+{
+  "refs": [
+    {
+      "hash": "ce97d0040472f865de328ea236128ce1219ef42693c0a3bb1fc10da03afb391b",
+      "target": "./reference.md"
+    }
+  ]
+}

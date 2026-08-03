@@ -5,20 +5,28 @@
       "target": "./overview.md"
     },
     {
-      "hash": "89ff6beeb04d154d2c0dbeb53f20dec29cd2c9a80fc740b669a676429002ed18",
-      "target": "./architecture.md"
-    },
-    {
-      "hash": "f0c4da734616e9746a384cb3ec4b777fbce2993da51d1129f8773209aa08d62c",
-      "target": "./architecture.summary.md"
-    },
-    {
       "hash": "63830af9cd264a7bdb8c8b6f39dc3ab3692ff2c5003b670c42d7b912cd1d21b6",
       "target": "./using-the-hook.md"
     },
     {
       "hash": "80e6a69062b034f6795eb5e014f652ff553532c9cd0d5e56275bb67b8a94a03c",
       "target": "./using-the-hook.summary.md"
+    },
+    {
+      "hash": "ce97d0040472f865de328ea236128ce1219ef42693c0a3bb1fc10da03afb391b",
+      "target": "./reference.md"
+    },
+    {
+      "hash": "6f4bf1af7ec588dc468d45c2d61c6a388e7c681bff6d7036d3b63620a3f173e5",
+      "target": "./reference.summary.md"
+    },
+    {
+      "hash": "da381bcf2080879d4f3520838e367045ca6bf5f4a2aef0183ededcb23251a1a0",
+      "target": "./architecture.md"
+    },
+    {
+      "hash": "1d59398a85c3a41c767dcfe1e160f7b0de4861a3b76704f78af20c08a92aa343",
+      "target": "./architecture.summary.md"
     }
   ]
 }
