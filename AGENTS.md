@@ -86,8 +86,10 @@ merging that PR publishes to npm, pushes the git tag, and creates a GitHub Relea
 **Two switches away**: `private` has been removed from `package.json`, so the package is
 publishable, and the artifact is verified — `npm pack`, install into a clean project, `--version`,
 `--doctor`, a blocked write and a library import all work. What remains is deliberately manual and
-belongs to the maintainer: set the `releases-enabled` repository variable to `'true'` and add an
-`NPM_TOKEN` secret. Enabling the variable without the token would put a failing job on `main`, so do
+belongs to the maintainer: set the `RELEASES_ENABLED` repository variable to `'true'` and add an
+`NPM_TOKEN` secret. Underscores, not hyphens — GitHub rejects a hyphenated variable name with HTTP
+422, and the gate originally named one that could never exist, so the release job could never have
+run at all. Enabling the variable without the token would put a failing job on `main`, so do
 them in that order.
 
 If your PR is a user-facing change (not docs-only, not internal tooling with no effect

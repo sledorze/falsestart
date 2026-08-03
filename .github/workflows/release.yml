@@ -1,11 +1,11 @@
 name: Release
 
-# Automated changesets flow (see AGENTS.md for the `pnpm changeset` convention). Copied
-# from cairn's release workflow, but DEACTIVATED for now: the job is gated on the
-# `releases-enabled` repository variable, which is unset by default. Nothing publishes
-# (no NPM_TOKEN secret is configured either) until both are set up deliberately — flip
-# `vars.releases-enabled` to `'true'` and add the NPM_TOKEN secret when this package is
-# ready to actually ship to npm.
+# Automated changesets flow (see AGENTS.md for the `pnpm changeset` convention).
+#
+# Gated on the `RELEASES_ENABLED` repository variable. UNDERSCORES, not hyphens: GitHub rejects
+# `releases-enabled` with HTTP 422 — "Variable names can only contain alphanumeric characters or
+# underscores" — so the original gate tested a variable that could never be created, and this job
+# could never have run. It read as "deactivated pending a decision"; it was unreachable.
 on:
   push:
     branches: [main]
@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   release:
-    if: github.repository == 'sledorze/falsestart' && vars.releases-enabled == 'true'
+    if: github.repository == 'sledorze/falsestart' && vars.RELEASES_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
