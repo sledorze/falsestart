@@ -1,0 +1,40 @@
+id: no-raw-fetch
+language: tsx
+severity: error
+message: 'fetch returns a Promise with no typed error channel, no interruption and no timeout or retry policy — a network failure and a 500 arrive the same way, as a rejection nothing declared. Use HttpClient.get(url) / HttpClient.execute(HttpClientRequest.get(url)), or Effect.tryPromise when a full client is more than the call needs.'
+note: |
+  `fetch` hides four separate things the caller has to get right, and its type says none of them.
+
+  A rejected promise carries `unknown`, so a DNS failure, an aborted connection and a malformed URL
+  are indistinguishable at the catch site. A non-2xx response does **not** reject at all — it
+  resolves, and code that forgot to check `res.ok` proceeds with an error page as though it were
+  data. There is no interruption: an abandoned request keeps running unless someone threads an
+  `AbortController` through by hand. And there is no timeout or retry policy, so both get
+  reimplemented per call site, differently each time.
+
+  `HttpClient` gives all four as declared, composable things — the error channel is typed
+  (`HttpClientError`), the request is interruptible because it is an Effect, and `Effect.timeout`
+  and `Effect.retry` apply to it like anything else. `HttpClientRequest` builds the request and
+  `FetchHttpClient` is the layer that runs it on the platform's own `fetch`, so this is a change of
+  interface rather than of transport.
+
+  Where a full client is more than the call needs, `Effect.tryPromise` is the minimum honest wrap:
+  it moves the rejection into the error channel and makes you name what it becomes.
+
+  Only the bare global is matched. `repository.fetch(id)` is a method on somebody else's object and
+  this rule has no opinion about it.
+
+  A note on `HttpClient`'s home: it lives in `effect/unstable/http`, which the root `effect` import
+  does not re-export. The path says what it is — that surface may move before it settles. If that is
+  a risk you do not want, `Effect.tryPromise` is in core and closes the error-channel half on its
+  own.
+rule:
+  any:
+    - pattern: fetch($$$ARGS)
+    - pattern: globalThis.fetch($$$ARGS)
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+  - '**/*.spec.{ts,tsx}'
+  - '**/*.bench.{ts,tsx}'
