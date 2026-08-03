@@ -16,7 +16,7 @@
  * goes stale on every edit to it, and the drift then carries no information.
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { describe, effect, expect } from '@effect/vitest'
+import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer } from 'effect'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -29,23 +29,26 @@ const isEntryPoint = (file: string): boolean => file.endsWith('/index.ts') || RO
 const isSource = (file: string): boolean =>
   file.endsWith('.ts') && !file.endsWith('.test.ts') && !file.endsWith('.bench.ts')
 
+// Requirements stay in the type and the suite's layer supplies them, rather than each effect
+// providing its own and then `orDie`-ing the error away. A filesystem failure here should fail the
+// test with its real cause — `PlatformError: NotFound` — not as an untyped defect.
 const sourceFiles = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const entries = yield* fs.readDirectory('src', { recursive: true })
   return entries.map((entry) => `src/${entry}`).filter((file) => isSource(file))
-}).pipe(Effect.provide(platform), Effect.orDie)
+})
 
 const architecture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   return yield* fs.readFileString('docs/architecture.md')
-}).pipe(Effect.provide(platform), Effect.orDie)
+})
 
 /** `[text](../src/x.ts)` — the links the docs check already tracks the content of. */
 const citedSourceFiles = (markdown: string): readonly string[] =>
   [...markdown.matchAll(/\]\(\.\.\/(src\/[^)]+\.ts)\)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
 
-describe('documentation covers the source', () => {
-  effect('every area entry point is cited by the architecture doc', () =>
+layer(platform)('documentation covers the source', (it) => {
+  it.effect('every area entry point is cited by the architecture doc', () =>
     Effect.gen(function* () {
       const cited = new Set(citedSourceFiles(yield* architecture))
       const entryPoints = (yield* sourceFiles).filter((file) => isEntryPoint(file))
@@ -57,7 +60,7 @@ describe('documentation covers the source', () => {
     }),
   )
 
-  effect('the architecture doc cites no file below an entry point', () =>
+  it.effect('the architecture doc cites no file below an entry point', () =>
     Effect.gen(function* () {
       // Reaching past an entry point into an implementation file is what made this document go
       // stale on every unrelated edit, back when it named fourteen of them.
@@ -67,7 +70,7 @@ describe('documentation covers the source', () => {
     }),
   )
 
-  effect('every area holds an entry point', () =>
+  it.effect('every area holds an entry point', () =>
     Effect.gen(function* () {
       const files = yield* sourceFiles
       const areas = new Set(
