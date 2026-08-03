@@ -57,6 +57,19 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
     allows: ['const w = value as Widget', 'const u: unknown = value'],
     catches: ['const w = value as unknown as Widget'],
   },
+  'no-json-global': {
+    allows: [
+      // The remedy, both directions. `fromJsonString` puts a malformed document in the error
+      // channel instead of throwing, and gives back a typed value instead of `any`.
+      'const w = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Widget))(text)',
+      'const s = yield* Schema.encodeEffect(Schema.fromJsonString(Widget))(widget)',
+      // A member named `parse` on anything else is not this rule's business.
+      'const doc = yaml.parse(source)',
+      'const n = Number.parseInt(raw, 10)',
+      'const v = json.parse(source)',
+    ],
+    catches: ['const config = JSON.parse(source)', 'const body = JSON.stringify(payload)'],
+  },
   'no-manual-effect-run-in-tests': {
     allows: [
       "layer(platform)('loading', (it) => { it.effect('works', () => Effect.gen(function* () {})) })",
@@ -375,6 +388,18 @@ describe('shipped rule corpus', () => {
       const rules = yield* corpus
 
       expect(findUntestedRules(rules, Object.keys(EXAMPLES))).toEqual([])
+    }),
+  )
+
+  // The inverse, which nothing checked: an EXAMPLES key naming a rule that does not exist is inert.
+  // It reads as coverage, runs nothing, and survives a rule being renamed or deleted. Found by
+  // writing the examples for `no-json-global` before the rule and watching the suite pass.
+  effect('has no examples for a rule that does not exist', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+      const ids = new Set(rules.map((rule) => rule.id))
+
+      expect(Object.keys(EXAMPLES).filter((id) => !ids.has(id))).toEqual([])
     }),
   )
 })

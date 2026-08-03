@@ -18,6 +18,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer } from 'effect'
+import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -67,6 +68,29 @@ layer(platform)('documentation covers the source', (it) => {
       const cited = citedSourceFiles(yield* architecture)
 
       expect(cited.filter((file) => !isEntryPoint(file))).toEqual([])
+    }),
+  )
+
+  // The reference table is the only place a reader learns which rules exist — `--help` lists flags,
+  // not rules. It is hand-maintained, and it had silently fallen two rules behind while claiming a
+  // total that no longer matched: a reader would have concluded those rules did not exist.
+  it.effect('the reference table lists every shipped rule', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      const undocumented = SHIPPED_RULE_IDS.filter((id) => !reference.includes(`\`${id}\``))
+
+      expect(undocumented).toEqual([])
+    }),
+  )
+
+  it.effect('states the rule count it actually documents', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      expect(reference).toContain(`All ${SHIPPED_RULE_IDS.length} rules are \`error\` severity`)
     }),
   )
 
