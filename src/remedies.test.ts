@@ -14,7 +14,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Config, Context, Data, Effect, Layer, Schema } from 'effect'
 import { TestClock, TestConsole } from 'effect/testing'
-import { loadRules } from './core/loader.ts'
+import { loadRules } from './checking/loader.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 

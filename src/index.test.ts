@@ -30,6 +30,7 @@ describe('library surface', () => {
       'parseConfig',
       'parseRule',
       'respond',
+      'toScopingPath',
       'validateConfig',
     ])
   })

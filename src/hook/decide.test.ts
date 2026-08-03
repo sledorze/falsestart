@@ -1,7 +1,7 @@
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect } from 'effect'
-import type { Rule } from '../core/rule.ts'
-import { parseRule } from '../core/rule.ts'
+import type { Rule } from '../checking/rule.ts'
+import { parseRule } from '../checking/rule.ts'
 import { decide } from './decide.ts'
 
 const rulesOf = (...sources: readonly string[]) => Effect.all(sources.map((source) => parseRule(source, 'test.yml')))

@@ -10,10 +10,10 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
-import type { Preset } from './hook/options.ts'
-import { parseArguments } from './hook/options.ts'
-import type { HookResponse } from './hook/respond.ts'
-import { respond } from './hook/respond.ts'
+import type { Preset } from './cli/index.ts'
+import { parseArguments } from './cli/index.ts'
+import type { HookResponse } from './hook/index.ts'
+import { respond } from './hook/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the

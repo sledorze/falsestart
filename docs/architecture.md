@@ -1,76 +1,103 @@
-# Architecture
+# Why falsestart is built this way
 
-falsestart is a pipeline with one direction of flow. Each stage is a module, each is usable on
-its own, and no stage knows about the one after it.
+Explanation, not a map. For the list of exports, flags and rules see [Reference](./reference.md);
+to set it up see [Using the hook](./using-the-hook.md).
 
-```
-rule document ──parse──▶ Rule ──scope──▶ applicable? ──match──▶ Violation ──judge──▶ Decision ──▶ exit code
-   (YAML)          │                          │                     │                  │              │
-                   │                          │                     │                  │              │
-              core/rule.ts              core/scope.ts        core/matcher.ts      hook/decide.ts   cli.ts
-                                                                    │                  │
-                                                             core/engine.ts      hook/respond.ts
-```
+## The problem shapes everything
 
-## The stages
+An agent writes a file. Between deciding to write and the bytes landing there is one moment where a
+rule can still be applied cheaply — and after it the cost of undoing rises steeply: a test run, a
+review, a revert. falsestart lives in that moment.
 
-| Module                                      | Answers                                     |
-| ------------------------------------------- | ------------------------------------------- |
-| [`core/rule.ts`](../src/core/rule.ts)       | Is this a rule we can actually run?         |
-| [`core/loader.ts`](../src/core/loader.ts)   | What rules does this directory hold?        |
-| [`core/scope.ts`](../src/core/scope.ts)     | May this rule act on this path?             |
-| [`core/matcher.ts`](../src/core/matcher.ts) | Where does this rule match this text?       |
-| [`core/engine.ts`](../src/core/engine.ts)   | What does this rule set find in this file?  |
-| [`hook/decide.ts`](../src/hook/decide.ts)   | Block, ignore, or complain?                 |
-| [`hook/respond.ts`](../src/hook/respond.ts) | What should the process emit?               |
-| [`cli.ts`](../src/cli.ts)                   | Wiring to stdin, stdout, and the exit code. |
+Three consequences follow, and most of the design is downstream of them.
 
-Six modules sit beside the pipeline rather than in it:
+**It judges text, not files.** The content does not exist on disk yet. Anything that worked by
+reading the file back could not block anything before the fact. So a check takes a string plus the
+path that string is destined for, and nothing in the checking layer opens a file.
 
-| Module                                              | Answers                                                  |
-| --------------------------------------------------- | -------------------------------------------------------- |
-| [`core/config.ts`](../src/core/config.ts)           | Where does THIS repo want each rule to apply?            |
-| [`core/config-file.ts`](../src/core/config-file.ts) | Where is that written down, and in what language?        |
-| [`core/rule-ids.ts`](../src/core/rule-ids.ts)       | Which rule ids ship, for a config to be checked against? |
-| [`hook/options.ts`](../src/hook/options.ts)         | What did the command line ask for?                       |
-| [`testing/assess.ts`](../src/testing/assess.ts)     | Does this rule do what its author thinks?                |
-| [`index.ts`](../src/index.ts)                       | What may a consumer import?                              |
+That has a limit worth stating: an edit is judged by the text it _introduces_, not by the file that
+results. It is checked for what it adds, never for what it leaves behind elsewhere.
 
-`cli.ts` is the only module that names a runtime or a process.
+**It runs on every tool call.** Not every write — every call, including the reads and searches that
+are most of an agent's traffic. So the first question asked is the cheapest one: does this tool
+write source at all? A call that does not is answered without loading a single rule.
 
-## Decisions worth knowing
+**Being wrong is asymmetric.** Blocking good code teaches people to work around the guard, and a
+guard people route around protects nothing. Failing to block bad code costs one violation. The
+design leans accordingly: narrow rules, and errors that surface without stopping work.
 
-**Scope is checked before content, always.** `engine.ts` filters by path and only then runs the
-matcher. A rule cannot act on a file merely because the content looked right — the file's path
-has to admit it first. This is the structural guarantee `AGENTS.md` asks of any write path, and
-it is why `scope.ts` is its own module with its own negative tests.
+## Scope before content, always
 
-**Content is a string, never a file.** The guard judges text that is about to be written and does
-not exist on disk yet. `loader.ts` is the only module that touches the filesystem, and it reads
-rule documents — never the file being judged. (`respond.ts` names `FileSystem` in its signature,
-but only to thread the loader's requirement through; it performs no I/O of its own.) An `Edit` is
-therefore checked for what it ADDS, since the resulting file is not something the hook ever sees.
+A rule acts on a file only when that file's _path_ admits it. Matching content is never on its own a
+reason to touch a file.
 
-**`constraints` and `utils` are ast-grep's, not ours.** They are handed to the upstream matcher
-verbatim rather than reimplemented. A reimplementation has to re-derive the whole semantics —
-negated constraints, and regexes in the Rust `regex` dialect whose inline `(?i)` flag JavaScript's
-own `RegExp` cannot parse — and every gap between copy and original becomes a rule that silently
-under-matches.
+This is the invariant worth defending in isolation, because breaking it is silent in both
+directions. Too broad and a rule fires where nobody intended; too narrow and it quietly protects
+nothing. Neither announces itself, so path scoping is its own concern with its own negative tests —
+evidence that a rule provably does _not_ reach an adjacent, similar-looking file.
 
-**Failing to run a rule is not the same as finding nothing.** `engine.ts` propagates the failure
-rather than returning an empty result, so a broken rule can never read as a clean file. What to
-do about it is policy, and it lives one layer up: `decide.ts` reports rather than blocks, because
-a typo in a rule file should be loud without holding a repository hostage.
+## Borrowed semantics, not copied ones
 
-**Only `error` severity blocks.** Anything softer is advice, and advice that blocks is
-indistinguishable from an error.
+Rules are [ast-grep](https://ast-grep.github.io) documents, and a matcher's `constraints` and
+`utils` are handed to ast-grep untouched rather than re-implemented.
 
-## Loading is all-or-nothing
+Re-implementing them means re-deriving a matcher's whole semantics — negated constraints used as
+exemptions, regexes in the Rust dialect whose inline `(?i)` flag JavaScript's own `RegExp` cannot
+parse. Every gap between copy and original becomes a rule that silently under-matches, which is the
+failure this tool exists to prevent.
 
-A tree with one unreadable rule fails to load rather than silently yielding the rules that
-happened to parse. A guard running with a smaller rule set than its author believes is invisible
-from the outside. Every problem in the tree is reported together, and duplicate rule ids are
-refused outright rather than resolved by load order.
+One exception is deliberate: the native binding accepts matcher shapes the real `ast-grep` CLI
+rejects, and then matches essentially every node. A rule upstream considers broken would fire
+indiscriminately here. So a narrow check rejects those shapes — modelled on behaviour measured
+against the actual CLI rather than reasoned about.
 
-Results are sorted by path. The directory walk's own order is not dependable — measured against a
-real tree it returned sibling directories in reverse.
+## Three failures that must not be confused
+
+| Situation                           | Answer                         |
+| ----------------------------------- | ------------------------------ |
+| The code breaks a rule              | Block, with the rule's message |
+| A rule matched at a softer severity | Show it; do not block          |
+| The guard could not do its job      | Say so loudly; do not block    |
+
+The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
+conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
+a rule file should hold every write in the repository hostage. The failure stays loud without
+becoming an outage.
+
+## Rules are programs, and programs are wrong
+
+A rule is a small program in a pattern language, so it is wrong until shown otherwise. Three
+independent checks say so, each verified by breaking it rather than by reading it:
+
+- **Worked examples.** Every rule carries code it must catch _and_ code it must leave alone. The
+  second kind matters more: a rule with only positive examples looks correct right until it fires on
+  something innocent.
+- **Blast radius.** A body of ordinary, idiomatic, rule-abiding code that no rule may flag. Examples
+  prove a rule catches what its author aimed at; they cannot prove it is not also catching half the
+  language. A rule matching any method call passes an examples-only gate and then blocks nearly
+  every write.
+- **Remedies exist.** Every API named in a rule's message must be real. A rule that blocks your code
+  and then recommends something that does not compile is worse than one that says nothing.
+
+## How the code is divided
+
+Five areas, each presenting a small entry point that the rest of the codebase and these documents
+cite. Areas are separated by _what they are allowed to know_:
+
+| Area                                    | Knows about                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files. |
+| [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.            |
+| [`hook/`](../src/hook/index.ts)         | The agent protocol: a payload in, a verdict out.                          |
+| [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                          |
+| [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
+
+Only [`cli.ts`](../src/cli.ts) knows a process exists.
+
+Documents cite entry points and never an area's internals, so a document goes stale when what an
+area _offers_ changes — which is when it should be re-read — rather than every time an
+implementation detail moves. A file named `*.generated.ts` is written by a tool and never edited by
+hand.
+
+That convention is enforced rather than merely stated: each link's target content is hashed, and the
+docs check fails when it drifts.

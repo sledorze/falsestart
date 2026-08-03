@@ -12,9 +12,8 @@
  * superficially similar file is provably left alone — rather than only testing what gets caught.
  */
 import { Effect } from 'effect'
-import { checkFile } from '../core/engine.ts'
-import type { MatchError } from '../core/matcher.ts'
-import type { Rule } from '../core/rule.ts'
+import type { MatchError, Rule } from '../checking/index.ts'
+import { checkFile } from '../checking/index.ts'
 
 export interface RuleExpectation {
   readonly code: string

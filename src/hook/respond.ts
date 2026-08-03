@@ -13,9 +13,8 @@
  */
 import { Effect } from 'effect'
 import type { FileSystem, Path } from 'effect'
-import { loadConfigFile, loadDefaultConfig } from '../core/config-file.ts'
-import { applyScopeOverrides } from '../core/config.ts'
-import { loadRules } from '../core/loader.ts'
+import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
+import { loadRules } from '../checking/index.ts'
 import { decide, judgesPayload } from './decide.ts'
 
 export interface HookResponse {

@@ -16,7 +16,7 @@
  * exists to catch elsewhere.
  */
 import { Data, Effect } from 'effect'
-import type { Rule } from './rule.ts'
+import type { Rule } from '../checking/index.ts'
 
 export interface ScopeOverride {
   /**
