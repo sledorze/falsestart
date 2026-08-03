@@ -1,0 +1,24 @@
+{
+  "refs": [
+    {
+      "hash": "6d581eb104324da256ff1fe2f48883d10f8c8f5bae28b575cc49e824807bc3c6",
+      "target": "./README.md"
+    },
+    {
+      "hash": "b67c9b23ebc1591ec40d72bcb780ddb5987bd54ed739d392aa5216e9ceb4c597",
+      "target": "./README.summary.md"
+    },
+    {
+      "hash": "5687004698628de96c7213d8b33953f0fa1d10beec43291a75e7736513924a91",
+      "target": "./AGENTS.md"
+    },
+    {
+      "hash": "5cf35c6c3ccb2807c12ad60aac834f5db09f1937f3194e45aaf6635b103e00fd",
+      "target": "./AGENTS.summary.md"
+    },
+    {
+      "hash": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49",
+      "target": "./CLAUDE.md"
+    }
+  ]
+}

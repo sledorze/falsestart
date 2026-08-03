@@ -41,7 +41,7 @@
     "bench": "vitest bench --run",
     "build": "tsc -p tsconfig.build.json && pnpm run bundle-cli",
     "bundle-cli": "esbuild dist/cli.js --bundle --platform=node --format=esm --outfile=dist/cli.js --allow-overwrite --external:@ast-grep/napi --banner:js=\"import { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);\"",
-    "check": "cairn check --refs",
+    "check": "cairn check --refs --prose-refs",
     "coverage": "vitest run --coverage",
     "dev": "tsx src/cli.ts",
     "format": "prettier --write .",
