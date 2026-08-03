@@ -34,8 +34,8 @@ constraints:
       # smartly; treating it as a domain value would make the rule a nuisance in every codebase.
       regex: 'Record<|Map<|Array<|ReadonlyArray<|\[\]$'
 files:
-  - '**/*.{ts,tsx}'
+  - '**/*.{ts,tsx,mts,cts}'
 ignores:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
-  - '**/*.bench.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'
+  - '**/*.bench.{ts,tsx,mts,cts}'

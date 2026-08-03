@@ -28,5 +28,5 @@ constraints:
   METHOD:
     regex: '^run(Sync|Promise|Fork|Callback)'
 files:
-  - '**/*.test.{ts,tsx}'
-  - '**/*.spec.{ts,tsx}'
+  - '**/*.test.{ts,tsx,mts,cts}'
+  - '**/*.spec.{ts,tsx,mts,cts}'

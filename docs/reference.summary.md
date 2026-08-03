@@ -15,7 +15,8 @@ problem without blocking. Blocking is deliberately not exit 2, which discards st
 `ignores`, `constraints`, `utils` optional. Severity defaults to `error`. Documents under `_utils/`
 are fragments needing only `id` and `rule`.
 
-Shipped rules match `**/*.{ts,tsx}` only; other extensions need their own globs.
+Shipped rules match `**/*.{ts,tsx,mts,cts}`; `.js`/`.jsx`/`.mjs`/`.cjs` are excluded by design
+and need an explicit `files` override.
 
 **Configuration:** per-rule `files` (required) and `ignores` (optional, omission keeps the rule's
 own). An override for a rule that is not loaded is an error. A `.ts` config must use a type-only
