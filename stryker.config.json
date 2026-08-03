@@ -1,9 +1,7 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
   "packageManager": "pnpm",
-  "plugins": [
-    "@stryker-mutator/vitest-runner"
-  ],
+  "plugins": ["@stryker-mutator/vitest-runner"],
   "testRunner": "vitest",
   "vitest": {
     "configFile": "vitest.config.ts"
@@ -16,12 +14,7 @@
     "!src/testSupport/**",
     "!src/cli.ts"
   ],
-  "reporters": [
-    "html",
-    "json",
-    "clear-text",
-    "progress"
-  ],
+  "reporters": ["html", "json", "clear-text", "progress"],
   "coverageAnalysis": "perTest",
   "_inPlaceComment": "Required: Stryker's sandbox-mode tsconfig rewriter calls ts.parseConfigFileTextToJson, which TypeScript 7 removed, so it crashes before a single mutant runs (re-verified). inPlace skips that preprocessor and mutates real files, backing up to .stryker-tmp/ and restoring after each run. Because that is unsafe to point at a working tree, scripts/mutate-changed.sh runs it inside a disposable git worktree; a full `pnpm mutation` does mutate this checkout, so do not run it with uncommitted work you cannot recover. Revisit once Stryker supports TS7.",
   "inPlace": true,

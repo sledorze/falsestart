@@ -111,8 +111,9 @@ but "an adjacent, superficially-similar file is provably left untouched."
 # Shipping one iteration well
 
 **Full local verify before every push, every time — not just before "done."**
-`pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm check` (`pnpm verify` runs
-all five). `lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
+`pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm check`
+(`pnpm verify` runs all six — `format:check` is in there because CI enforces it, and a verify that
+omits a gate CI applies is a verify that can be green while the merge is red). `lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
 lint/format+docs, `pre-push` runs typecheck+test+build+docs+coverage+mutation — but that's not a reason
 to treat it as covered: hooks are skippable (`git ... --no-verify`), and no hook can
 construct the actual scenario a feature is meant to catch for you (see "Dogfood," next).

@@ -17,8 +17,9 @@ it may touch_ structurally — by path or declared role — never by a content p
 always fire on a file it was not meant for. Pair such a change with a negative test proving an
 adjacent, similar-looking file is left alone.
 
-**Shipping one iteration well.** Full local verify before every push — `pre-push` runs
-typecheck+test+build+docs+coverage+mutation. Dogfood the real behaviour against the scenario a
+**Shipping one iteration well.** Full local verify before every push (`pnpm verify`: lint,
+format:check, typecheck, test, build, docs — it must cover every gate CI applies, or verify can be
+green while the merge is red). `pre-push` runs typecheck+test+build+docs+coverage+mutation. Dogfood the real behaviour against the scenario a
 feature is meant to catch, including the negative case, then convert that proof into a permanent
 test. Treat a structural claim in a doc as unverified until checked, not merely re-read. Before
 pushing, get an adversarial review from ONE subagent prompted to refute, given the artifact rather
