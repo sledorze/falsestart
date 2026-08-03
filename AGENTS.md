@@ -83,9 +83,12 @@ Releases are automated via [Changesets](https://github.com/changesets/changesets
 files opens a "Version Packages" PR (bumped `package.json`, generated `CHANGELOG.md`);
 merging that PR publishes to npm, pushes the git tag, and creates a GitHub Release.
 
-**Currently deactivated**: the release job is gated on the `releases-enabled` repository
-variable, unset by default, and the package itself is `"private": true`. Nothing publishes
-until that variable and an `NPM_TOKEN` secret are deliberately configured.
+**Two switches away**: `private` has been removed from `package.json`, so the package is
+publishable, and the artifact is verified — `npm pack`, install into a clean project, `--version`,
+`--doctor`, a blocked write and a library import all work. What remains is deliberately manual and
+belongs to the maintainer: set the `releases-enabled` repository variable to `'true'` and add an
+`NPM_TOKEN` secret. Enabling the variable without the token would put a failing job on `main`, so do
+them in that order.
 
 If your PR is a user-facing change (not docs-only, not internal tooling with no effect
 on the published package), run `pnpm changeset` and commit the generated file alongside
