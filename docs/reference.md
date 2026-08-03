@@ -75,6 +75,7 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 | `no-process-exit`               | effect     | process.exit tears the process down without running finalizers, so scope…                       |
 | `no-raw-coercion`               | effect     | Raw coercion cannot fail, so a wrong value becomes a plausible one ("und…                       |
 | `no-raw-error`                  | effect     | A built-in Error carries no type: every catch site sees `unknown` and ha…                       |
+| `no-raw-fetch`                  | effect     | fetch has no typed error channel, no interruption and no timeout or ret…                        |
 | `no-test-lifecycle-hooks`       | effect     | Lifecycle hooks set up state out of band: the test reads as if its depen…                       |
 | `no-then-catch`                 | effect     | Promise chaining has no typed error channel and no interruption. Use Eff…                       |
 | `no-throwing-decode`            | effect     | Schema's *Sync decoders return a value or throw, so a decode failure lea…                       |
@@ -87,7 +88,7 @@ Every shipped rule is scoped to `**/*.{ts,tsx}`. `.mts`, `.cts`, `.js` and `.jsx
 matched by any of them, so a repo using those extensions needs its own `files` globs or a config
 override — otherwise the guard is installed and inert.
 
-All 19 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
+All 20 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and
 `no-manual-effect-run-in-tests` apply **only** to test files — the inverse of every other rule.
 

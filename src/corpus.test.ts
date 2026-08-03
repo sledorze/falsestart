@@ -118,6 +118,19 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
     ],
     catches: ['throw new Error("boom")', 'const e = new TypeError("bad")', 'return Effect.fail(new RangeError("x"))'],
   },
+  'no-raw-fetch': {
+    allows: [
+      // The remedy: a client that carries a typed error channel, interruption and a retry policy.
+      'const res = yield* HttpClient.get(url)',
+      'const res = yield* HttpClient.execute(HttpClientRequest.get(url))',
+      // The minimal wrap, when a full client is more than the call needs.
+      'const res = yield* Effect.tryPromise({ catch: toRequestError, try: () => send(url) })',
+      // A member named `fetch` is somebody else's method, not the global.
+      'const row = yield* repository.fetch(id)',
+      'const r = prefetch(url)',
+    ],
+    catches: ['const res = await fetch(url)', 'const res = fetch(url, init)', 'void fetch(url)'],
+  },
   'no-test-lifecycle-hooks': {
     allows: [
       'const Built = Layer.effectDiscard(buildOnce)',

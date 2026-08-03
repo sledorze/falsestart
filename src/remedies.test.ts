@@ -14,6 +14,9 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Config, Context, Data, Effect, Layer, Schema } from 'effect'
 import { TestClock, TestConsole } from 'effect/testing'
+// `HttpClient` and `HttpClientRequest` live in a subpath the root import does not re-export, so a
+// message naming them was previously unverifiable — the regex below simply did not look for them.
+import { HttpClient, HttpClientRequest } from 'effect/unstable/http'
 import { loadRules } from './checking/loader.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -24,6 +27,8 @@ const NAMESPACES: Readonly<Record<string, object>> = {
   Context,
   Data,
   Effect,
+  HttpClient,
+  HttpClientRequest,
   Layer,
   Schema,
   TestClock,
@@ -31,7 +36,8 @@ const NAMESPACES: Readonly<Record<string, object>> = {
 }
 
 /** `Effect.tryPromise`, `Schema.NumberFromString`, … as they appear in prose. */
-const REFERENCE = /\b(Config|Context|Data|Effect|Layer|Schema|TestClock|TestConsole)\.([A-Za-z][\dA-Za-z]*)/g
+const REFERENCE =
+  /\b(Config|Context|Data|Effect|HttpClient|HttpClientRequest|Layer|Schema|TestClock|TestConsole)\.([A-Za-z][\dA-Za-z]*)/g
 
 /**
  * Names that are deliberately not a member lookup: `NodeRuntime.runMain` lives in a platform

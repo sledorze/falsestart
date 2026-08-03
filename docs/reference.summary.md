@@ -16,7 +16,7 @@ Shipped rules match `**/*.{ts,tsx}` only; other extensions need their own globs.
 own). An override for a rule that is not loaded is an error. A `.ts` config must use a type-only
 import.
 
-**Shipped rules:** nineteen, all `error` severity; `clean-code` assumes only TypeScript, `effect`
+**Shipped rules:** twenty, all `error` severity; `clean-code` assumes only TypeScript, `effect`
 assumes Effect, and `no-vi-mocking`, `no-test-lifecycle-hooks` and `no-manual-effect-run-in-tests` apply only to test files. `Schema.Class` constructors throw but are deliberately not ruled — that would contradict `prefer-smart-constructor`.
 
 **Library:** the exported functions, error classes and constants, with the area each belongs to,
