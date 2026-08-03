@@ -6,23 +6,67 @@ just at CI. Can also be used to enforce structure/architecture conventions.
 falsestart runs as a Claude Code `PreToolUse` hook. The tool call arrives on stdin, falsestart
 answers with a decision, and code that breaks a rule never reaches the file.
 
-```jsonc
-// .claude/settings.json
+## Install
+
+Not published yet — the package is `private: true`. Until it is, install from a tarball or a git
+reference:
+
+```bash
+npm pack                       # in a checkout of this repo
+pnpm add -D ./sledorze-falsestart-0.0.1.tgz
+```
+
+`effect` is only needed if you import the library. The hook binary bundles what it needs.
+
+## Wire it up
+
+`.claude/settings.json` — strict JSON, no comments and no trailing commas. An unparseable settings
+file discards **every** hook and permission rule in it, not just this one:
+
+```json
 {
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "falsestart --preset all" }],
-      },
-    ],
-  },
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js\" --preset clean-code"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
 
-`--preset all` uses the rules shipped with falsestart — `clean-code` and `effect` are the narrower
-presets. `--rules <dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at
-another package's.
+Invoke it by path, not as a bare `falsestart`: `node_modules/.bin` is not on `PATH` for a hook
+command, so a bare name exits 127 and the hook silently does nothing while still showing as
+registered. `npx falsestart --preset clean-code` also works.
+
+**Pick the preset deliberately.** `clean-code` is four TypeScript rules and assumes nothing else.
+`effect` is fifteen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
+`new Promise`, `.then`, `JSON.parse` and `process.env`, so on an ordinary async function `all` (both
+sets) produces seven blocks. That is intended in an Effect repo and wrong everywhere else. `--rules
+<dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at another package's.
+
+Shipped rules match `**/*.{ts,tsx}` only. A repo written in `.mts`, `.cts` or `.js` needs its own
+`files` globs, or the guard is installed and inert.
+
+### Check it works
+
+Blocking is exit **0 with JSON on stdout**; allowed is exit 0 and silence; exit **1** means
+falsestart could not run and the write proceeded. So `echo $?` alone cannot tell you the difference
+between "allowed" and "blocked" — look at stdout:
+
+```bash
+echo '{"tool_name":"Write","cwd":"'"$PWD"'","tool_input":{"file_path":"'"$PWD"'/src/a.ts","content":"const x = v as any"}}' \
+  | node node_modules/@sledorze/falsestart/dist/cli.js --preset clean-code
+```
+
+That must print a `permissionDecision: "deny"` object. Change `as any` to `as Widget` and it must
+print nothing.
 
 Rules are [ast-grep](https://ast-grep.github.io) documents, so the same file stays readable by the
 upstream CLI:

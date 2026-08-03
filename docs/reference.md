@@ -6,13 +6,13 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                              |
-| -------------------- | ---------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Mutually exclusive with `--rules`. |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.  |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` beside the project.            |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                |
+| Flag                 | Meaning                                                                                                                             |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Mutually exclusive with `--rules`.                                |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                                               |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.                                 |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward. |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                               |
 
 ### Exit codes
 
@@ -82,6 +82,10 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 | `no-unsafe-api`                 | effect     | Effect marks a partial or throwing API with an Unsafe or OrThrow suffix…                        |
 | `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
 | `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
+
+Every shipped rule is scoped to `**/*.{ts,tsx}`. `.mts`, `.cts`, `.js` and `.jsx` are **not**
+matched by any of them, so a repo using those extensions needs its own `files` globs or a config
+override — otherwise the guard is installed and inert.
 
 All 19 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and

@@ -17,7 +17,7 @@
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem, Layer, Schema } from 'effect'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -91,6 +91,36 @@ layer(platform)('documentation covers the source', (it) => {
       const reference = yield* fs.readFileString('docs/reference.md')
 
       expect(reference).toContain(`All ${SHIPPED_RULE_IDS.length} rules are \`error\` severity`)
+    }),
+  )
+
+  // A setup snippet is copy-pasted, not read. Both of these were fenced ```jsonc with a header
+  // comment and trailing commas, so pasting one produced a `.claude/settings.json` that does not
+  // parse — which discards every hook and permission rule in that file, not just falsestart's. The
+  // failure is total and looks like nothing happening.
+  it.effect('every settings snippet in the docs is valid JSON', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      const invalid = yield* Effect.all(
+        ['README.md', 'docs/using-the-hook.md'].map((file) =>
+          Effect.gen(function* () {
+            const markdown = yield* fs.readFileString(file)
+            const blocks = [...markdown.matchAll(/```json\n([\s\S]*?)```/g)]
+
+            return blocks.flatMap((block, index) => {
+              const body = block[1]
+              if (body === undefined) {
+                return []
+              }
+              const parsed = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)(body)
+              return parsed._tag === 'Failure' ? [`${file} block ${index}`] : []
+            })
+          }),
+        ),
+      )
+
+      expect(invalid.flat()).toEqual([])
     }),
   )
 

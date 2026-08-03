@@ -5,19 +5,37 @@ with a decision, so a rule violation is caught as the code is written rather tha
 
 ## Register it
 
-```jsonc
-// .claude/settings.json
+`.claude/settings.json` is strict JSON — no comments, no trailing commas. An unparseable settings
+file discards every hook and permission rule in it, so a `jsonc` sample copied verbatim disables far
+more than falsestart:
+
+```json
 {
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [{ "type": "command", "command": "falsestart --preset all" }],
-      },
-    ],
-  },
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js\" --preset clean-code"
+          }
+        ]
+      }
+    ]
+  }
 }
 ```
+
+Two details that are easy to get wrong and fail silently:
+
+- **Invoke by path, not as a bare `falsestart`.** `node_modules/.bin` is not on `PATH` for a hook
+  command, so a bare name exits 127. Claude Code treats that as a non-blocking error, the write
+  proceeds, and `/hooks` still shows the hook registered. `npx falsestart …` works too.
+- **Include `NotebookEdit` in the matcher** if you want notebooks judged. falsestart handles it —
+  scoping a rule to `**/*.ipynb` works — but the matcher decides what ever reaches falsestart.
+  `Bash` is deliberately absent: falsestart judges the text a write tool carries, so a heredoc
+  redirect is outside what it can see.
 
 Rules can come from three places:
 
@@ -126,8 +144,10 @@ that adjusts only `ignores` leaves that answer inherited from someone who never 
 `ignores` is optional, and omitting it keeps the rule's own — narrowing where a rule looks must not
 quietly discard the test-file exemption its author wrote.
 
-Without `--config`, falsestart looks for `falsestart.config.{ts,mts,js,mjs,json}` beside the rules
-directory. None present means no overrides. **Two** present is an error rather than a precedence
+Without `--config`, falsestart looks for `falsestart.config.{ts,mts,js,mjs,json}` in the directory
+the process was started in — the project root, in a normal hook setup — and does not search upward.
+Not beside the rules directory: with `--preset` the rules live inside `node_modules`, and a config
+there would belong to falsestart rather than to you. None present means no overrides. **Two** present is an error rather than a precedence
 rule: silently picking one of two configs is the kind of quiet wrong answer this tool exists to
 prevent. A config named explicitly with `--config` must exist.
 
