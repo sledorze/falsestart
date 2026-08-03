@@ -44,6 +44,11 @@ const explain = (rule: Rule): string => rule.message ?? rule.note ?? `matched ru
  * Failure to RUN a rule is propagated rather than swallowed. Treating a broken rule as "found
  * nothing" would silently downgrade the guard to permissive at exactly the moment it is least
  * trustworthy, so the caller is forced to decide what to do about it.
+ *
+ * One finding per rule per position. A rule written as `any:` of several patterns can match more
+ * than one of them at the same node — `load().then(d).catch(e)` tripped `no-then-catch` twice at
+ * identical coordinates — and the reader of a `permissionDecisionReason` sees a duplicated line with
+ * nothing to distinguish it.
  */
 export const checkFile = (
   rules: readonly Rule[],
@@ -64,4 +69,16 @@ export const checkFile = (
           })),
         ),
       ),
-  ).pipe(Effect.map((perRule) => perRule.flat()))
+  ).pipe(
+    Effect.map((perRule) => {
+      const seen = new Set<string>()
+      return perRule.flat().filter((finding) => {
+        const at = `${finding.ruleId}:${finding.line}:${finding.column}`
+        if (seen.has(at)) {
+          return false
+        }
+        seen.add(at)
+        return true
+      })
+    }),
+  )

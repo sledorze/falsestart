@@ -4,7 +4,10 @@ Blocks risky code patterns the instant an AI writes them, as a Claude Code `PreT
 tool call arrives on stdin, falsestart answers with a decision, and code breaking a rule never
 reaches the file.
 
-Register it in `.claude/settings.json` with an `Edit|Write` matcher and `falsestart --preset all`.
+Register it in `.claude/settings.json` (strict JSON) with an `Edit|Write|NotebookEdit` matcher and
+the CLI invoked by path — `node "$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js"`.
+A bare `falsestart` exits 127 while the hook still shows as registered. Choose the preset
+deliberately: `clean-code` assumes only TypeScript, `all` includes the Effect set.
 Rules are ast-grep documents, so the same file stays readable by the upstream CLI. A rule acts on a
 file only when its own `files`/`ignores` globs admit the path — matching content is never on its own
 a reason to touch a file.

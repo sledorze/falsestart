@@ -51,7 +51,7 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 falsestart 0.0.1
 
 rules    …/rules/clean-code — 4 loaded
-config   searched /repo — 0 override(s)
+config   no config file in /repo — 0 override(s)
 tools    Edit, NotebookEdit, Write — any other tool call is ignored
 scope
            4 rule(s) apply to src/a.ts
@@ -70,9 +70,10 @@ config that names an Effect rule turns the whole guard off.
 
 **Read the scope block, not just the last line.** A nested path is probed on purpose: `src/**.ts` and
 `src/**/*.ts` look alike and behave completely differently, and a rule set with that typo guards
-top-level files while leaving every nested source file — nearly the whole codebase — untouched. It
-also exits 1 when no rule reaches any probed path, since a rule set whose globs all miss is loaded,
-valid, and enforcing nothing.
+top-level files while leaving every nested source file — nearly the whole codebase — untouched. When no
+rule reaches any probed path it says so and still exits **0** — "misses five `src/` paths" is not
+"misses everything", and a rule set scoped to `lib/**` or a monorepo's `packages/*/src/**` blocks
+perfectly well while probing zero here. Read the block; do not gate CI on the exit code alone.
 
 Rules can come from three places:
 

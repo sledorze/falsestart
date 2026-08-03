@@ -38,18 +38,18 @@ const emit = (response: HookResponse) =>
   })
 
 /**
+ * Read from the installed manifest rather than baked in at build time, so it cannot drift from the
+ * package a consumer actually has — the same `import.meta.url` anchor `presetDirectory` relies on.
+ */
+const VERSION: string = createRequire(import.meta.url)('../package.json').version
+
+/**
  * Where the packaged rules live, resolved from this module rather than from the caller's cwd.
  *
  * `import.meta.url` points at the installed `dist/cli.js`, so `../rules` finds them wherever a
  * package manager put the package — including pnpm's content-addressed store, where guessing
  * `node_modules/@sledorze/falsestart/rules` does not work.
  */
-/**
- * Read from the installed manifest rather than baked in at build time, so it cannot drift from the
- * package a consumer actually has — the same `import.meta.url` anchor `presetDirectory` relies on.
- */
-const VERSION: string = createRequire(import.meta.url)('../package.json').version
-
 const presetDirectory = (preset: Preset): string => {
   const packaged = fileURLToPath(new URL('../rules', import.meta.url))
   return preset === 'all' ? packaged : `${packaged}/${preset}`

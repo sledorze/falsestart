@@ -17,6 +17,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      # Formatting was enforced only by a skippable local hook: `lefthook.yml`'s `ci:` block is
+      # invoked by nothing, so `pnpm format:check` never ran anywhere that could block a merge.
+      - run: pnpm format:check
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

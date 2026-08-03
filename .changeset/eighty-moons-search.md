@@ -17,9 +17,9 @@ said nothing. It now cites six entry points, and drift means the area's offering
 **Public API shape is unchanged** — `src/index.ts` still re-exports the same names, now via the
 entry points rather than the leaves.
 
-Adds `docs/reference.md`: the flags, exit codes, rule document format, configuration, all fifteen
-shipped rules, and the library exports. There was no reference documentation at all despite a
-thirty-export API. The docs index is now organised by what a reader is trying to do, and names the
+Adds `docs/reference.md`: the flags, exit codes, rule document format, configuration, the shipped
+rules (fifteen at the time of this change) and the library exports. There was no reference
+documentation at all despite a library API. The docs index is now organised by what a reader is trying to do, and names the
 absence of a tutorial as a known gap.
 
 The taxonomy is stated once, in `docs/architecture.md`, rather than restated in module docstrings

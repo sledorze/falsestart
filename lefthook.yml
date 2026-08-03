@@ -50,7 +50,9 @@ pre-commit:
       glob: '*.{md,ts}'
       run: pnpm check
 
-# Check-only mirror (no auto-fix). Usage: lefthook run ci
+# Check-only mirror (no auto-fix), for running the same gates locally without the auto-fixing.
+# NOT what CI runs — `.github/workflows/ci.yml` invokes the pnpm scripts directly, so a change here
+# does not change what blocks a merge. Usage: lefthook run ci
 ci:
   parallel: true
   commands:
