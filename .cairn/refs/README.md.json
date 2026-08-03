@@ -23,10 +23,6 @@
     {
       "hash": "a8ee8cb94122758d6dd6ebe3e292581c8852d870cacb371978d069454a603911",
       "target": "./SECURITY.md"
-    },
-    {
-      "hash": "a826c372cb92f823a916900a430b23825a5df65dbd4e51d84f92047b1b1157ee",
-      "target": "./AGENTS.md"
     }
   ]
 }

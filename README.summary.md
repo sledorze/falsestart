@@ -21,3 +21,7 @@ Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, 
 Also linked from the README: [CONTRIBUTING](./CONTRIBUTING.md) (how to run the checks and the three
 gates a new rule passes), [SECURITY](./SECURITY.md) (what the tool executes on your behalf — a
 TypeScript config is imported, so it runs — and what it cannot see), and the reference doc.
+
+The tarball carries README, LICENSE, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, `docs/`, `rules/`
+and `dist/`; a test asserts every relative README link resolves to something in that list, because a
+link that works in a checkout can still be dead on npmjs.com.
