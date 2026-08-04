@@ -6,15 +6,16 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                                                             |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Mutually exclusive with `--rules`.                                |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                                               |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.                                 |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward. |
-| `--doctor`           | Report what falsestart resolved and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.             |
-| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                   |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                               |
+| Flag                 | Meaning                                                                                                                                   |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Mutually exclusive with `--rules`.                                      |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                                                     |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.                                       |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.       |
+| `--doctor`           | Report what falsestart resolved and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                   |
+| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`. |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                         |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                     |
 
 ### Judged tool calls
 
@@ -159,8 +160,9 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `toScopingPath`             | function    | checking |
 | `validateConfig`            | function    | config   |
 
-Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `Diagnosis`,
-`DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `HookResponse`, `RespondOptions`,
+Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
+`Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `HookResponse`,
+`RespondOptions`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 

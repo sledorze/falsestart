@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "7da2e46a3450559c598487e0f8d174e413a7103869bcccecc6c05bffe71bfed6",
+      "hash": "e4cbb44f8aaa3f45f72742b76c44aaa1a90c50b2602322e67f2add6aa5a122a0",
       "target": "./reference.md"
     },
     {
-      "hash": "2535111ca08966d1bcc66c1c4c952c7539ee3481fbb6bd5c73c19eba8971c3ec",
+      "hash": "82174d896a03dd364391c4e76e5e0d3b8bae535e1d3b01e979ec98e01fe916a1",
       "target": "./using-the-hook.md"
     },
     {
@@ -17,7 +17,7 @@
       "target": "../src/config/index.ts"
     },
     {
-      "hash": "73131da6394a0241b91a8e9ff94bcd440f858b59bb77e98d050cefcc236150fe",
+      "hash": "cb657575f769bc9682e66501efbba0a5411630ca019845db5c18835d331d591a",
       "target": "../src/hook/index.ts"
     },
     {
@@ -29,7 +29,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "b74189968f808f7baf7c273e5578d2f7a5da50f705c73bae6a5fe2e3fb9bb4a6",
+      "hash": "1b0791eaa6387900a52c2329117c4415788d87cb57280c7348f8de4056450e95",
       "target": "../src/cli.ts"
     }
   ]
