@@ -25,6 +25,14 @@ run to verify an upgrade. The path is anchored on the running module, so it is t
 copy every other line in the report describes — not a guess at `node_modules/@sledorze/falsestart`,
 which is not where every package manager puts it.
 
-The line is printed only when the file is really there, so an installation of `0.1.0` or `0.2.0`
-still reports exactly as it did. No behaviour changes for any judged write, and no previously-passing
-repo can go red because of this.
+The line is printed only when a readable FILE is really there — `stat`, not `exists`, so a directory
+of that name is not mistaken for release notes — and an installation of `0.1.0` or `0.2.0` still
+reports exactly as it did.
+
+`DiagnoseOptions` gains `changelogPath`, and it is **optional**. That is the whole reason the claim
+below holds: `DiagnoseOptions` is part of the published library surface, so a required field would
+have been a compile error in every existing caller of `diagnose` — a minor bump turning a consumer's
+`tsc` red, which is precisely the surprise this change exists to spare people. Omitting it is a
+supported call that reports no `changes` line.
+
+No behaviour changes for any judged write, and no previously-passing repo can go red because of this.

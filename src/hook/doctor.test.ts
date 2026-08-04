@@ -13,10 +13,10 @@ import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
-/** A filesystem that cannot answer "is this there?" at all — not one that answers "no". */
+/** A filesystem that cannot answer "what is this?" at all — not one that answers "nothing". */
 const unstattable = Layer.mergeAll(
   NodePath.layer,
-  FileSystem.layerNoop({ exists: () => Effect.fail(new Error('cannot stat') as never) }),
+  FileSystem.layerNoop({ stat: () => Effect.fail(new Error('cannot stat') as never) }),
 )
 
 const run = (options: {
@@ -80,6 +80,34 @@ layer(platform)('the doctor', (it) => {
       const diagnosis = yield* run({}).pipe(Effect.provide(unstattable))
 
       expect(diagnosis.lines.some((line) => line.startsWith('changes'))).toBeFalsy()
+    }),
+  )
+
+  it.effect('does not mistake a directory of that name for release notes', () =>
+    Effect.gen(function* () {
+      // `exists` says yes to a directory, so the claim "printed only when the file is really there"
+      // was false as written before this. Cheap to get right, and the report is the one place where
+      // a claim that is nearly true is worth least.
+      const diagnosis = yield* run({ changelogPath: 'docs' })
+
+      expect(diagnosis.lines.some((line) => line.startsWith('changes'))).toBeFalsy()
+    }),
+  )
+
+  it.effect('says nothing about release notes when the caller names none', () =>
+    Effect.gen(function* () {
+      // `changelogPath` is optional on the published `DiagnoseOptions`: a required field would be a
+      // compile error in every library caller written before it existed. Omitting it has to be a
+      // supported call, not an accident that happens to work.
+      const diagnosis = yield* diagnose({
+        configPath: 'src/testing/fixtures/empty.json',
+        projectDirectory: process.cwd(),
+        rulesDirectory: 'rules',
+        version: '0.0.0-test',
+      })
+
+      expect(diagnosis.lines.some((line) => line.startsWith('changes'))).toBeFalsy()
+      expect(diagnosis.healthy).toBeTruthy()
     }),
   )
 
