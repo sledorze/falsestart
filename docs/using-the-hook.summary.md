@@ -11,6 +11,12 @@ its version line too — a hook wired at a path holding an older copy describes 
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 
+`--warn-unscoped` answers the same question for the paths the repo actually writes: a judged write
+no rule is scoped to reports itself instead of passing in silence, non-blocking, and it cannot
+pre-empt a block since a rule that could block is a rule that applies. Off by default because the
+signal is noisy — measured on the shipped presets it fires on every `.md`, `.json`, `.yml` and
+`.js` write, plus test files under `clean-code` only, whose four rules all ignore them.
+
 Behaviour: an `error`-severity match blocks with the rule's message; softer severities do not
 block; a path outside a rule's `files`/`ignores` never runs it; other tools are ignored. A rule
 tree that will not load, or a rule that cannot run, produces a visible error while letting the

@@ -82,6 +82,35 @@ rule reaches any probed path it says so and still exits **0** — "misses five `
 "misses everything", and a rule set scoped to `lib/**` or a monorepo's `packages/*/src/**` blocks
 perfectly well while probing zero here. Read the block; do not gate CI on the exit code alone.
 
+### When a write was not checked at all
+
+`--doctor` answers the question for a fixed set of sample paths. `--warn-unscoped` answers it for
+the paths your repo actually writes: with it on, a judged write that no rule is scoped to reports
+itself instead of passing in silence.
+
+```
+{"systemMessage":"falsestart:\nno rule is scoped to src/probe.js, so this write was not checked"}
+```
+
+It decides nothing — the write proceeds — and it can never pre-empt a block, because a rule that
+could block is a rule that applies. Reach for it when a write you expected to be stopped was not:
+the two silences it separates ("no rule looked at this" and "every rule looked and approved") are
+identical from the outside, and the first is the one that means the guard is inert.
+
+It is off by default because the honest signal is noisy. Measured against the shipped presets:
+
+| Written file      | `clean-code` | `effect` | `all`  |
+| ----------------- | ------------ | -------- | ------ |
+| TypeScript source | silent       | silent   | silent |
+| JavaScript source | warns        | warns    | warns  |
+| Markdown or JSON  | warns        | warns    | warns  |
+| TypeScript test   | warns        | silent   | silent |
+
+Every documentation and config write warns under all three, which is most writes in most repos —
+and a warning you see on most writes is one you stop reading. Test files are the preset-dependent
+row: `clean-code`'s four rules all ignore them, while `effect` carries three rules that exist to
+judge them.
+
 Rules can come from three places:
 
 | Source                  | How                                                     |
@@ -125,6 +154,7 @@ opinion about, and does not even load the rule tree for them.
 | Write/Edit matching an `error` rule       | Blocked, with the rule's message                               |
 | Write/Edit matching a softer rule         | Allowed; advice that blocks is indistinguishable from an error |
 | Path outside the rule's `files`/`ignores` | Rule never runs                                                |
+| Path outside **every** rule's scope       | Silent, unless `--warn-unscoped` — then reported, not blocked  |
 | Any other tool                            | Ignored                                                        |
 | Rule tree will not load                   | Visible error, write proceeds                                  |
 | A rule cannot run                         | Visible error, write proceeds                                  |

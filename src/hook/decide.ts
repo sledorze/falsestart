@@ -20,7 +20,7 @@
  */
 import { Effect } from 'effect'
 import type { Finding, Rule } from '../checking/index.ts'
-import { checkFile, toScopingPath } from '../checking/index.ts'
+import { appliesTo, checkFile, toScopingPath } from '../checking/index.ts'
 
 export type Decision =
   /** Findings that do not block, but that the author should still see. */
@@ -30,6 +30,25 @@ export type Decision =
   | { readonly _tag: 'Report'; readonly problem: string }
 
 const defer = (): Decision => ({ _tag: 'Defer' })
+
+export interface DecideOptions {
+  /**
+   * Say so when a judged write lands on a path no rule is scoped to.
+   *
+   * Off by default, and the default is the interesting part. The honest version of this signal is
+   * noisy: measured against the shipped presets, it fires on every `.md`, `.json`, `.yml` and
+   * `.js` write, and additionally on every test file under `clean-code`, whose four rules all
+   * ignore them. Under `all` or `effect` test files stay quiet, because three Effect rules exist
+   * specifically to judge them — so how noisy this is depends on the preset, and it is never
+   * quiet in a repo that writes documentation.
+   *
+   * A warning that appears on most writes is one the reader learns to skip, and a signal that has
+   * been trained away is worse than no signal, because it still looks like coverage. So this is a
+   * flag to reach for while asking "why was that not blocked?", not something asserted
+   * continuously.
+   */
+  readonly warnUnscoped?: boolean | undefined
+}
 
 /**
  * The tools that introduce source text, and where each keeps its content and its path.
@@ -93,7 +112,11 @@ const describe = (finding: Finding): string =>
  * Never fails: every way this can go wrong is itself one of the three outcomes, because a guard
  * that throws inside a hook is a guard whose behaviour the agent runtime decides, not this code.
  */
-export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<Decision> =>
+export const decide = (
+  rules: readonly Rule[],
+  payload: unknown,
+  options: DecideOptions = {},
+): Effect.Effect<Decision> =>
   Effect.gen(function* () {
     if (!isRecord(payload)) {
       return { _tag: 'Report', problem: 'hook payload was not an object' } as const
@@ -127,6 +150,21 @@ export const decide = (rules: readonly Rule[], payload: unknown): Effect.Effect<
     // the raw absolute path makes every repo-relative glob silently never match.
     const cwd = payload['cwd']
     const scopingPath = toScopingPath(path, typeof cwd === 'string' ? cwd : undefined)
+
+    // Deliberately before the check rather than after it. A path no rule admits produces no
+    // findings, so the two are equivalent in outcome — but reading it here says the condition is
+    // about SCOPE, not about a check that came back empty, and `some` costs nothing when the
+    // option is off. It cannot pre-empt a `Deny`: a rule that could deny is a rule that applies.
+    if (options.warnUnscoped === true && !rules.some((rule) => appliesTo(rule, scopingPath))) {
+      return {
+        _tag: 'Advise',
+        // Empty on purpose. There is no finding — that is the entire report. `Advise` is reused
+        // rather than given a sibling tag because the response is identical in kind: shown to the
+        // author, decides nothing, write proceeds.
+        findings: [],
+        note: `no rule is scoped to ${scopingPath}, so this write was not checked`,
+      } as const
+    }
 
     const outcome = yield* Effect.result(checkFile(rules, { content, path: scopingPath }))
     if (outcome._tag === 'Failure') {

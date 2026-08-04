@@ -76,13 +76,15 @@ export interface RespondOptions {
    */
   readonly projectDirectory: string
   readonly rulesDirectory: string
+  /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
+  readonly warnUnscoped?: boolean | undefined
 }
 
 export const respond = (
   options: RespondOptions,
 ): Effect.Effect<HookResponse, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { configPath, input, projectDirectory, rulesDirectory } = options
+    const { configPath, input, projectDirectory, rulesDirectory, warnUnscoped } = options
     // The payload arrives from another process, so a malformed one is an ordinary outcome rather
     // than an exception to catch. `UnknownFromJsonString` keeps it in the error channel and hands
     // back `unknown`, which is what it is until `judgesPayload` has looked at it.
@@ -119,7 +121,7 @@ export const respond = (
       return problem(scoped.failure.reasons.join('\n'))
     }
 
-    const decision = yield* decide(scoped.success, parsed.success)
+    const decision = yield* decide(scoped.success, parsed.success, { warnUnscoped })
 
     switch (decision._tag) {
       case 'Advise': {

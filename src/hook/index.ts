@@ -4,7 +4,7 @@
  * This is the only area that knows what a PreToolUse payload looks like or what its exit codes
  * mean. The domain beneath it has no idea an agent exists.
  */
-export type { Decision } from './decide.ts'
+export type { Decision, DecideOptions } from './decide.ts'
 export type { Diagnosis, DiagnoseOptions } from './doctor.ts'
 export { diagnose } from './doctor.ts'
 export { decide, judgesPayload, WRITE_TOOLS } from './decide.ts'

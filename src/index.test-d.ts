@@ -12,6 +12,7 @@
 import type {
   CaseResult,
   Config,
+  DecideOptions,
   Decision,
   DiagnoseOptions,
   Diagnosis,
@@ -36,6 +37,7 @@ import type {
 export type Exported = [
   CaseResult,
   Config,
+  DecideOptions,
   Decision,
   DiagnoseOptions,
   Diagnosis,
