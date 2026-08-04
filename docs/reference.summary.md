@@ -26,11 +26,17 @@ open.
 `ignores`, `constraints`, `utils` optional. Severity defaults to `error`. Documents under `_utils/`
 are fragments needing only `id` and `rule`.
 
-Seventeen shipped rules match `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — the constructs they catch
-exist in both languages. Five (`no-as-any`, `no-as-never`, `no-double-cast`, `no-type-assertion`,
+Seventeen of twenty-three shipped rules match `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — the constructs they catch
+exist in both languages. Six (`no-as-any`, `no-as-never`, `no-double-cast`, `no-effect-assertion`, `no-type-assertion`,
 `prefer-smart-constructor`) stay TypeScript-only: they do fire on TS syntax at a `.js` path, since
 the parser follows `language: tsx` rather than the extension, but valid JavaScript cannot contain
 an `as` expression or a typed `const` to find. A JSDoc cast is caught by nothing.
+
+`no-effect-assertion` is the one rule with NO test-file exemption, deliberately: the blanket every
+other assertion rule carries exists for a fixture cast a mock needs (`as never`), which this rule
+leaves alone, but it was also waving through `x as Effect.Effect<A>` — a claim that a stream which
+can fail cannot. Found by falsestart allowing three of them into this repo's own tests while wired
+and running.
 
 **Configuration:** per-rule `files` (required) and `ignores` (optional, omission keeps the rule's
 own), plus a top-level `exclude` glob list for `scan` — the repository's standing policy, which
