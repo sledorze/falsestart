@@ -43,7 +43,16 @@ const REFERENCE =
  * Names that are deliberately not a member lookup: `NodeRuntime.runMain` lives in a platform
  * package, and prose sometimes says "Effect Config" or "Effect Schema" as a proper noun.
  */
-const NOT_A_MEMBER = new Set(['Effect.Config', 'Effect.Schema', 'Effect.Layer'])
+const NOT_A_MEMBER = new Set([
+  'Effect.Config',
+  'Effect.Schema',
+  'Effect.Layer',
+  // TYPE names, which is the whole subject of `no-effect-assertion`: its message and note have to
+  // spell the thing being asserted into. `typeof Effect.Effect` is `undefined` at runtime — checked
+  // — so a member lookup is the wrong question to ask about them, exactly as for the three above.
+  'Effect.Effect',
+  'Layer.Layer',
+])
 
 const referencesIn = (text: string): readonly string[] => [...text.matchAll(REFERENCE)].map((match) => match[0])
 

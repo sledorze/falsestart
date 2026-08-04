@@ -22,8 +22,7 @@ interface CliResult {
   readonly stdout: string
 }
 
-const collect = (stream: Stream.Stream<Uint8Array, unknown>) =>
-  stream.pipe(Stream.decodeText(), Stream.mkString) as Effect.Effect<string, never, never>
+const collect = (stream: Stream.Stream<Uint8Array, unknown>) => stream.pipe(Stream.decodeText(), Stream.mkString)
 
 const runCliRaw = (args: readonly string[], payload: string) =>
   Effect.gen(function* () {
@@ -35,7 +34,7 @@ const runCliRaw = (args: readonly string[], payload: string) =>
     const stderr = yield* collect(handle.stderr)
     const exitCode = yield* handle.exitCode
 
-    return { exitCode: exitCode as number, stderr, stdout } satisfies CliResult
+    return { exitCode, stderr, stdout } satisfies CliResult
   }).pipe(Effect.scoped, Effect.orDie)
 
 /**
@@ -172,6 +171,30 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  it.effect('--doctor names a changelog that is really inside the installation it reports on', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        // Only a process can check this. The path is computed in `cli.ts` from `import.meta.url`,
+        // `cli.ts` is excluded from coverage, and every unit test injects the path itself — so the
+        // one value that is actually hard to get right is asserted by nothing. It is hard because
+        // the tsc emit and the esbuild bundle do not sit at the same depth: re-anchoring it to
+        // `../../CHANGELOG.md` leaves all 390 other tests green while the line silently disappears
+        // from the shipped binary. Checked by doing it.
+        const fs = yield* FileSystem.FileSystem
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath], '')
+
+        const reported = result.stdout.split('\n').find((line) => line.startsWith('changes')) ?? ''
+        expect(reported).toContain('CHANGELOG.md')
+
+        // Naming a path is worth nothing if the path is not there — which is the entire complaint
+        // this feature answers, so it must not be reproduced by the feature itself.
+        const named = reported.slice('changes'.length).trim().split(' ')[0] ?? ''
+        expect(yield* fs.exists(named)).toBeTruthy()
+      }),
+    ),
+  )
+
   it.effect('refuses a flag where a value belongs, rather than waiting on a payload', () =>
     Effect.gen(function* () {
       // `--rules -x` consumed the flag as the directory and blocked on stdin forever, with no
@@ -225,6 +248,150 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
         expect(result.exitCode).toBe(1)
         expect(result.stdout).toBe('')
         expect(result.stderr).toContain('falsestart')
+      }),
+    ),
+  )
+
+  // `scan` had no process-level test at all, and that is exactly how a silent failure shipped:
+  // `writeBaseline` was called unwrapped, so a write error propagated to `runMain` and exited 1
+  // with no output — the code meaning "your code has violations" rather than "this could not run".
+  // Its unit tests passed throughout, because the defect was in the WIRING, and `cli.ts` is
+  // excluded from both the coverage ratchet and mutation testing. Only a real process can see it.
+  it.effect('scan reports findings and stops the commit', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(['scan', '--rules', root, '--config', configPath, `${root}/a.ts`], '')
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toContain('no-as-any')
+        expect(result.stdout).toContain('1 in scope')
+      }),
+    ),
+  )
+
+  it.effect('scan accepts what a baseline already carries, and says so', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const baseline = `${root}/baseline.json`
+        const scan = (extra: readonly string[]) =>
+          runCliRaw(
+            ['scan', '--rules', root, '--config', configPath, '--baseline', baseline, ...extra, `${root}/a.ts`],
+            '',
+          )
+
+        const wrote = yield* scan(['--update-baseline'])
+        expect(wrote.exitCode).toBe(0)
+        expect(wrote.stdout).toContain('accepted finding(s)')
+
+        const after = yield* scan([])
+        expect(after.exitCode).toBe(0)
+        expect(after.stdout).toContain('accepted by baseline')
+      }),
+    ),
+  )
+
+  it.effect('scan says why it could not write a baseline, rather than failing silently', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(
+          [
+            'scan',
+            '--rules',
+            root,
+            '--config',
+            configPath,
+            '--baseline',
+            `${root}/no-such-directory/baseline.json`,
+            '--update-baseline',
+            `${root}/a.ts`,
+          ],
+          '',
+        )
+
+        // 2, not 1: a gate that cannot tell "your code has violations" from "the gate is broken"
+        // is one people learn to bypass.
+        expect(result.exitCode).toBe(2)
+        expect(result.stderr).toContain('baseline.json')
+      }),
+    ),
+  )
+
+  it.effect('scan never judges a dependency, and counts what it left alone', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* fs.makeDirectory(path.join(root, 'node_modules', 'pkg'), { recursive: true })
+        yield* fs.writeFileString(path.join(root, 'node_modules', 'pkg', 'i.ts'), 'const y = v as any')
+
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(
+          ['scan', '--rules', root, '--config', configPath, `${root}/a.ts`, `${root}/node_modules/pkg/i.ts`],
+          '',
+        )
+
+        expect(result.stdout).toContain('1 excluded')
+        expect(result.stdout).not.toContain('node_modules')
+      }),
+    ),
+  )
+
+  // `--preset` is how the documentation tells everyone to start, and it appeared nowhere in this
+  // suite — the packaged-rules path was never once run as a process. It is also the path that
+  // depends on `import.meta.url` pointing at the bundled `dist/cli.js`, which no in-process test
+  // can observe: resolve `../rules` from the wrong artifact and the guard loads nothing at all.
+  it.effect('loads the packaged rules through --preset and blocks with them', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('takes only the named subset of the packaged rules', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        // `no-await` is an Effect rule. Under `--preset clean-code` it must not be loaded, so this
+        // write is allowed — the proof that a preset selects a subdirectory rather than everything.
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--config', configPath],
+          payloadFor({ content: 'const go = async () => await x', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+      }),
+    ),
+  )
+
+  // The other half of `packageRulesDirectory`'s contract, which cannot honestly be tested in
+  // process: under vitest the loader resolves through its own module graph, so a package that does
+  // not exist on disk still resolves. Only a real node process does the filesystem walk.
+  it.effect('reports an unresolvable rules package without blocking the write', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        // Visible, and NOT blocking: a missing dependency must not stop every write in the repo.
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('could not resolve rules package')
       }),
     ),
   )

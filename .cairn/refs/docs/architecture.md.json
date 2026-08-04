@@ -1,27 +1,31 @@
 {
   "refs": [
     {
-      "hash": "7da2e46a3450559c598487e0f8d174e413a7103869bcccecc6c05bffe71bfed6",
+      "hash": "0231e554b60b842f8324b414c3eedaac61db7811a9f13ca8bb0feb8dcaa4fd8f",
       "target": "./reference.md"
     },
     {
-      "hash": "943c135466549d7401a7db4cc330fb8339496fc546d04ffc0f0e9fd897522c40",
+      "hash": "482d5619385aa4082de98131ab23782a4a9f60672429599d646fddbb6994a6b2",
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "1a0f79f06f074e3f3e1e676ae2830a520ab377dab89a3c4aa0a94ce3b3f061ef",
+      "hash": "71fdb4e8d1d1fcaa052e970571559e6fd525028e77cc92ea361ae1a91fe7363e",
       "target": "../src/checking/index.ts"
     },
     {
-      "hash": "d77b4d12de6e19d7edef9b061177794d85f04bece878db2c28ec94cebce8a4f2",
+      "hash": "420daa5d2e153e915d9f20800b678c2987946b4fb0378d783e56f42a9b818490",
       "target": "../src/config/index.ts"
     },
     {
-      "hash": "73131da6394a0241b91a8e9ff94bcd440f858b59bb77e98d050cefcc236150fe",
+      "hash": "cb657575f769bc9682e66501efbba0a5411630ca019845db5c18835d331d591a",
       "target": "../src/hook/index.ts"
     },
     {
-      "hash": "3707f9938c13d5845d38ff50039472f6afd0321adc0f0f06827ba608fe846f0b",
+      "hash": "b14c1c9d3a729c3a653fc87d3d1934f0aafeca83085452ebabca7c3e0a7c13e3",
+      "target": "../src/scanning/index.ts"
+    },
+    {
+      "hash": "33440ea0415f8ddeeda15bff90a35763f2dc20daeb244388895695e415a90812",
       "target": "../src/cli/index.ts"
     },
     {
@@ -29,7 +33,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "b74189968f808f7baf7c273e5578d2f7a5da50f705c73bae6a5fe2e3fb9bb4a6",
+      "hash": "00cd87e149e5f27100f514903318d17883d5630b2d28b9890137e061cda6ea55",
       "target": "../src/cli.ts"
     }
   ]

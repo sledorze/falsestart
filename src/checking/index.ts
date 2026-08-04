@@ -5,13 +5,25 @@
  * this way is explained in `docs/architecture.md`.
  */
 export type { Finding, FileUnderCheck } from './engine.ts'
-export { checkFile } from './engine.ts'
+export type { GrammarFallback } from './engine.ts'
+export { checkFile, fallbacks } from './engine.ts'
 export { loadRules, RuleLoadError } from './loader.ts'
 export type { Violation } from './matcher.ts'
-export { findViolations, MatchError } from './matcher.ts'
+export type { ParsedSource } from './matcher.ts'
+export { findViolations, findViolationsIn, MatchError, parseSource } from './matcher.ts'
 export type { Language, Rule, RuleConstraint, Severity } from './rule.ts'
 export { parseRule, RuleParseError, SEVERITIES, SUPPORTED_LANGUAGES } from './rule.ts'
 export type { ShippedRuleId } from './rule-ids.generated.ts'
 export { SHIPPED_RULE_IDS } from './rule-ids.generated.ts'
 export type { FileScope } from './scope.ts'
-export { appliesTo, toScopingPath } from './scope.ts'
+export {
+  appliesTo,
+  extensionGlobGroup,
+  grammarFor,
+  matchesAny,
+  JAVASCRIPT_EXTENSIONS,
+  samplePath,
+  SOURCE_EXTENSIONS,
+  toScopingPath,
+  TYPESCRIPT_EXTENSIONS,
+} from './scope.ts'

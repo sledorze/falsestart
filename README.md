@@ -11,16 +11,20 @@ answers with a decision, and code that breaks a rule never reaches the file.
 
 ## Install
 
-Not published yet — the package is `private: true`. Until it is, install from a tarball or a git
-reference:
-
 ```bash
-npm pack                       # in a checkout of this repo
-pnpm add -D ./sledorze-falsestart-0.0.1.tgz
+pnpm add -D @sledorze/falsestart
 ```
 
-`effect` is a required peer dependency, so installing this installs it too. The hook binary itself
-inlines what it needs and never loads yours — the peer is for the library entry point.
+That is the whole install for the hook: the binary inlines what it needs and never loads yours.
+
+Importing falsestart as a **library** works too, straight after that command. What does not work is
+importing `effect` — its peer — from your own code: under pnpm's default isolated `node_modules`,
+`import 'effect'` fails. So declare it yourself if you use it, with `pnpm add effect`.
+
+Being a peer is not the reason. pnpm puts nothing in your project that your own `package.json` did
+not ask for, so `picomatch` — an ordinary dependency of falsestart, not a peer — is equally absent.
+npm's flat layout leaves both importable, and `node-linker=hoisted` makes pnpm do the same, but
+neither is a guarantee to build on: depend on what you import.
 
 ## Wire it up
 
@@ -49,14 +53,24 @@ Invoke it by path, not as a bare `falsestart`: `node_modules/.bin` is not on `PA
 command, so a bare name exits 127 and the hook silently does nothing while still showing as
 registered. `npx falsestart --preset clean-code` also works.
 
-**Pick the preset deliberately.** `clean-code` is four TypeScript rules and assumes nothing else.
-`effect` is sixteen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
-`new Promise`, `.then`, `JSON.parse`, `fetch` and `process.env`, so on an ordinary async function `all` (both
-sets) produces seven blocks. That is intended in an Effect repo and wrong everywhere else. `--rules
+**Pick the preset deliberately.** `clean-code` is six rules and assumes nothing else.
+`effect` is seventeen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
+`new Promise`, `.then`, `JSON.parse`, `fetch` and `process.env`. An eight-line function that
+awaits a `fetch`, `JSON.parse`s the body inside `try`/`catch` and throws an `Error` trips **six**
+of them:
+
+```
+no-await, no-json-global, no-raw-error, no-raw-fetch, no-try-catch
+```
+
+That is intended in an Effect repo and wrong everywhere else. `--rules
 <dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at another package's.
 
-Shipped rules match `**/*.{ts,tsx,mts,cts}`. `.js`, `.jsx`, `.mjs` and `.cjs` are excluded by
-design, so a repo written in those needs its own `files` globs or the guard is installed and inert.
+Seventeen of the twenty-three rules match JavaScript as well as TypeScript — `try`, `await`, `process.env`,
+`fetch` and the rest are the same construct in both. The six that key on TypeScript syntax
+(`no-as-any`, `no-as-never`, `no-double-cast`, `no-effect-assertion`, `no-type-assertion`,
+`prefer-smart-constructor`) stay `**/*.{ts,tsx,mts,cts}`, because valid JavaScript has nothing for
+them to find.
 
 ### Check it works
 

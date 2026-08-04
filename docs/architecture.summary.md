@@ -24,7 +24,11 @@ guard could not run (say so loudly, do not block). A rule that cannot run is nev
 **Rules are programs, so they are wrong until shown otherwise** — worked examples of both kinds,
 a blast-radius corpus no rule may flag, and a check that every API a message names is real.
 
-**Five areas, separated by what each may know:** `checking/` (rule documents and source text),
-`config/` (a repo's overrides), `hook/` (the agent protocol), `cli/` (the command line), `testing/`
-(helpers for testing your own rules). Only `cli.ts` knows a process exists. Documents cite entry
+**Six areas, separated by what each may know:** `checking/` (rule documents and source text),
+`config/` (a repo's overrides), `hook/` (the agent protocol), `scanning/` (the filesystem: paths in,
+a report out), `cli/` (the command line), `testing/`
+(helpers for testing your own rules). `hook/` and `scanning/` are the two adapters and are separate
+because their policies are opposite: the hook fails OPEN, since a broken rule must not hold every
+write hostage, while a scan is a gate and fails CLOSED, since one that cannot run passes everything
+while looking healthy. Only `cli.ts` knows a process exists. Documents cite entry
 points, never internals, so staleness means the offering changed; `*.generated.ts` is tool-written.

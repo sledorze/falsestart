@@ -17,6 +17,7 @@
  */
 import { Data, Effect, Schema } from 'effect'
 import type { Rule } from '../checking/index.ts'
+import { appliesTo, samplePath, SOURCE_EXTENSIONS } from '../checking/index.ts'
 
 export interface ScopeOverride {
   /**
@@ -29,6 +30,19 @@ export interface ScopeOverride {
 }
 
 export interface Config {
+  /**
+   * Paths a scan should leave alone, for this repository, once.
+   *
+   * Belongs here rather than only on the command line because it is a fact about the REPOSITORY,
+   * not about one invocation of it. Left as a flag alone, the same list has to be repeated in
+   * `lefthook.yml`, in a husky script and in CI, and the copies drift — which is the failure this
+   * codebase has already fixed twice, in the shipped rule globs and in its own scope overrides.
+   *
+   * `node_modules` and `.git` are always excluded and need no entry. `--exclude` adds to this
+   * rather than replacing it: a config is the repository's standing policy and a flag is one run's
+   * addition to it, so neither can silently drop what the other established.
+   */
+  readonly exclude?: readonly string[] | undefined
   readonly rules: Readonly<Record<string, ScopeOverride>>
 }
 
@@ -96,9 +110,15 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
       return Effect.fail(new ConfigError({ reasons: [`${origin}: config must be an object`] }))
     }
 
+    const declaredExclude = document['exclude']
+    if (declaredExclude !== undefined && !isGlobList(declaredExclude)) {
+      return Effect.fail(new ConfigError({ reasons: [`${origin}: exclude must be an array of glob strings`] }))
+    }
+    const exclude = declaredExclude === undefined ? {} : { exclude: declaredExclude }
+
     const declared = document['rules']
     if (declared === undefined) {
-      return Effect.succeed(EMPTY_CONFIG)
+      return Effect.succeed({ ...EMPTY_CONFIG, ...exclude })
     }
     if (!isMapping(declared)) {
       return Effect.fail(new ConfigError({ reasons: [`${origin}: rules must be an object`] }))
@@ -115,7 +135,9 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
       }
     }
 
-    return reasons.length > 0 ? Effect.fail(new ConfigError({ reasons })) : Effect.succeed({ rules: overrides })
+    return reasons.length > 0
+      ? Effect.fail(new ConfigError({ reasons }))
+      : Effect.succeed({ ...exclude, rules: overrides })
   })
 
 export const parseConfig = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>
@@ -153,6 +175,59 @@ export const applyScopeOverrides = (
       }),
     )
   })
+
+export interface NarrowedScope {
+  /** Extensions the shipped rule covered and the override does not. Never empty. */
+  readonly lostExtensions: readonly string[]
+  readonly ruleId: string
+}
+
+/**
+ * Which overrides cover fewer languages than the rule they re-scope.
+ *
+ * An override REPLACES a rule's scope rather than merging into it — the documented behaviour, and
+ * the right one, since a merge could never remove anything. The consequence is easy to miss: a
+ * config written to add one file exemption has to restate the rule's whole `files` glob, and any
+ * extension left out of that restatement is silently no longer guarded.
+ *
+ * This repo did it to itself. `no-type-assertion` and `no-json-global` were pinned to `{ts,tsx}`
+ * to carry a single-file exemption, and stopped covering `.mts` and `.cts` — the two extensions a
+ * release had been cut to add — while every test stayed green and the diagnostic said healthy.
+ *
+ * Reported rather than refused, because narrowing is what overrides are for: `files:
+ * ['src/domain/**']` is the documented example, and failing on it would make the feature unusable.
+ * Only the LANGUAGE dimension is compared, not directories, because that is where narrowing is
+ * almost always an accident of restating a glob rather than a decision someone made.
+ */
+export const findNarrowedScopes = (shipped: readonly Rule[], scoped: readonly Rule[]): readonly NarrowedScope[] => {
+  const byId = new Map(scoped.map((rule) => [rule.id, rule]))
+
+  return shipped.flatMap((original) => {
+    const applied = byId.get(original.id)
+    if (applied === undefined) {
+      return []
+    }
+
+    // Sampled from the OVERRIDE's globs, so the directory a probe lands in is one it already
+    // admits. An override with no `files` at all admits every path and therefore cannot have
+    // narrowed anything — there is nothing to sample and nothing to report.
+    const globs = applied.files
+    if (globs === undefined) {
+      return []
+    }
+
+    const lostExtensions = SOURCE_EXTENSIONS.filter((extension) =>
+      // One demonstration is enough: a path the shipped rule accepts and the override refuses,
+      // differing from a path the override accepts only in its extension.
+      globs.some((glob) => {
+        const path = samplePath(glob, extension)
+        return appliesTo(original, path) && !appliesTo(applied, path)
+      }),
+    )
+
+    return lostExtensions.length === 0 ? [] : [{ lostExtensions, ruleId: original.id }]
+  })
+}
 
 /**
  * Smart constructor for a `Config`.

@@ -16,10 +16,16 @@
  * when a step did not resolve. It reads no stdin: it is a question about the installation, not about
  * a tool call.
  */
-import { Effect } from 'effect'
-import type { FileSystem, Path } from 'effect'
-import { applyScopeOverrides, findDefaultConfigs, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
-import { appliesTo, loadRules } from '../checking/index.ts'
+import { Effect, FileSystem } from 'effect'
+import type { Path } from 'effect'
+import {
+  applyScopeOverrides,
+  findDefaultConfigs,
+  findNarrowedScopes,
+  loadConfigFile,
+  loadDefaultConfig,
+} from '../config/index.ts'
+import { appliesTo, fallbacks, loadRules } from '../checking/index.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
 export interface Diagnosis {
@@ -29,6 +35,16 @@ export interface Diagnosis {
 }
 
 export interface DiagnoseOptions {
+  /**
+   * Where this installation's release notes are. Verified to be a readable file before being
+   * printed, so a wrong or absent path costs a line of the report rather than the whole report.
+   *
+   * OPTIONAL, and that is a compatibility decision rather than a convenience one: `DiagnoseOptions`
+   * is part of the published library surface, so a required field here is a compile error in every
+   * caller that predates it — a minor release turning a consumer's `tsc` red, which is exactly the
+   * surprise this whole change exists to spare people.
+   */
+  readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
@@ -54,8 +70,31 @@ export const diagnose = (
   options: DiagnoseOptions,
 ): Effect.Effect<Diagnosis, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { configPath, projectDirectory, rulesDirectory, version } = options
-    const lines: string[] = [`falsestart ${version}`, '']
+    const { changelogPath, configPath, projectDirectory, rulesDirectory, version } = options
+    const lines: string[] = [`falsestart ${version}`]
+
+    // The version alone does not answer the question someone runs `--doctor` after an upgrade to
+    // ask, which is "what is newly going to block me". A minor bump can add an `error`-severity rule
+    // to a preset and turn a green repo red; 0.2.0 did it twice, and the release notes were not even
+    // in the package, so the only way to find out was to pack both versions and diff them by hand.
+    //
+    // Printed only when a readable FILE is really there. A path offered for an artifact that is
+    // absent sends the reader looking for the one thing that would have answered them, which is
+    // worse than saying nothing — and it is absent in every installation published before this line
+    // existed. `stat` rather than `exists` because "there is a directory of that name" is not the
+    // claim being made, and a filesystem that cannot answer at all gets the same answer as "no": the
+    // reader's next step is identical, and this is the one report still available when things break.
+    const fs = yield* FileSystem.FileSystem
+    const isReadableFile = (path: string) =>
+      fs.stat(path).pipe(
+        Effect.map((info) => info.type === 'File'),
+        Effect.orElseSucceed(() => false),
+      )
+
+    if (changelogPath !== undefined && (yield* isReadableFile(changelogPath))) {
+      lines.push(`changes  ${changelogPath} — what this version changed, including any rule that is new`)
+    }
+    lines.push('')
 
     const loaded = yield* Effect.result(loadRules(rulesDirectory))
     if (loaded._tag === 'Failure') {
@@ -86,6 +125,24 @@ export const diagnose = (
     if (scoped._tag === 'Failure') {
       lines.push(`         OVERRIDES REJECTED — ${scoped.failure.reasons.join('; ')}`)
       return { healthy: false, lines }
+    }
+
+    // Printed under `config`, because it is a fact about what the override did rather than about
+    // the rules. Informational: narrowing is the feature working, and only the reader knows whether
+    // this particular narrowing was meant.
+    for (const narrowed of findNarrowedScopes(loaded.success, scoped.success)) {
+      const lost = narrowed.lostExtensions.map((extension) => `.${extension}`).join(', ')
+      lines.push(`         ${narrowed.ruleId} stops covering ${lost} — the override replaces the rule's own files`)
+    }
+
+    // A rule that cannot run under the grammar its own scope implies falls back to the grammar it
+    // declares, which keeps one misconfigured rule from disabling every other rule for a file. That
+    // recovery must not be silent: it is a fact about the RULE SET, so it is stated once here
+    // rather than on every tool call, where it would become noise and then be ignored.
+    for (const fallback of yield* fallbacks(scoped.success)) {
+      lines.push(
+        `         ${fallback.ruleId} falls back to ${fallback.declared} for .${fallback.extension} — its pattern does not compile under that file's grammar`,
+      )
     }
 
     lines.push(`tools    ${Object.keys(WRITE_TOOLS).toSorted().join(', ')} — any other tool call is ignored`)

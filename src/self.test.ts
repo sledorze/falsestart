@@ -18,7 +18,7 @@ import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer } from 'effect'
 import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
-import { applyScopeOverrides } from './config/config.ts'
+import { applyScopeOverrides, findNarrowedScopes } from './config/config.ts'
 import { loadDefaultConfig } from './config/config-file.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -61,6 +61,30 @@ layer(platform)('falsestart judged by its own rules', (it) => {
       )
 
       expect(findings.flat()).toEqual([])
+    }),
+  )
+
+  // Both of this repo's overrides exist to exempt ONE FILE each. Neither is meant to drop a
+  // language, and both had — pinned to `{ts,tsx}`, they stopped covering `.mts` and `.cts` at the
+  // release that added those extensions, and every JavaScript one when `no-json-global` gained
+  // them. An override replaces a rule's scope rather than merging into it, so an extension left
+  // out of the restatement is silently unguarded, and the suite above cannot see it: there are no
+  // `.mts` files here to go unchecked. It stayed green the entire time.
+  //
+  // `--doctor` now reports this for any project. Here it is asserted, because this repo's config
+  // is the worked example the docs point at, and a worked example with a silent hole in it teaches
+  // the hole.
+  it.effect('narrows no rule to fewer languages than it ships with', () =>
+    Effect.gen(function* () {
+      const shipped = yield* loadRules('rules')
+      const config = yield* loadDefaultConfig('.')
+      const scoped = yield* applyScopeOverrides(shipped, config)
+
+      const narrowed = findNarrowedScopes(shipped, scoped).map(
+        (entry) => `${entry.ruleId} lost ${entry.lostExtensions.join(', ')}`,
+      )
+
+      expect(narrowed).toEqual([])
     }),
   )
 

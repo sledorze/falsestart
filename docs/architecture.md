@@ -81,7 +81,7 @@ independent checks say so, each verified by breaking it rather than by reading i
 
 ## How the code is divided
 
-Five areas, each presenting a small entry point that the rest of the codebase and these documents
+Six areas, each presenting a small entry point that the rest of the codebase and these documents
 cite. Areas are separated by _what they are allowed to know_:
 
 | Area                                    | Knows about                                                               |
@@ -89,8 +89,15 @@ cite. Areas are separated by _what they are allowed to know_:
 | [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files. |
 | [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.            |
 | [`hook/`](../src/hook/index.ts)         | The agent protocol: a payload in, a verdict out.                          |
+| [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                   |
 | [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                          |
 | [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
+
+`hook/` and `scanning/` are the two adapters, and they are separate because their failure modes
+are opposite. The hook answers before a write lands and must fail OPEN — a typo in a rule file must
+not hold every write in the repo hostage. A scan is a gate, and must fail CLOSED — one that cannot
+run has to stop, or it passes everything while looking healthy. Same rules underneath, contrary
+policies above, which is exactly the kind of thing that goes wrong when one module tries to be both.
 
 Only [`cli.ts`](../src/cli.ts) knows a process exists.
 

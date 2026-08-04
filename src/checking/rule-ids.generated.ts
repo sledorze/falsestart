@@ -16,6 +16,9 @@ export type ShippedRuleId =
   | 'no-as-never'
   | 'no-await'
   | 'no-double-cast'
+  | 'no-effect-assertion'
+  | 'no-empty-catch'
+  | 'no-hardcoded-credential'
   | 'no-json-global'
   | 'no-manual-effect-run-in-tests'
   | 'no-new-promise'
@@ -38,6 +41,9 @@ export const SHIPPED_RULE_IDS: readonly ShippedRuleId[] = [
   'no-as-never',
   'no-await',
   'no-double-cast',
+  'no-effect-assertion',
+  'no-empty-catch',
+  'no-hardcoded-credential',
   'no-json-global',
   'no-manual-effect-run-in-tests',
   'no-new-promise',

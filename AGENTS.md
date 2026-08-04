@@ -44,6 +44,20 @@ When you create or edit any doc — **or any source file a doc links to**:
 5. Commit your doc changes **together with** the `.cairn/` sidecar changes — a doc
    edit without its matching sidecar update is exactly what `check` is designed to catch.
 
+**Never resolve a `.cairn/` conflict by hand.** A rebase across two branches that both touched docs
+conflicts on the sidecar hashes, and BOTH SIDES ARE WRONG — the hash describes the merged tree,
+which neither parent contains. Observed: resolving `.cairn/_SUMMARY.md.json` by taking one side and
+then running `pnpm stamp` produced a _third_ value. Take either side to get the rebase moving, then
+re-stamp and commit that; picking a side and stopping records a hash for a tree that never existed,
+and `check` goes green on it.
+
+Also worth knowing about the tool's reach: a summary can state a fact about a file it does not LINK
+to — `README.summary.md` lists what the tarball ships, which is a claim about `package.json` — and
+cairn cannot see that edge at all. `--refs` hashes the targets of `[text](path)` links, and
+`--prose-refs` fires on a backticked path that MOVED. A sentence naming neither stays green while
+going false, which is what happened when `CHANGELOG.md` was added to `files`. Claims of that shape
+belong in `src/documented.test.ts`, where several already live.
+
 ## Commands
 
 - `pnpm check` — check summaries + links + **reference drift** (exit 1 on any problem).
@@ -57,22 +71,49 @@ When you create or edit any doc — **or any source file a doc links to**:
   source file the docs link to. It does **not** author prose; you write the content, then stamp.
   Re-stamping after a source change is the point, not a chore: it is where you say the doc's claim
   about that file is still true.
+- `cairn check --explain` — say WHY each stale or missing summary is not ok. Useful because the
+  tree is a Merkle tree: editing one document marks its `_SUMMARY.md` stale too, and the report
+  alone does not say which child caused it. Observed on a one-line edit to `docs/overview.md`:
+  `dir docs/_SUMMARY.md (stale): driven by stale/missing child: docs/overview.md`.
 - `cairn check --prune` — delete orphan summaries and orphan `.cairn/` sidecars
   (source doc deleted, renamed, or below threshold).
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
   `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
-  0.7 its help text says "safe for permanent use" rather than calling it a migration aid.
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.9
+  still does.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
   On in `pnpm check`, comparing against the working tree; pass `--deletions-since <ref>` to check
   deletions already committed on a branch. This exists because a lossy dedup here removed the only
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
-- `checks.coverage` — **config only, absent from `--help`**, so you will not find it by asking the
-  tool. Declares document _kinds_ by path glob and _rules_ between them ("every explanation doc must
-  link to a reference doc"), then reports the ones missing. It is the check that would notice a
-  missing Diátaxis quadrant. Not enabled here: with four documents the rules would be asserted both
-  in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
+- Three checks are **config-only**, with no flag of their own — enabled by naming them in
+  `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
+  0.7; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
+  true at the upgrade. None of the three is enabled, and each for a reason worth keeping:
+  - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
+    explanation doc must link to a reference doc"), then reports the ones missing. It is the check
+    that would notice a missing Diátaxis quadrant. With four documents the rules would be asserted
+    both in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
+  - `checks.docCoverage` asks the other direction — is this SOURCE file documented anywhere at all,
+    by a link from some doc that already exists. It overlaps `src/documented.test.ts`, which already
+    asserts every area entry point is cited by the architecture doc. It is not adopted because this
+    repo's rule is narrower than "documented somewhere": the architecture doc deliberately cites
+    entry points and NOTHING below them, so a check demanding every source file be linked would
+    contradict the convention it was meant to enforce. The test also asserts the inverse — that no
+    file below an entry point is cited — which `docCoverage` cannot express.
+  - `checks.freshness` reports a doc whose most recent commit is older than `maxAgeDays`. It is a
+    proxy for staleness, and this repo already has the causal signal: `--refs` fails when the
+    CONTENT a doc cites has changed, whether that was yesterday or last year. Age would add noise on
+    documents that are old and correct, which most of these are meant to be.
+
+`CHANGELOG.md` is excluded in `.cairnrc.json`, and the reason generalises: the convention is for
+docs a person AUTHORS. The changelog is generated by `changeset version`, so a summary of it would
+be a hand-written digest of machine-written text, stale at every release and re-stamped by reflex —
+the exact failure this convention exists to prevent. Without the exclusion the release itself fails,
+since `release.yml` runs `pnpm verify` before publishing and the generated file arrives with no
+summary. Anything a person writes is still covered: verified by dropping a forty-line authored
+document into `docs/` and watching the check demand a summary for it.
 
 You author the prose. The tool only verifies and stamps — and it never touches your prose to do it.
 
@@ -83,14 +124,21 @@ Releases are automated via [Changesets](https://github.com/changesets/changesets
 files opens a "Version Packages" PR (bumped `package.json`, generated `CHANGELOG.md`);
 merging that PR publishes to npm, pushes the git tag, and creates a GitHub Release.
 
-**Two switches away**: `private` has been removed from `package.json`, so the package is
-publishable, and the artifact is verified — `npm pack`, install into a clean project, `--version`,
-`--doctor`, a blocked write and a library import all work. What remains is deliberately manual and
-belongs to the maintainer: set the `RELEASES_ENABLED` repository variable to `'true'` and add an
-`NPM_TOKEN` secret. Underscores, not hyphens — GitHub rejects a hyphenated variable name with HTTP
-422, and the gate originally named one that could never exist, so the release job could never have
-run at all. Enabling the variable without the token would put a failing job on `main`, so do
-them in that order.
+**Both switches are on and the pipeline has run.** `RELEASES_ENABLED` is set and `NPM_TOKEN`
+exists; `0.1.0` is on npm, published by `release.yml` from `refs/heads/main` — provable without
+repository access, since the tarball carries SLSA provenance naming that workflow and run. This
+paragraph said "two switches away" for a while after that stopped being true, which is the same
+staleness the documentation convention above exists to catch, in the file a contributor agent
+reads first.
+
+The variable name is `RELEASES_ENABLED` with underscores, not hyphens: GitHub rejects a hyphenated
+variable name with HTTP 422, and the gate originally named one that could never exist, so the
+release job could never have run at all. Worth keeping in mind if it is ever renamed.
+
+The practical consequence, now that releases are live: **`README.md` and `docs/` are inside the
+published `files` array, so a documentation fix is a user-facing change.** Without a changeset
+there is no version bump, `changeset publish` no-ops, and the registry keeps serving the old prose
+indefinitely — the corrected text sits on `main` where the person who needed it will never see it.
 
 If your PR is a user-facing change (not docs-only, not internal tooling with no effect
 on the published package), run `pnpm changeset` and commit the generated file alongside
@@ -123,9 +171,16 @@ but "an adjacent, superficially-similar file is provably left untouched."
 # Shipping one iteration well
 
 **Full local verify before every push, every time — not just before "done."**
-`pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm check`
+`pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage:ci && pnpm build && pnpm check`
 (`pnpm verify` runs all six — `format:check` is in there because CI enforces it, and a verify that
-omits a gate CI applies is a verify that can be green while the merge is red). `lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
+omits a gate CI applies is a verify that can be green while the merge is red).
+
+That rule used to be broken by `verify` itself: it ran `pnpm test`, while CI and `pre-push` both run
+`pnpm coverage:ci`, whose 100% thresholds `pnpm test` does not apply. A change with uncovered
+branches therefore passed a full local `verify` and was rejected at push — observed, not theorised.
+`coverage:ci` runs the same tests, so nothing is lost by using the stricter one.
+
+`lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
 lint/format+docs, `pre-push` runs typecheck+test+build+docs+coverage+mutation — but that's not a reason
 to treat it as covered: hooks are skippable (`git ... --no-verify`), and no hook can
 construct the actual scenario a feature is meant to catch for you (see "Dogfood," next).
@@ -136,6 +191,26 @@ done — unit tests that pass are necessary, not sufficient.** Run the real buil
 exercise it for real, including the negative case: construct the exact scenario the
 feature is meant to catch, confirm it's reported/blocked, then revert and confirm it's
 clean again.
+
+**See every new test fail before you trust it.** Write it first, or if you did not, revert the
+implementation and watch it go red. A test that has only ever been observed passing is a claim, not
+a check — and the failure is silent, because a green suite is exactly what it looks like.
+
+This is not hypothetical here. One test asserted the `--doctor` flag was carried onto a code path
+that did not consume it, and passed the whole time nothing did. One searched the entire README for
+an install command and passed against a README saying "do NOT run this command". One asserted three
+substrings that already appeared elsewhere in the same output, and passed against a diagnostic that
+reported nothing at all. One claimed to guard a path-normalisation bug while a `realPath` call
+upstream made it green either way — that one is now documented in place, pointing at the test that
+does guard it.
+
+None were caught by review. All four were caught by reverting the fix and looking.
+
+**Table-driven tests use `describe.each` + `effect`, not `it.effect.each`.** The curried form
+`it.effect.each(table)(name, fn)` leaves oxlint's vitest plugin unable to resolve the callee:
+`no-standalone-expect` can be satisfied by adding it to `additionalTestBlockFunctions`, but
+`expect-expect` still reports every case as a test with no assertions. `describe.each` wrapping the
+`effect` wrapper this repo already registers needs no config change and lints clean.
 
 **Convert every manual dogfooding proof into a permanent test before moving on.** A bug
 you found by hand and fixed, with no test added, is a bug that can silently come back.

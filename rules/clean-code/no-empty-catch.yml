@@ -1,0 +1,26 @@
+id: no-empty-catch
+language: tsx
+severity: error
+message: 'An empty catch discards the error and the fact that anything went wrong. Handle it, rethrow it, or say why it is safe to ignore in a comment — which this rule accepts as the deliberate case.'
+note: |
+  Matches a catch block with nothing in it at all. A block containing a comment is NOT matched, on
+  purpose: the difference between swallowing an error and deciding to ignore one is whether anyone
+  wrote down why, and a comment is that record. It doubles as the escape hatch, so the rule needs no
+  config to stay out of the way.
+
+  `no-try-catch` in the `effect` preset forbids try/catch outright, so under `--preset all` an empty
+  catch trips both. That is intended rather than redundant: they are different objections, and this
+  one exists for the repos where try/catch is entirely legitimate.
+rule:
+  kind: statement_block
+  inside:
+    kind: catch_clause
+  not:
+    has:
+      nthChild: 1
+files:
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+ignores:
+  - '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'

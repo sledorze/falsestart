@@ -1,23 +1,23 @@
 {
   "refs": [
     {
-      "hash": "1c2c873f3afc67426ca8352a6ad2c723e3286725ba5315566ce626be0716ea8c",
+      "hash": "60db5f2b3481a4f57b333c7f8247f81babcbbff1f6230e0e0fcdc7cdb5e632d1",
       "target": "./README.md"
     },
     {
-      "hash": "03e847dbc0119cd00ecaa88d6a2f9449191d051ce8ea9012675911b074a5c5f2",
+      "hash": "2928cf238cd0c4eb09f6e0ccef698c22d569cd614c92cc6c9e3a1c527b086268",
       "target": "./README.summary.md"
     },
     {
-      "hash": "a8b0cb9d9f8f78f5c67612185ebd2c9515309284ca872515319342b49cd19f8d",
+      "hash": "945789d340f1da18762212e67537a3602f8c0f7a815418837d8c0dbb3af3ac37",
       "target": "./AGENTS.md"
     },
     {
-      "hash": "7cb64ebdfadcb945c0b93a384c3da1acca1cd8c36452af8e2ba2af3700025d3a",
+      "hash": "12704aba9b03526f4230503d0f6666c966bb930583c6d9fc536d9a2244b257c4",
       "target": "./AGENTS.summary.md"
     },
     {
-      "hash": "3e2dd9a4f169856f86ca6108d77ce5cc1474e8744768367fa88fe001199edddc",
+      "hash": "5cd6acbdf97819507031ee5de4f75a0bfc70a2960d7e8538cf97b0c5fb0bf369",
       "target": "./CONTRIBUTING.md"
     },
     {
