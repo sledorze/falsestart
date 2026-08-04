@@ -13,7 +13,7 @@ import { Effect } from 'effect'
 import type { MatchError, ParsedSource } from './matcher.ts'
 import { findViolationsIn, parseSource } from './matcher.ts'
 import type { Language, Rule, Severity } from './rule.ts'
-import { appliesTo } from './scope.ts'
+import { appliesTo, grammarFor } from './scope.ts'
 
 export interface Finding {
   readonly column: number
@@ -54,11 +54,17 @@ export const checkFile = (
   rules: readonly Rule[],
   file: FileUnderCheck,
 ): Effect.Effect<readonly Finding[], MatchError> =>
-  Effect.forEach(byLanguage(rules.filter((rule) => appliesTo(rule, file.path))), (group) => {
-    const [language, applicable] = group
+  Effect.forEach(
+    byLanguage(
+      rules.filter((rule) => appliesTo(rule, file.path)),
+      file.path,
+    ),
+    (group) => {
+      const [language, applicable] = group
 
-    return parseSource(language, file.content).pipe(Effect.flatMap((root) => allFindingsFor(root, applicable)))
-  }).pipe(Effect.map((perLanguage) => onePerRulePerPosition(perLanguage.flat())))
+      return parseSource(language, file.content).pipe(Effect.flatMap((root) => allFindingsFor(root, applicable)))
+    },
+  ).pipe(Effect.map((perLanguage) => onePerRulePerPosition(perLanguage.flat())))
 
 /**
  * The applicable rules, grouped by the language their matcher is written against.
@@ -71,13 +77,16 @@ export const checkFile = (
  * A `Map` rather than sorting, so rules keep the order they were loaded in within each group and
  * the report stays stable.
  */
-const byLanguage = (rules: readonly Rule[]): readonly (readonly [Language, readonly Rule[]])[] => {
+const byLanguage = (rules: readonly Rule[], filePath: string): readonly (readonly [Language, readonly Rule[]])[] => {
   const grouped = new Map<Language, Rule[]>()
 
   for (const rule of rules) {
-    const existing = grouped.get(rule.language)
+    // The FILE decides, not the rule, whenever it can — see `grammarFor`. Grouping on the resolved
+    // grammar rather than the declared one is what keeps this to one parse per grammar per file.
+    const language = grammarFor(rule.language, filePath)
+    const existing = grouped.get(language)
     if (existing === undefined) {
-      grouped.set(rule.language, [rule])
+      grouped.set(language, [rule])
     } else {
       existing.push(rule)
     }

@@ -13,6 +13,7 @@
  * a substring — and a scoping bug is indistinguishable from "the rule is off".
  */
 import picomatch from 'picomatch'
+import type { Language } from './rule.ts'
 
 /**
  * The languages a shipped rule can reach, in one place.
@@ -75,6 +76,52 @@ export const samplePath = (glob: string, extension: string): string => {
   const directories = head === '' ? [] : head.split('/').map((segment) => (segment.includes('*') ? 'probe' : segment))
 
   return [...directories, namesAFile ? sampleFileName(last, extension) : `file.${extension}`].join('/')
+}
+
+/**
+ * The grammar a path should be parsed with, when the file's own extension knows better than the
+ * rule does.
+ *
+ * A rule's `language` in falsestart means "parse it as this", not "only these files" — that is
+ * what lets one rule cover `.ts`, `.mts` and `.js`. The cost was that `.ts` files were parsed with
+ * whatever grammar the rule happened to declare, and for the shipped rules that is TSX. The two
+ * genuinely differ: TSX reads `<string>` as the start of a JSX element and TypeScript reads it as a
+ * cast, so after one, TSX cannot see the rest of the file. Measured over 424 real `.ts` files,
+ * that hid three findings including a real `try`/`catch`.
+ *
+ * Only the JavaScript family is remapped. A rule declaring `css` or `html` keeps its own grammar,
+ * because a `.css` extension says nothing about which JavaScript parser to use and overriding it
+ * would break the rule outright.
+ */
+const FAMILY_GRAMMARS: Readonly<Record<string, Language>> = {
+  cjs: 'javascript',
+  cts: 'typescript',
+  js: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  mts: 'typescript',
+  ts: 'typescript',
+  tsx: 'tsx',
+}
+
+const REMAPPABLE: ReadonlySet<Language> = new Set<Language>(['javascript', 'tsx', 'typescript'])
+
+/**
+ * Which grammar to parse `filePath` with, given what the rule asked for.
+ *
+ * The rule's choice is kept whenever the file cannot tell us better — an unknown extension, or a
+ * rule for a language outside the JavaScript family.
+ */
+export const grammarFor = (declared: Language, filePath: string): Language => {
+  if (!REMAPPABLE.has(declared)) {
+    return declared
+  }
+
+  // Sliced rather than split-and-index: `lastIndexOf` returning -1 for a path with no dot is
+  // already the right answer, so there is no impossible branch to write a test for.
+  const dot = filePath.lastIndexOf('.')
+
+  return dot === -1 ? declared : (FAMILY_GRAMMARS[filePath.slice(dot + 1)] ?? declared)
 }
 
 export interface FileScope {

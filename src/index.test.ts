@@ -34,6 +34,7 @@ describe('library surface', () => {
       'findViolations',
       'findViolationsIn',
       'fingerprint',
+      'grammarFor',
       'judgesPayload',
       'loadConfigFile',
       'loadDefaultConfig',
