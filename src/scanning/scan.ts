@@ -35,6 +35,8 @@ import { Data, Effect, FileSystem } from 'effect'
 import type { Path } from 'effect'
 import type { Finding, Rule } from '../checking/index.ts'
 import { appliesTo, checkFile, toScopingPath } from '../checking/index.ts'
+import type { Exclusion } from './exclude.ts'
+import { partitionPaths } from './exclude.ts'
 
 /**
  * A path that exists but could not be judged — a directory, an unreadable file, a rule that threw.
@@ -56,6 +58,8 @@ export interface ScannedFile {
 }
 
 export interface ScanReport {
+  /** Paths deliberately not judged, and why. Counted so nothing is dropped in silence. */
+  readonly excluded: readonly Exclusion[]
   /** Findings not present in the baseline. These are what fail a run. */
   readonly fresh: readonly Finding[]
   /** Paths that could not be read because they were gone. Counted, never fatal. */
@@ -67,6 +71,10 @@ export interface ScanReport {
 }
 
 export interface ScanOptions {
+  /** Extra globs the caller wants left alone, on top of the structural defaults. */
+  readonly exclude?: readonly string[] | undefined
+  /** Paths the caller's own tooling already treats as ignored. */
+  readonly gitignored?: ReadonlySet<string> | undefined
   /**
    * How many findings of each `fingerprint` are already accepted.
    *
@@ -154,11 +162,15 @@ const scanOne = (
 
 export const scan = (options: ScanOptions): Effect.Effect<ScanReport, ScanError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { baseline, paths, projectDirectory, rules } = options
+    const { baseline, exclude, gitignored, paths, projectDirectory, rules } = options
+
+    // Decided before anything is read: a dependency is not this repository's to answer for, and a
+    // finding nobody can act on is what gets a gate switched off.
+    const { excluded, judged } = partitionPaths({ exclude, gitignored, paths, projectDirectory })
 
     // Bounded concurrency: `checkFile` is per-file independent, and sequentially this costs about
     // 40ms a file, which a 400-file first push would feel.
-    const results = yield* Effect.forEach(paths, (path) => scanOne(path, rules, projectDirectory), {
+    const results = yield* Effect.forEach(judged, (path) => scanOne(path, rules, projectDirectory), {
       concurrency: 8,
     })
 
@@ -183,6 +195,7 @@ export const scan = (options: ScanOptions): Effect.Effect<ScanReport, ScanError,
     )
 
     return {
+      excluded,
       fresh,
       inScope: scanned.filter((file) => file.inScope).length,
       missing,

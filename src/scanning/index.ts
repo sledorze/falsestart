@@ -6,6 +6,8 @@
  * hook cannot.
  */
 export type { ScannedFile, ScanOptions, ScanReport } from './scan.ts'
+export type { Exclusion, ExclusionReason, Partitioned, PartitionOptions } from './exclude.ts'
+export { DEFAULT_EXCLUSIONS, partitionPaths } from './exclude.ts'
 export { fingerprint, scan, ScanError } from './scan.ts'
 export type { ScanOutcome } from './report.ts'
 export { render, ScanExit } from './report.ts'

@@ -107,6 +107,10 @@ export default {
 } satisfies FalsestartConfig
 ```
 
+A top-level `exclude` array is optional and applies to `scan` only; a malformed one is an error
+rather than being ignored, since silently dropping it leaves a repository believing it excluded
+something.
+
 `files` is required in an override; `ignores` is optional and, when omitted, the rule keeps its own.
 An override naming a rule that is not loaded is an error, not a no-op. Use a **type-only** import in
 a `.ts` config — it is type-stripped and imported without a filesystem location, so a value import
@@ -221,6 +225,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `respond`                   | function    | hook     |
 | `scan`                      | function    | scanning |
 | `render`                    | function    | scanning |
+| `partitionPaths`            | function    | scanning |
 | `fingerprint`               | function    | scanning |
 | `samplePath`                | function    | checking |
 | `toScopingPath`             | function    | checking |
@@ -233,7 +238,8 @@ missing entry is silent — so the list it must agree with is importable rather 
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
-`HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`,
+`HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
+`Partitioned`, `PartitionOptions`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 

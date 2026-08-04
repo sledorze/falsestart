@@ -31,7 +31,8 @@ the parser follows `language: tsx` rather than the extension, but valid JavaScri
 an `as` expression or a typed `const` to find. A JSDoc cast is caught by nothing.
 
 **Configuration:** per-rule `files` (required) and `ignores` (optional, omission keeps the rule's
-own). An override for a rule that is not loaded is an error. A `.ts` config must use a type-only
+own), plus a top-level `exclude` glob list for `scan` — the repository's standing policy, which
+`--exclude` adds to rather than replaces. A malformed `exclude` is an error, not ignored. An override for a rule that is not loaded is an error. A `.ts` config must use a type-only
 import.
 
 **Shipped rules:** twenty-two, all `error` severity; `clean-code` assumes no framework and now reaches JavaScript too, `effect`

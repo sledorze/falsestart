@@ -61,6 +61,7 @@ export type Options =
       readonly baselinePath: string | undefined
       readonly configPath: string | undefined
       /** `Argv` when paths were given as arguments; the delimiter when they arrive on stdin. */
+      readonly exclude: readonly string[]
       readonly pathSource: 'Argv' | 'Newline' | 'Nul'
       readonly paths: readonly string[]
       readonly preset: Preset | undefined
@@ -154,6 +155,9 @@ Options:
   -                    Read newline-delimited paths from stdin.
   --baseline <file>    Findings already accepted. A missing file means none are;
                        an unreadable one is an error, not an empty baseline.
+  --exclude <glob>     Leave these paths alone. Repeatable. node_modules and
+                       .git are always excluded; dist/ and build/ are NOT,
+                       because plenty of repos author real source there.
   --update-baseline    Write every current finding to --baseline and exit 0
                        without failing. A maintenance step, not a gate.
   --preset <name>      all, clean-code, effect.
@@ -203,6 +207,7 @@ export const parseArguments = (args: readonly string[]): Options => {
   let warnUnscoped = false
 
   let baselinePath: string | undefined
+  const exclude: string[] = []
   let writeBaseline = false
   let pathSource: 'Argv' | 'Newline' | 'Nul' = 'Argv'
   const paths: string[] = []
@@ -257,7 +262,13 @@ export const parseArguments = (args: readonly string[]): Options => {
       }
     }
 
-    if (argument !== '--rules' && argument !== '--config' && argument !== '--preset' && argument !== '--baseline') {
+    if (
+      argument !== '--rules' &&
+      argument !== '--config' &&
+      argument !== '--preset' &&
+      argument !== '--baseline' &&
+      argument !== '--exclude'
+    ) {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
@@ -285,6 +296,8 @@ export const parseArguments = (args: readonly string[]): Options => {
       configPath = value
     } else if (argument === '--baseline') {
       baselinePath = value
+    } else if (argument === '--exclude') {
+      exclude.push(value)
     } else if (isPreset(value)) {
       preset = value
     } else {
@@ -307,8 +320,11 @@ export const parseArguments = (args: readonly string[]): Options => {
   // Every flag that means nothing in the mode it was given is refused rather than ignored. A flag
   // accepted and dropped is the failure this file's opening paragraph exists to prevent, and one of
   // them shipped once already.
-  if (!scanning && (baselinePath !== undefined || writeBaseline || paths.length > 0)) {
-    return { _tag: 'Invalid', problem: '--baseline, --update-baseline and file paths require the `scan` command' }
+  if (!scanning && (baselinePath !== undefined || writeBaseline || exclude.length > 0 || paths.length > 0)) {
+    return {
+      _tag: 'Invalid',
+      problem: '--baseline, --update-baseline, --exclude and file paths require the `scan` command',
+    }
   }
 
   if (scanning && (doctor || version)) {
@@ -345,6 +361,7 @@ export const parseArguments = (args: readonly string[]): Options => {
       _tag: 'Scan',
       baselinePath,
       configPath,
+      exclude,
       pathSource,
       paths,
       preset,

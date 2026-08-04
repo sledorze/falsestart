@@ -167,6 +167,22 @@ Use `-z`/`-0` rather than plain newlines. `git diff --name-only` C-quotes any pa
 a filename with an accent in it arrives wrapped in literal double quotes with its bytes escaped —
 `"src/caf\303\251.ts"` — and opens as ENOENT. A file silently skipped by the gate meant to check it.
 
+**Dependencies are never judged.** `node_modules` and `.git` are always excluded, and anything your
+`.gitignore` covers is excluded too — asked of `git check-ignore` rather than reimplemented. A
+finding in somebody else's library is one nobody can act on, and that noise is what gets a gate
+switched off. Anything else belongs in the config, once, rather than in every hook command line:
+
+```ts
+// falsestart.config.ts
+export default { exclude: ['legacy/**', 'generated/**'], rules: {} } satisfies FalsestartConfig
+```
+
+`--exclude <glob>` adds to that for a single run; it does not replace it.
+
+`dist/`, `build/` and `vendor/` are deliberately not excluded by default: plenty of projects author
+real source in directories with those names. Every exclusion is counted in the summary line, so
+nothing is dropped in silence.
+
 **Paths come from you, never from falsestart.** Your hook runner already computes the list and does
 it better: lefthook has `{staged_files}` and `{push_files}`, husky users have `git diff`. Doing it
 here would mean depending on git being installed, on being in a work tree, and on a ref existing.

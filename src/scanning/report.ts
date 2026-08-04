@@ -63,6 +63,7 @@ export const render = (report: ScanReport): ScanOutcome => {
     `${report.fresh.length} finding(s)`,
     ...(accepted === 0 ? [] : [`${accepted} accepted by baseline`]),
     ...(report.missing.length === 0 ? [] : [`${report.missing.length} gone before it could be read`]),
+    ...(report.excluded.length === 0 ? [] : [`${report.excluded.length} excluded`]),
   ].join(', ')
 
   // The hint fires on the case that looks identical to success and is not: something was examined
