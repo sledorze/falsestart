@@ -6,7 +6,7 @@
  * proving it does NOT swallow a directory a project might legitimately author code in.
  */
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_EXCLUSIONS, partitionPaths } from './exclude.ts'
+import { DEFAULT_EXCLUSIONS, parseIgnoredPaths, partitionPaths } from './exclude.ts'
 
 const partition = (paths: readonly string[], options: { exclude?: string[]; gitignored?: Set<string> } = {}) =>
   partitionPaths({ paths, projectDirectory: '/repo', ...options })
@@ -83,5 +83,24 @@ describe('what a scan answers for', () => {
     // gives absolute, and an exclusion that worked for only one of them would be a hole.
     expect(partition(['node_modules/x/a.ts']).judged).toEqual([])
     expect(partition(['./node_modules/x/a.ts']).judged).toEqual([])
+  })
+})
+
+describe("reading git's answer about what it ignores", () => {
+  it('splits on NUL, because that is what -z produces', () => {
+    // Newlines would be wrong: git C-quotes any non-ASCII path when asked for them, which is the
+    // same trap the documented `-z`/`-0` recipe avoids one layer up.
+    expect([...parseIgnoredPaths('a.ts\u0000b.ts\u0000')]).toEqual(['a.ts', 'b.ts'])
+  })
+
+  it('reads no output as nothing ignored', () => {
+    // `check-ignore` exits 1 with empty output when nothing matched. An answer, not a failure.
+    expect(parseIgnoredPaths('').size).toBe(0)
+  })
+
+  it('keeps a path containing a space or an accent intact', () => {
+    const parsed = parseIgnoredPaths('src/two words.ts\u0000src/café.ts')
+
+    expect([...parsed]).toEqual(['src/two words.ts', 'src/café.ts'])
   })
 })

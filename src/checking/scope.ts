@@ -163,7 +163,13 @@ const normalise = (path: string): string => {
   return absolute ? `/${joined}` : joined
 }
 
-const matchesAny = (globs: readonly string[], filePath: string): boolean =>
+/**
+ * Whether any of `globs` admits `filePath`.
+ *
+ * Exported so nothing else restates it. The same one-liner had already been copied into the
+ * exclusion module, and this module's whole argument is that glob semantics belong in one place.
+ */
+export const matchesAny = (globs: readonly string[], filePath: string): boolean =>
   picomatch.isMatch(filePath, [...globs], { dot: true })
 
 /**

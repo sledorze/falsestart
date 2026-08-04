@@ -38,6 +38,10 @@ export default {
         '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
         'src/hook/respond.ts',
         'src/cli.ts',
+        // Encoding a flat array of strings to a file this tool owns and re-reads. The DECODE side
+        // in the same module goes through `Schema.UnknownFromJsonString` and validates every
+        // entry, which is the half the rule's own note says is never exempt.
+        'src/scanning/baseline.ts',
       ],
     },
     'no-type-assertion': {

@@ -6,6 +6,7 @@ describe('library surface', () => {
     // Named individually rather than snapshotted: removing one of these is a breaking change for
     // a consumer, and it should have to be spelled out here before it can happen.
     expect(Object.keys(falsestart).toSorted()).toEqual([
+      'BaselineUnreadable',
       'ConfigError',
       'DEFAULT_CONFIG_CANDIDATES',
       'DEFAULT_EXCLUSIONS',
@@ -24,6 +25,7 @@ describe('library surface', () => {
       'appliesTo',
       'applyScopeOverrides',
       'assessRule',
+      'baselineText',
       'checkFile',
       'decide',
       'diagnose',
@@ -42,16 +44,21 @@ describe('library surface', () => {
       'loadRules',
       'makeConfig',
       'makeConfigUnsafe',
+      'matchesAny',
       'parseConfig',
+      'parseIgnoredPaths',
       'parseRule',
       'parseSource',
       'partitionPaths',
+      'readBaseline',
+      'readBaselineText',
       'render',
       'respond',
       'samplePath',
       'scan',
       'toScopingPath',
       'validateConfig',
+      'writeBaseline',
     ])
   })
 })
