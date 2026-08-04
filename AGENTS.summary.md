@@ -7,7 +7,11 @@ The conventions this repository holds contributors to. Four of them.
 Freshness is tracked by content hash in `.cairn/` sidecars, outside the docs themselves, so it
 survives clone and CI. `--refs` extends this to the _content_ of source files a doc links to, so a
 doc goes stale when what it describes changes rather than only when a path breaks. Author the prose,
-then `pnpm stamp`, then `pnpm check`.
+then `pnpm stamp`, then `pnpm check`. Three config-only checks exist and none is enabled:
+`checks.coverage` (doc-kind rules) would restate in config what four documents already say,
+`checks.docCoverage` (is this source file linked from a doc) contradicts the rule that documents
+cite entry points and nothing below them, and `checks.freshness` (commit age) is a proxy for the
+staleness `--refs` already detects from content.
 
 **Releases** run on Changesets and are live — `RELEASES_ENABLED` and `NPM_TOKEN` are both set, and
 `0.1.0` was published from `release.yml` with provenance. A user-facing change should carry a

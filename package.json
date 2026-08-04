@@ -75,7 +75,7 @@
     "@changesets/cli": "^2.27.0",
     "@effect/platform-node": "4.0.0-beta.102",
     "@effect/vitest": "4.0.0-beta.102",
-    "@sledorze/cairn": "^0.7.0",
+    "@sledorze/cairn": "^0.9.0",
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@types/node": "^26.1.1",
