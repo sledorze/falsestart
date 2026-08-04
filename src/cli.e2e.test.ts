@@ -22,8 +22,7 @@ interface CliResult {
   readonly stdout: string
 }
 
-const collect = (stream: Stream.Stream<Uint8Array, unknown>) =>
-  stream.pipe(Stream.decodeText(), Stream.mkString) as Effect.Effect<string, never, never>
+const collect = (stream: Stream.Stream<Uint8Array, unknown>) => stream.pipe(Stream.decodeText(), Stream.mkString)
 
 const runCliRaw = (args: readonly string[], payload: string) =>
   Effect.gen(function* () {
@@ -35,7 +34,7 @@ const runCliRaw = (args: readonly string[], payload: string) =>
     const stderr = yield* collect(handle.stderr)
     const exitCode = yield* handle.exitCode
 
-    return { exitCode: exitCode as number, stderr, stdout } satisfies CliResult
+    return { exitCode, stderr, stdout } satisfies CliResult
   }).pipe(Effect.scoped, Effect.orDie)
 
 /**
