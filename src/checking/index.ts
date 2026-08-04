@@ -20,6 +20,7 @@ export {
   appliesTo,
   extensionGlobGroup,
   grammarFor,
+  matchesAny,
   JAVASCRIPT_EXTENSIONS,
   samplePath,
   SOURCE_EXTENSIONS,

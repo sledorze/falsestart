@@ -9,11 +9,19 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
-import { Data, Effect, FileSystem, Layer, Schema, Stdio, Stream } from 'effect'
+import { Data, Effect, Layer, Stdio, Stream } from 'effect'
 import { packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
-import { fingerprint, render, scan, ScanExit } from './scanning/index.ts'
+import {
+  fingerprint,
+  parseIgnoredPaths,
+  readBaseline,
+  render,
+  scan,
+  ScanExit,
+  writeBaseline,
+} from './scanning/index.ts'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from './config/index.ts'
 import { loadRules } from './checking/index.ts'
 
@@ -80,83 +88,15 @@ const VERSION: string = createRequire(import.meta.url)('../package.json').versio
 const PACKAGED_RULES_ROOT: string = fileURLToPath(new URL('../rules', import.meta.url))
 
 /**
- * The accepted-findings file: a flat JSON array with one entry per accepted occurrence.
+ * Which of these paths the caller's own `.gitignore` covers, according to git itself.
  *
- * Deliberately not a rich record. A baseline is a second source of truth, and the way that stops
- * being a liability is by holding as little as possible.
+ * Asked rather than reimplemented: `.gitignore` semantics are git's — nested files, negation,
+ * anchoring, precedence — and an approximation that is subtly wrong would decline to judge files
+ * nobody excluded, silently.
  *
- * Read as COUNTS rather than a set. Membership alone meant that accepting one
- * `const x = value as any` in a file accepted every identical line in it, forever — so
- * copy-pasting more of an already-baselined pattern was invisible to the gate. The file always
- * listed one entry per occurrence; only the reader was lossy.
- *
- * An ABSENT file is an empty baseline, so `--baseline` can be wired into a hook before the file
- * exists. A file that is present and unreadable is a `Broken` failure instead: silently treating a
- * typo'd path, a directory or malformed JSON as "nothing accepted yet" makes a broken baseline
- * indistinguishable from a real and growing set of new violations.
- */
-class BaselineUnreadable extends Data.TaggedError('BaselineUnreadable')<{ readonly reason: string }> {}
-
-const readBaseline = (
-  baselinePath: string | undefined,
-): Effect.Effect<ReadonlyMap<string, number> | undefined, BaselineUnreadable, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    if (baselinePath === undefined) {
-      return undefined
-    }
-
-    const fs = yield* FileSystem.FileSystem
-    const read = yield* Effect.result(fs.readFileString(baselinePath))
-
-    if (read._tag === 'Failure') {
-      return read.failure.reason._tag === 'NotFound'
-        ? new Map<string, number>()
-        : yield* new BaselineUnreadable({ reason: `${baselinePath}: ${read.failure.reason._tag}` })
-    }
-
-    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(read.success))
-    if (parsed._tag === 'Failure' || !Array.isArray(parsed.success)) {
-      return yield* new BaselineUnreadable({ reason: `${baselinePath}: not a JSON array of fingerprints` })
-    }
-
-    // A non-string entry is a corrupt baseline, not a line to skip. Skipping quietly loads a
-    // PARTIAL baseline, which is the same silent-wrong-answer this whole flag was just fixed to
-    // stop reporting: fewer accepted findings than the file claims, with nothing said about it.
-    if (parsed.success.some((entry) => typeof entry !== 'string')) {
-      return yield* new BaselineUnreadable({ reason: `${baselinePath}: contains entries that are not fingerprints` })
-    }
-
-    const counts = new Map<string, number>()
-    for (const entry of parsed.success) {
-      if (typeof entry === 'string') {
-        counts.set(entry, (counts.get(entry) ?? 0) + 1)
-      }
-    }
-
-    return counts
-  })
-
-const writeBaselineFile = (
-  baselinePath: string,
-  fingerprints: readonly string[],
-): Effect.Effect<void, never, FileSystem.FileSystem> =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    // Sorted, so re-running produces the same bytes and a diff shows only what actually changed.
-    const body = `${JSON.stringify([...fingerprints].toSorted(), undefined, 2)}\n`
-    yield* Effect.orElseSucceed(fs.writeFileString(baselinePath, body), () => undefined)
-  })
-
-/**
- * Which of these paths the caller's own `.gitignore` already covers, according to git itself.
- *
- * Asked rather than reimplemented. `.gitignore` semantics are git's — nested files, negation,
- * anchoring, precedence between them — and an approximation that is subtly wrong would decline to
- * judge files nobody excluded, silently, which is the failure this whole area exists to remove.
- *
- * Best effort by design: no git, no repository, or any other failure yields an empty set, and the
- * structural defaults still apply. A scan must not stop working because git is absent — and the
- * documented recipes pipe paths FROM git, which has already filtered them.
+ * Best effort by design: no git, no repository, or any other failure yields an empty set and the
+ * structural defaults still apply. Only the SPAWN lives here, because this is the one file allowed
+ * to know a process exists; reading its output is `parseIgnoredPaths`, where it can be tested.
  */
 const gitIgnored = (paths: readonly string[], projectDirectory: string): ReadonlySet<string> => {
   if (paths.length === 0) {
@@ -173,7 +113,7 @@ const gitIgnored = (paths: readonly string[], projectDirectory: string): Readonl
   // spawn error or git's own 128 means we learned nothing.
   return result.error !== undefined || result.status === null || result.status > 1
     ? new Set()
-    : new Set(result.stdout.split('\u0000').filter((line) => line.length > 0))
+    : parseIgnoredPaths(result.stdout)
 }
 
 const program = Effect.gen(function* () {
@@ -290,7 +230,7 @@ const program = Effect.gen(function* () {
       const all = report.success.scanned.flatMap((file) =>
         file.findings.map((finding) => fingerprint(file.path, finding)),
       )
-      yield* writeBaselineFile(options.baselinePath, all)
+      yield* writeBaseline(options.baselinePath, all)
       yield* write(`falsestart: wrote ${all.length} accepted finding(s) to ${options.baselinePath}\n`, stdio.stdout())
       return
     }

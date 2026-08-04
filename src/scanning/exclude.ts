@@ -17,8 +17,7 @@
  * `.gitignore` already covers. Nothing is dropped quietly: every exclusion is counted and reported,
  * because "scanned nothing" and "scanned everything and it was clean" must never look alike.
  */
-import picomatch from 'picomatch'
-import { toScopingPath } from '../checking/index.ts'
+import { matchesAny, toScopingPath } from '../checking/index.ts'
 
 /**
  * Never a repository's own source, under any layout.
@@ -57,7 +56,18 @@ export interface PartitionOptions {
   readonly projectDirectory: string
 }
 
-const matches = (globs: readonly string[], path: string): boolean => picomatch.isMatch(path, [...globs], { dot: true })
+/**
+ * The paths `git check-ignore -z` reported as ignored.
+ *
+ * Separated from the call that produces it so it can be tested: the spawn belongs to the
+ * executable, the one place allowed to know a process exists, but deciding what its output MEANS
+ * is a decision like any other.
+ *
+ * NUL-delimited, because git quotes any non-ASCII path when asked for newlines — the same trap the
+ * documented `-z`/`-0` recipe avoids, one layer down.
+ */
+export const parseIgnoredPaths = (stdout: string): ReadonlySet<string> =>
+  new Set(stdout.split('\u0000').filter((line) => line.length > 0))
 
 /**
  * Splits the given paths into the ones to judge and the ones to account for.
@@ -76,11 +86,11 @@ export const partitionPaths = (options: PartitionOptions): Partitioned => {
 
     // Both spellings are checked: a caller may hand over absolute paths while `--exclude` globs and
     // git's own answers are written relative to the project.
-    const reason: ExclusionReason | undefined = matches(DEFAULT_EXCLUSIONS, relative)
+    const reason: ExclusionReason | undefined = matchesAny(DEFAULT_EXCLUSIONS, relative)
       ? 'default'
       : gitignored?.has(relative) === true || gitignored?.has(path) === true
         ? 'gitignored'
-        : exclude !== undefined && matches(exclude, relative)
+        : exclude !== undefined && matchesAny(exclude, relative)
           ? 'excluded'
           : undefined
 

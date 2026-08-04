@@ -230,6 +230,9 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `scan`                      | function    | scanning |
 | `render`                    | function    | scanning |
 | `partitionPaths`            | function    | scanning |
+| `parseIgnoredPaths`         | function    | scanning |
+| `writeBaseline`             | function    | scanning |
+| `readBaseline`              | function    | scanning |
 | `fingerprint`               | function    | scanning |
 | `samplePath`                | function    | checking |
 | `toScopingPath`             | function    | checking |
@@ -244,6 +247,7 @@ Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, 
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
 `HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
 `Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
+`ScanError`, `ScanExit`, `DEFAULT_EXCLUSIONS` and `BaselineUnreadable` are exported alongside them.
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 
