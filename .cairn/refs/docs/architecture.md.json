@@ -21,7 +21,7 @@
       "target": "../src/hook/index.ts"
     },
     {
-      "hash": "3707f9938c13d5845d38ff50039472f6afd0321adc0f0f06827ba608fe846f0b",
+      "hash": "33440ea0415f8ddeeda15bff90a35763f2dc20daeb244388895695e415a90812",
       "target": "../src/cli/index.ts"
     },
     {
@@ -29,7 +29,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "1b0791eaa6387900a52c2329117c4415788d87cb57280c7348f8de4056450e95",
+      "hash": "ac07951fd07e7ea8277afd26850be87ac38f363bbd9118c74c702f0621f39bdf",
       "target": "../src/cli.ts"
     }
   ]

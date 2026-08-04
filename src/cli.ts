@@ -6,12 +6,10 @@
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
-import type { Preset } from './cli/index.ts'
-import { parseArguments } from './cli/index.ts'
+import { packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
 
@@ -44,38 +42,18 @@ const emit = (response: HookResponse) =>
 const VERSION: string = createRequire(import.meta.url)('../package.json').version
 
 /**
- * Where the packaged rules live, resolved from this module rather than from the caller's cwd.
+ * Where the packaged rules live, anchored on this module rather than on the caller's cwd.
  *
  * `import.meta.url` points at the installed `dist/cli.js`, so `../rules` finds them wherever a
  * package manager put the package — including pnpm's content-addressed store, where guessing
  * `node_modules/@sledorze/falsestart/rules` does not work.
- */
-const presetDirectory = (preset: Preset): string => {
-  const packaged = fileURLToPath(new URL('../rules', import.meta.url))
-  return preset === 'all' ? packaged : `${packaged}/${preset}`
-}
-
-/**
- * Resolves `--rules pkg:<name>` to the rules directory inside an installed package.
  *
- * Resolution runs from the PROJECT, not from falsestart's own location, so the package is found
- * wherever the consumer's package manager put it — the reason `node_modules/<name>/rules` is not
- * simply joined by hand, since that path does not exist under pnpm's layout.
- *
- * A specifier may name a subdirectory (`@acme/rules/strict`) to take part of a rule set, mirroring
- * what `--preset` does for the rules shipped here.
+ * The anchor is computed HERE and handed to `presetDirectory`, rather than read inside it: the
+ * executable is bundled to `dist/cli.js` while the library build also emits `dist/cli/resolve.js`,
+ * and a self-anchored `../rules` would mean a different directory in each. Only the shell knows
+ * which artifact it is.
  */
-const packageRulesDirectory = (specifier: string, projectDirectory: string): string => {
-  const scoped = specifier.startsWith('@')
-  const segments = specifier.split('/')
-  const packageName = segments.slice(0, scoped ? 2 : 1).join('/')
-  const subdirectory = segments.slice(scoped ? 2 : 1).join('/')
-
-  const resolve = createRequire(join(projectDirectory, 'noop.js'))
-  const manifest = resolve.resolve(`${packageName}/package.json`)
-
-  return join(dirname(manifest), 'rules', subdirectory)
-}
+const PACKAGED_RULES_ROOT: string = fileURLToPath(new URL('../rules', import.meta.url))
 
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
@@ -103,7 +81,7 @@ const program = Effect.gen(function* () {
       catch: String,
       try: (): string => {
         if (options.preset !== undefined) {
-          return presetDirectory(options.preset)
+          return presetDirectory(options.preset, PACKAGED_RULES_ROOT)
         }
         return options.rulesPackage === undefined
           ? options.rulesDirectory
