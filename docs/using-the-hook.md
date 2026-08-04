@@ -141,6 +141,66 @@ existing setup loads — the worst failure available to a tool whose job is enfo
 A package that will not resolve is reported and does not block, like every other misconfiguration:
 a missing dependency must not stop every write in the repo.
 
+## Catching what bypasses the hook
+
+The hook judges a tool call, so it sees `Edit`, `Write` and `NotebookEdit` and nothing else. A
+`Bash` heredoc, a `>` redirect, `git checkout`, `git merge`, `git revert`, a person in an editor,
+another agent, and every file that predates the hook being installed all reach disk unexamined.
+
+`falsestart scan` is the second enforcement point, for a git hook or CI:
+
+```yaml
+# lefthook.yml
+pre-push:
+  commands:
+    falsestart:
+      run: node node_modules/@sledorze/falsestart/dist/cli.js scan --preset all {push_files}
+```
+
+```sh
+# .husky/pre-commit — -z and -0 together, because git C-quotes non-ASCII paths
+git diff --cached --name-only --diff-filter=ACM -z |
+  node node_modules/@sledorze/falsestart/dist/cli.js scan --preset all -0
+```
+
+Use `-z`/`-0` rather than plain newlines. `git diff --name-only` C-quotes any path outside ASCII, so
+a filename with an accent in it arrives wrapped in literal double quotes with its bytes escaped —
+`"src/caf\303\251.ts"` — and opens as ENOENT. A file silently skipped by the gate meant to check it.
+
+**Paths come from you, never from falsestart.** Your hook runner already computes the list and does
+it better: lefthook has `{staged_files}` and `{push_files}`, husky users have `git diff`. Doing it
+here would mean depending on git being installed, on being in a work tree, and on a ref existing.
+
+One thing to know about `{push_files}`: on the **first** push of a branch there is no upstream, so
+it expands to the whole tree. Adoption day is a full-repo scan, which is what `--baseline` is for.
+
+### It is stricter than the hook, on purpose
+
+An `Edit` payload carries only the text it would introduce, so the hook judges what a change **adds**.
+A scan parses whole files, so it reports everything already there. Measured over 424 files of real
+hand-written TypeScript, **64% already carry at least one finding** under the shipped rules. Passing
+only changed files bounds each commit; it does not change the odds that a file you touched already
+violates.
+
+So a one-line edit to a legacy file is allowed by the hook and blocked by the scan on lines you
+never wrote. Accept what is already there once:
+
+```sh
+falsestart scan --preset all --baseline .falsestart-baseline.json --update-baseline $(git ls-files)
+```
+
+After that the baseline absorbs those findings and only new ones fail. It holds fingerprints rather
+than line numbers, so a finding that moves when something is inserted above it is still the same
+finding, and reformatting does not churn the file.
+
+### Read the summary line
+
+Every run ends with `scanned N file(s), M in scope, K finding(s)`. `M` is the one to read. A bare
+"no findings" is printed by a genuinely clean run, by a run whose paths matched no rule, by a run
+given no paths at all, and by `scan` accidentally wired as the `PreToolUse` command — where exit 0
+with non-JSON on stdout reads to the agent runtime as "allow", silently permitting every write. When
+`M` is `0` the run says so outright.
+
 ## Publishing your own rules
 
 A rules package is a directory of ast-grep documents under `rules/` and nothing more:

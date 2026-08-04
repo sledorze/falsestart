@@ -17,6 +17,36 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | `--version`          | Print the version. Exits 0 without reading stdin.                                                                                         |
 | `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                     |
 
+### `falsestart scan [paths…]`
+
+Judges files already on disk, for a git hook or CI. A different contract from the hook in both
+directions — paths in, a report out, and exit codes a shell can read.
+
+| Flag                | Meaning                                                                     |
+| ------------------- | --------------------------------------------------------------------------- |
+| `paths…`            | Files to judge. Supplied by the caller; falsestart never discovers them.    |
+| `-` / `-0`          | Read paths from stdin, newline- or NUL-delimited. Use `-0` with `git … -z`. |
+| `--baseline <file>` | Findings already accepted. Absent file means an empty baseline.             |
+| `--update-baseline` | Write every current finding to `--baseline` and exit without failing.       |
+
+`--preset`, `--rules` and `--config` work as they do for the hook. `--warn-unscoped` is refused: the
+scan report always states how many files were in scope.
+
+#### Scan exit codes
+
+| Code | Meaning                                                             |
+| ---- | ------------------------------------------------------------------- |
+| `0`  | No findings.                                                        |
+| `1`  | Findings. The commit or push should stop.                           |
+| `2`  | falsestart could not run — broken rules, unreadable path, bad flag. |
+
+`1` and `2` are distinct on purpose. A gate that cannot tell "your code has violations" from "the
+linter is broken" is one that teaches people to reach for `--no-verify`.
+
+This also inverts the hook's policy deliberately. The hook fails **open** — a rule that cannot run
+must not hold every write in the repo hostage. A scan is a gate and fails **closed**: one that
+cannot run has to stop, or it passes everything while looking healthy.
+
 ### Judged tool calls
 
 falsestart inspects the content a tool call is about to write. Three tool names carry that, and
@@ -189,6 +219,9 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `parseConfig`               | function    | config   |
 | `parseRule`                 | function    | checking |
 | `respond`                   | function    | hook     |
+| `scan`                      | function    | scanning |
+| `render`                    | function    | scanning |
+| `fingerprint`               | function    | scanning |
 | `samplePath`                | function    | checking |
 | `toScopingPath`             | function    | checking |
 | `validateConfig`            | function    | config   |
@@ -200,7 +233,7 @@ missing entry is silent — so the list it must agree with is importable rather 
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
-`HookResponse`, `RespondOptions`,
+`HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 

@@ -15,6 +15,11 @@ glob that omits an extension silently unguards it. Reads no stdin. `--warn-unsco
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 with JSON blocks, exit 0 with no output defers, exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
 
+**`scan [paths…]`:** judges files on disk for a git hook or CI. Paths from the caller, `-`/`-0` for
+stdin, `--baseline`/`--update-baseline` to absorb pre-existing findings, `--warn-unscoped` refused.
+Its own exit codes — 0 clean, 1 findings, 2 could-not-run — and it fails closed where the hook fails
+open.
+
 **Rule document:** `id`, `language` and `rule` required; `message`, `note`, `severity`, `files`,
 `ignores`, `constraints`, `utils` optional. Severity defaults to `error`. Documents under `_utils/`
 are fragments needing only `id` and `rule`.

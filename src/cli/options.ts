@@ -53,6 +53,22 @@ export type Options =
       readonly rulesDirectory: string
     }
   | {
+      /**
+       * Judge files already on disk. A different contract in and out: paths in, a report out, and
+       * exit codes a shell can read rather than the hook protocol's.
+       */
+      readonly _tag: 'Scan'
+      readonly baselinePath: string | undefined
+      readonly configPath: string | undefined
+      /** `Argv` when paths were given as arguments; the delimiter when they arrive on stdin. */
+      readonly pathSource: 'Argv' | 'Newline' | 'Nul'
+      readonly paths: readonly string[]
+      readonly preset: Preset | undefined
+      readonly rulesPackage: string | undefined
+      readonly rulesDirectory: string
+      readonly writeBaseline: boolean
+    }
+  | {
       readonly _tag: 'Run'
       readonly configPath: string | undefined
       /** Set when `--preset` was used; the caller resolves it against the installed package. */
@@ -124,6 +140,12 @@ export const parseArguments = (args: readonly string[]): Options => {
     return { _tag: 'Help', text: USAGE }
   }
 
+  // `args[0]` and nowhere else. "Positionals are allowed once `scan` is seen" would admit
+  // `falsestart my-rules scan`, and this module's whole argument is that a misconfiguration which
+  // still runs is worse than one that refuses.
+  const scanning = args[0] === 'scan'
+  const rest = scanning ? args.slice(1) : args
+
   let rulesDirectory = DEFAULT_RULES_DIRECTORY
   let configPath: string | undefined = NO_EXPLICIT_CONFIG
   let preset: Preset | undefined
@@ -133,11 +155,16 @@ export const parseArguments = (args: readonly string[]): Options => {
   let version = false
   let warnUnscoped = false
 
+  let baselinePath: string | undefined
+  let writeBaseline = false
+  let pathSource: 'Argv' | 'Newline' | 'Nul' = 'Argv'
+  const paths: string[] = []
+
   // `entries()` rather than an index loop: it yields a defined element, so there is no
   // possibly-undefined fallback branch that no input can ever reach.
   let consumedValue = false
 
-  for (const [index, argument] of args.entries()) {
+  for (const [index, argument] of rest.entries()) {
     if (consumedValue) {
       consumedValue = false
       continue
@@ -161,11 +188,33 @@ export const parseArguments = (args: readonly string[]): Options => {
       continue
     }
 
-    if (argument !== '--rules' && argument !== '--config' && argument !== '--preset') {
+    if (scanning) {
+      // Paths on stdin, delimited. `-0` is what the documented recipe uses, because
+      // `git diff --name-only` C-quotes any non-ASCII path — `src/café.ts` arrives as the literal
+      // bytes `"src/caf\303\251.ts"` and opens as ENOENT. `-z` on the git side and `-0` here is
+      // the only pairing that survives a filename someone actually has.
+      if (argument === '-0' || argument === '-') {
+        pathSource = argument === '-0' ? 'Nul' : 'Newline'
+        continue
+      }
+
+      if (argument === '--update-baseline') {
+        writeBaseline = true
+        continue
+      }
+
+      // A bare word is a path to judge. Only in scan, and only after `scan` was `args[0]`.
+      if (!argument.startsWith('-')) {
+        paths.push(argument)
+        continue
+      }
+    }
+
+    if (argument !== '--rules' && argument !== '--config' && argument !== '--preset' && argument !== '--baseline') {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
 
-    const value = args[index + 1]
+    const value = rest[index + 1]
     // A flag-shaped value means the real value was forgotten. Swallowing it silently ran the
     // judging path with the default rule set AND consumed the next flag, so `--rules --doctor`
     // waited on a payload that was never coming — a hang with no output at all. Single dash counts:
@@ -187,6 +236,8 @@ export const parseArguments = (args: readonly string[]): Options => {
       }
     } else if (argument === '--config') {
       configPath = value
+    } else if (argument === '--baseline') {
+      baselinePath = value
     } else if (isPreset(value)) {
       preset = value
     } else {
@@ -206,6 +257,31 @@ export const parseArguments = (args: readonly string[]): Options => {
   // doing nothing with it, which this file's own opening paragraph forbids. The information is not
   // missing from `--doctor`: its scope block already prints a rule count per probed path, and `0`
   // there is the same fact this flag reports at write time.
+  // Every flag that means nothing in the mode it was given is refused rather than ignored. A flag
+  // accepted and dropped is the failure this file's opening paragraph exists to prevent, and one of
+  // them shipped once already.
+  if (!scanning && (baselinePath !== undefined || writeBaseline || paths.length > 0)) {
+    return { _tag: 'Invalid', problem: '--baseline, --update-baseline and file paths require the `scan` command' }
+  }
+
+  if (scanning && (doctor || version)) {
+    return { _tag: 'Invalid', problem: '`scan` cannot be combined with --doctor or --version' }
+  }
+
+  if (scanning && warnUnscoped) {
+    // Every path a caller hands over is passed whether or not a rule covers it — a commit includes
+    // `.md` and lockfiles — so per-file "nothing is scoped here" would fire on most of them. The
+    // aggregate is the number that matters and the report always prints it.
+    return {
+      _tag: 'Invalid',
+      problem: '--warn-unscoped has no effect with `scan`; its report always states how many files were in scope',
+    }
+  }
+
+  if (writeBaseline && baselinePath === undefined) {
+    return { _tag: 'Invalid', problem: '--update-baseline needs --baseline <file> to write to' }
+  }
+
   if (doctor && warnUnscoped) {
     return {
       _tag: 'Invalid',
@@ -215,6 +291,20 @@ export const parseArguments = (args: readonly string[]): Options => {
 
   if (version) {
     return { _tag: 'Version' }
+  }
+
+  if (scanning) {
+    return {
+      _tag: 'Scan',
+      baselinePath,
+      configPath,
+      pathSource,
+      paths,
+      preset,
+      rulesDirectory,
+      rulesPackage,
+      writeBaseline,
+    }
   }
 
   return doctor
