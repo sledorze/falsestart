@@ -7,14 +7,26 @@
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
-import { Effect, Layer } from 'effect'
+import { Effect, FileSystem, Layer } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
-const run = (options: { configPath?: string; projectDirectory?: string; rulesDirectory?: string }) =>
+/** A filesystem that cannot answer "is this there?" at all — not one that answers "no". */
+const unstattable = Layer.mergeAll(
+  NodePath.layer,
+  FileSystem.layerNoop({ exists: () => Effect.fail(new Error('cannot stat') as never) }),
+)
+
+const run = (options: {
+  changelogPath?: string
+  configPath?: string
+  projectDirectory?: string
+  rulesDirectory?: string
+}) =>
   diagnose({
+    changelogPath: options.changelogPath ?? 'CHANGELOG.md',
     configPath: options.configPath,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
@@ -32,6 +44,42 @@ layer(platform)('the doctor', (it) => {
       expect(report).toContain(`${SHIPPED_RULE_IDS.length} loaded`)
       // The end-to-end proof, not a restatement of the config.
       expect(report).toContain('was blocked')
+    }),
+  )
+
+  // `--doctor` is what a consumer runs to verify an upgrade — it is where they learn the version
+  // they now have. A minor bump that adds an `error`-severity rule makes a previously-passing repo
+  // red, and 0.2.0 did exactly that twice with nothing in the report to say where to read about it.
+  it.effect('points at the release notes for the version it is reporting', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({})
+      const reported = diagnosis.lines.find((line) => line.startsWith('changes'))
+
+      expect(reported).toBeDefined()
+      expect(reported).toContain('CHANGELOG.md')
+    }),
+  )
+
+  it.effect('says nothing about release notes when the installation has none', () =>
+    Effect.gen(function* () {
+      // The negative that keeps the pointer worth following: an install without the file must not
+      // be told to go read it. A path printed for a file that is not there is worse than silence —
+      // it sends the reader looking for the one artifact that would have answered the question.
+      const diagnosis = yield* run({ changelogPath: 'no/such/CHANGELOG.md' })
+
+      expect(diagnosis.lines.some((line) => line.startsWith('changes'))).toBeFalsy()
+      expect(diagnosis.healthy).toBeTruthy()
+    }),
+  )
+
+  it.effect('treats a filesystem it cannot even question as an installation with no notes', () =>
+    Effect.gen(function* () {
+      // A path that cannot be stat'd and a file that is not there leave the reader in the same
+      // place, so they get the same answer. The alternative is a diagnostic that dies on a line
+      // it prints as a courtesy — and this one is the only report available when things are broken.
+      const diagnosis = yield* run({}).pipe(Effect.provide(unstattable))
+
+      expect(diagnosis.lines.some((line) => line.startsWith('changes'))).toBeFalsy()
     }),
   )
 

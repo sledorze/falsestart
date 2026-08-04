@@ -7,7 +7,11 @@ Settings must be strict JSON. `--doctor` answers "is this guarding anything?" �
 version that answered, the resolved rules, config and per-path rule counts, then sends a real
 violation through the decision path. Read its scope block, not just its last line: a nested probe
 path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read
-its version line too — a hook wired at a path holding an older copy describes that copy, plausibly. `--rules` is searched recursively and defaults
+its version line too — a hook wired at a path holding an older copy describes that copy, plausibly.
+Under it, a `changes` line names the changelog inside that same copy, because a version number alone
+cannot say that a MINOR bump added an `error`-severity rule and turned a green repo red (`0.2.0` did
+it twice); the line is absent on versions published before it existed, which shipped no changelog at
+all. `--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 

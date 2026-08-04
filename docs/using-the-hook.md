@@ -49,6 +49,7 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 
 ```
 falsestart <the installed version>
+changes  …/CHANGELOG.md — what this version changed, including any rule that is new
 
 rules    …/rules/clean-code — 6 loaded
 config   no config file in /repo — 0 override(s)
@@ -69,6 +70,14 @@ below it will look plausible while describing a package you did not think you we
 it against the version your lockfile resolved. It is elided above on purpose — a real version
 printed here would be a number that goes stale at the next release, which is the failure this
 paragraph is about.
+
+The `changes` line is the second half of that question: not which version you have, but what it does
+to you. A MINOR bump can add an `error`-severity rule to a preset, which makes a repo that passed
+yesterday fail today — `0.2.0` did it twice — and a version number on its own cannot tell you that.
+It names the changelog inside the package you are actually running, so the answer comes from the same
+copy every other line in the report describes. The line is absent if that file is not there, which is
+the case for every version published before it existed — `0.1.0` and `0.2.0` shipped no changelog at
+all, so on those the only way to see what an upgrade added was to pack both versions and diff them.
 
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not

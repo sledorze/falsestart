@@ -16,8 +16,8 @@
  * when a step did not resolve. It reads no stdin: it is a question about the installation, not about
  * a tool call.
  */
-import { Effect } from 'effect'
-import type { FileSystem, Path } from 'effect'
+import { Effect, FileSystem } from 'effect'
+import type { Path } from 'effect'
 import {
   applyScopeOverrides,
   findDefaultConfigs,
@@ -35,6 +35,8 @@ export interface Diagnosis {
 }
 
 export interface DiagnoseOptions {
+  /** Where this installation's release notes are, if it has any. Verified before it is printed. */
+  readonly changelogPath: string
   readonly configPath: string | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
@@ -60,8 +62,22 @@ export const diagnose = (
   options: DiagnoseOptions,
 ): Effect.Effect<Diagnosis, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { configPath, projectDirectory, rulesDirectory, version } = options
-    const lines: string[] = [`falsestart ${version}`, '']
+    const { changelogPath, configPath, projectDirectory, rulesDirectory, version } = options
+    const lines: string[] = [`falsestart ${version}`]
+
+    // The version alone does not answer the question someone runs `--doctor` after an upgrade to
+    // ask, which is "what is newly going to block me". A minor bump can add an `error`-severity rule
+    // to a preset and turn a green repo red; 0.2.0 did it twice, and the release notes were not even
+    // in the package, so the only way to find out was to pack both versions and diff them by hand.
+    //
+    // Printed only when the file is really there. A path offered for an artifact that is absent
+    // sends the reader looking for the one thing that would have answered them, which is worse than
+    // saying nothing — and it is absent in every installation published before this line existed.
+    const fs = yield* FileSystem.FileSystem
+    if (yield* fs.exists(changelogPath).pipe(Effect.orElseSucceed(() => false))) {
+      lines.push(`changes  ${changelogPath} — what this version changed, including any rule that is new`)
+    }
+    lines.push('')
 
     const loaded = yield* Effect.result(loadRules(rulesDirectory))
     if (loaded._tag === 'Failure') {

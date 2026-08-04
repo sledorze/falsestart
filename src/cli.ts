@@ -88,6 +88,14 @@ const VERSION: string = createRequire(import.meta.url)('../package.json').versio
 const PACKAGED_RULES_ROOT: string = fileURLToPath(new URL('../rules', import.meta.url))
 
 /**
+ * This installation's release notes, anchored the same way and for the same reason: a consumer
+ * cannot be told to read `node_modules/@sledorze/falsestart/CHANGELOG.md` when a package manager may
+ * have put the package somewhere else entirely. `--doctor` checks the file is there before printing
+ * it, which is what makes this safe to compute for an installation that predates shipping it.
+ */
+const CHANGELOG_PATH: string = fileURLToPath(new URL('../CHANGELOG.md', import.meta.url))
+
+/**
  * Which of these paths the caller's own `.gitignore` covers, according to git itself.
  *
  * Asked rather than reimplemented: `.gitignore` semantics are git's — nested files, negation,
@@ -252,6 +260,7 @@ const program = Effect.gen(function* () {
   // will never arrive. Reading stdin below happens only on the judging path.
   if (options._tag === 'Doctor') {
     const diagnosis = yield* diagnose({
+      changelogPath: CHANGELOG_PATH,
       configPath: options.configPath,
       projectDirectory,
       rulesDirectory: located.success,
