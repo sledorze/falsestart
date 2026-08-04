@@ -17,7 +17,7 @@
  */
 import { Data, Effect, Schema } from 'effect'
 import type { Rule } from '../checking/index.ts'
-import { appliesTo } from '../checking/index.ts'
+import { appliesTo, samplePath, SOURCE_EXTENSIONS } from '../checking/index.ts'
 
 export interface ScopeOverride {
   /**
@@ -155,50 +155,6 @@ export const applyScopeOverrides = (
     )
   })
 
-/**
- * The file extensions a scope comparison probes.
- *
- * Every language falsestart's shipped rules can reach. Comparing two globs in general is a question
- * about glob semantics with no useful answer; comparing what they ADMIT, at concrete paths, is a
- * question with a concrete one.
- */
-const PROBED_EXTENSIONS = ['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'] as const
-
-/**
- * A filename matching `pattern` but carrying `extension` — `*.test.{ts,tsx}` becomes
- * `file.test.mts`. Everything between the stem and the extension is kept, because that is what
- * distinguishes a test-only rule's scope from an ordinary one's.
- */
-const sampleFileName = (pattern: string, extension: string): string => {
-  const parts = pattern.split('.')
-  const stem = parts.slice(0, -1).map((part) => (part.includes('*') ? 'file' : part))
-
-  return [...stem, extension].join('.')
-}
-
-/**
- * A concrete path that `glob` admits, carrying `extension`.
- *
- * The point is to hold the DIRECTORY constant while varying only the language. Probing a fixed
- * `src/a.ts` instead made every directory narrowing — `files: ['src/domain/**']`, the documented
- * use of this whole feature — report as though it had dropped all eight extensions. Building the
- * sample out of the override's own glob means a rejection can only be about the extension.
- */
-const samplePath = (glob: string, extension: string): string => {
-  // Sliced rather than indexed: `lastIndexOf` returning -1 for a glob with no `/` is already the
-  // right answer for both halves, so there is no impossible `undefined` branch to write a test for.
-  const slash = glob.lastIndexOf('/')
-  const last = glob.slice(slash + 1)
-  // `**` is a directory wildcard, even though every other trailing segment carrying a dot is a
-  // filename.
-  const namesAFile = last !== '**' && last.includes('.')
-
-  const head = namesAFile ? glob.slice(0, Math.max(slash, 0)) : glob
-  const directories = head === '' ? [] : head.split('/').map((segment) => (segment.includes('*') ? 'probe' : segment))
-
-  return [...directories, namesAFile ? sampleFileName(last, extension) : `file.${extension}`].join('/')
-}
-
 export interface NarrowedScope {
   /** Extensions the shipped rule covered and the override does not. Never empty. */
   readonly lostExtensions: readonly string[]
@@ -239,7 +195,7 @@ export const findNarrowedScopes = (shipped: readonly Rule[], scoped: readonly Ru
       return []
     }
 
-    const lostExtensions = PROBED_EXTENSIONS.filter((extension) =>
+    const lostExtensions = SOURCE_EXTENSIONS.filter((extension) =>
       // One demonstration is enough: a path the shipped rule accepts and the override refuses,
       // differing from a path the override accepts only in its extension.
       globs.some((glob) => {

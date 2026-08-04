@@ -1,7 +1,7 @@
 {
   "refs": [
     {
-      "hash": "b4590f71415d47b621658b3feec9d45533ab492f58d69e7e8348b7e832341d83",
+      "hash": "45d710207165ff8223b3ab3310a11d88dac990e4606c3980e3f44571662ebfd1",
       "target": "./reference.md"
     },
     {
@@ -9,7 +9,7 @@
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "1a0f79f06f074e3f3e1e676ae2830a520ab377dab89a3c4aa0a94ce3b3f061ef",
+      "hash": "ff3b8e7d02f526e82ff3c0cae3272e3c83150f427c9c468cc6861d99bdc75243",
       "target": "../src/checking/index.ts"
     },
     {

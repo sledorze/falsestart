@@ -14,4 +14,12 @@ export { parseRule, RuleParseError, SEVERITIES, SUPPORTED_LANGUAGES } from './ru
 export type { ShippedRuleId } from './rule-ids.generated.ts'
 export { SHIPPED_RULE_IDS } from './rule-ids.generated.ts'
 export type { FileScope } from './scope.ts'
-export { appliesTo, toScopingPath } from './scope.ts'
+export {
+  appliesTo,
+  extensionGlobGroup,
+  JAVASCRIPT_EXTENSIONS,
+  samplePath,
+  SOURCE_EXTENSIONS,
+  toScopingPath,
+  TYPESCRIPT_EXTENSIONS,
+} from './scope.ts'
