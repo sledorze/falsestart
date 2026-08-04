@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appliesTo, toScopingPath } from './scope.ts'
+import { appliesTo, grammarFor, toScopingPath } from './scope.ts'
 
 const scoped = (files?: readonly string[], ignores?: readonly string[]) => ({
   ...(files === undefined ? {} : { files }),
@@ -153,5 +153,33 @@ describe('scoping path', () => {
     // Resolving it would make a scoping decision depend on where the process was started, which is
     // how a rule begins behaving differently in CI than it does locally.
     expect(toScopingPath('../a.ts', '/repo')).toBe('../a.ts')
+  })
+})
+
+describe('choosing a grammar for a file', () => {
+  it('lets the file decide within the JavaScript family', () => {
+    // Rules declare `language: tsx` meaning "parse it as TSX", which is what lets one rule cover
+    // `.ts`, `.mts` and `.js`. Honouring that literally parsed TypeScript with the TSX grammar,
+    // which cannot see past an angle-bracket cast.
+    expect(grammarFor('tsx', 'src/a.ts')).toBe('typescript')
+    expect(grammarFor('tsx', 'src/a.mts')).toBe('typescript')
+    expect(grammarFor('tsx', 'src/a.cts')).toBe('typescript')
+    expect(grammarFor('tsx', 'src/a.tsx')).toBe('tsx')
+    expect(grammarFor('tsx', 'src/a.js')).toBe('javascript')
+    expect(grammarFor('typescript', 'src/a.jsx')).toBe('javascript')
+  })
+
+  it('leaves a language outside that family alone', () => {
+    // A `.css` extension says nothing about which JavaScript parser to use, and overriding a CSS
+    // rule's grammar would break it outright.
+    expect(grammarFor('css', 'src/a.css')).toBe('css')
+    expect(grammarFor('html', 'src/a.html')).toBe('html')
+    expect(grammarFor('css', 'src/a.ts')).toBe('css')
+  })
+
+  it('keeps the declared grammar when the file cannot say better', () => {
+    expect(grammarFor('tsx', 'Makefile')).toBe('tsx')
+    expect(grammarFor('tsx', 'src/a.vue')).toBe('tsx')
+    expect(grammarFor('tsx', 'src/a.')).toBe('tsx')
   })
 })

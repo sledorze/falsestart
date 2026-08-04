@@ -204,6 +204,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `SUPPORTED_LANGUAGES`       | constant    | checking |
 | `appliesTo`                 | function    | checking |
 | `extensionGlobGroup`        | function    | checking |
+| `grammarFor`                | function    | checking |
 | `applyScopeOverrides`       | function    | config   |
 | `assessRule`                | function    | testing  |
 | `checkFile`                 | function    | checking |

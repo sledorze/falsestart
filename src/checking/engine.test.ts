@@ -171,3 +171,90 @@ rule:
     }),
   )
 })
+
+/**
+ * Which grammar a file is parsed with is decided by the FILE, not by the rule.
+ *
+ * Every shipped rule declares `language: tsx`, which in falsestart means "parse it as TSX" rather
+ * than "only .tsx files" — that is what lets one rule cover `.ts`, `.mts` and `.js`. The cost was
+ * that a `.ts` file was being parsed with the TSX grammar, and the two grammars genuinely differ:
+ * TSX reads `<string>` as the start of a JSX element, TypeScript reads it as a cast. After one, TSX
+ * cannot see the rest of the file.
+ *
+ * Measured over 424 real `.ts` files: three findings the TypeScript grammar sees and TSX does not,
+ * including a real `try`/`catch`. Not a large number, and a missed violation regardless — which is
+ * the one kind of wrong this tool cannot be.
+ */
+describe('choosing a grammar', () => {
+  const castThenTry = 'const a = <string>value\ntry { f() } catch (cause) {}'
+
+  const noTryCatch = `
+id: no-try-catch
+language: tsx
+message: 'try/catch'
+rule:
+  kind: try_statement
+files:
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+`
+
+  effect('parses a .ts file as TypeScript, so an angle-bracket cast does not hide the rest', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noTryCatch)
+
+      const found = yield* checkFile(rules, { content: castThenTry, path: 'src/a.ts' })
+
+      expect(found.map((finding) => finding.ruleId)).toEqual(['no-try-catch'])
+    }),
+  )
+
+  effect('parses .mts and .cts as TypeScript too', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noTryCatch)
+      const counts: number[] = []
+
+      for (const path of ['src/a.mts', 'src/a.cts']) {
+        counts.push((yield* checkFile(rules, { content: castThenTry, path })).length)
+      }
+
+      expect(counts).toEqual([1, 1])
+    }),
+  )
+
+  effect('still parses a .tsx file as TSX, where the same text really is JSX', () =>
+    Effect.gen(function* () {
+      // The opposite mistake would be just as bad: `<string>value` in a .tsx file IS an unclosed
+      // JSX element, and parsing it as a cast would invent a `try` the file does not have.
+      const rules = yield* rulesOf(noTryCatch)
+
+      expect(yield* checkFile(rules, { content: castThenTry, path: 'src/a.tsx' })).toHaveLength(0)
+    }),
+  )
+
+  effect('parses a .js file as JavaScript', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noTryCatch)
+
+      expect(yield* checkFile(rules, { content: 'try { f() } catch (cause) {}', path: 'src/a.js' })).toHaveLength(1)
+    }),
+  )
+
+  effect('leaves a rule for a language outside the JavaScript family alone', () =>
+    Effect.gen(function* () {
+      // A CSS rule scoped to `.css` must keep its own grammar; the extension says nothing about
+      // which JavaScript-family parser to use, and overriding it would break the rule entirely.
+      const cssRule = `
+id: no-important
+language: css
+message: 'no !important'
+rule:
+  pattern: '!important'
+files:
+  - '**/*.css'
+`
+      const rules = yield* rulesOf(cssRule)
+
+      expect(yield* checkFile(rules, { content: 'a { color: red !important; }', path: 'src/a.css' })).toHaveLength(1)
+    }),
+  )
+})

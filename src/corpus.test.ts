@@ -536,61 +536,11 @@ describe('shipped rule corpus', () => {
     }),
   )
 
-  // Both halves of the claim above, asserted in both directions, because the first draft of this
-  // asserted only the easy half and drew the wrong conclusion from it. At a `.js` path with scope
-  // removed, each of these rules fires on the TypeScript spelling — so the exclusion is a scope
-  // DECISION, not an inability — and stays silent on the JavaScript spelling of the same idea,
-  // which is what makes the decision the right one.
-  effect('the TypeScript-only rules are excluded by what JavaScript can express, not by inability', () =>
-    Effect.gen(function* () {
-      const rules = yield* corpus
-
-      const spellings: Readonly<Record<string, { readonly javascript: string; readonly typescript: string }>> = {
-        'no-as-any': { javascript: 'const w = value', typescript: 'const w = value as any' },
-        'no-as-never': { javascript: 'const n = value', typescript: 'const n = value as never' },
-        'no-double-cast': { javascript: 'const w = value', typescript: 'const w = value as unknown as Widget' },
-        'no-type-assertion': { javascript: 'const w = value', typescript: 'const w = value as Widget' },
-        'prefer-smart-constructor': {
-          // The annotation is what the pattern keys on; without it this is an ordinary object.
-          javascript: 'const w = { id, name }',
-          typescript: 'const w: Widget = { id, name }',
-        },
-      }
-
-      const wrong: string[] = []
-      for (const rule of rules.filter((candidate) => TYPESCRIPT_ONLY.has(candidate.id))) {
-        const spelling = spellings[rule.id]
-        if (spelling === undefined) {
-          wrong.push(`${rule.id}: no spellings given`)
-          continue
-        }
-
-        // Scope removed on purpose: the question here is what the PATTERN can match at a `.js`
-        // path, which is precisely what the globs are then chosen to allow or refuse.
-        const unscoped = { ...rule, files: undefined, ignores: undefined }
-        const at = (content: string) => checkFile([unscoped], { content, path: 'src/a.js' })
-
-        if ((yield* at(spelling.typescript)).length === 0) {
-          wrong.push(`${rule.id}: silent on TypeScript syntax at a .js path — the exclusion claim is stale`)
-        }
-        if ((yield* at(spelling.javascript)).length > 0) {
-          wrong.push(`${rule.id}: fires on valid JavaScript, so excluding it from .js loses real coverage`)
-        }
-      }
-
-      expect(wrong).toEqual([])
-    }),
-  )
-
   // The extension list is restated 74 times across `rules/*.yml` — four globs per rule — and a rule
   // document cannot import a constant, because staying readable by the upstream ast-grep CLI is the
   // point of using its format. So the duplication is structural and stays. What need not stay is
   // its being UNCHECKED: a restatement with one entry missing is exactly how `.mts` and `.cts` went
   // unguarded for a release, and the copies are indistinguishable from the correct list by eye.
-  //
-  // This asserts every restatement against the single definition in `scope.ts`. Adding a language
-  // there now fails here, naming each file still to be updated, instead of silently covering less
-  // than the list says.
   effect('every rule builds its globs from the one extension list', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
@@ -606,6 +556,52 @@ describe('shipped rule corpus', () => {
           .filter((glob) => glob.includes('{') && !glob.includes(expected))
           .map((glob) => `${rule.id}: ${glob} does not use ${expected}`)
       })
+
+      expect(wrong).toEqual([])
+    }),
+  )
+
+  // The list above says these rules do not reach JavaScript, and the reason changed when the
+  // grammar started following the file extension rather than the rule.
+  //
+  // It used to be a claim about what valid JavaScript can CONTAIN: the patterns matched perfectly
+  // well at a `.js` path, because the rule chose the parser. Now the file chooses, and under the
+  // JavaScript grammar four of the five patterns are not merely unmatched but uncompilable — the
+  // rule fails loudly rather than quietly reporting nothing, which is the better failure.
+  //
+  // `prefer-smart-constructor` is the exception and worth knowing: its pattern still matches
+  // `const w: Widget = {…}` in a `.js` file, because that text is not valid JavaScript, the grammar
+  // yields error nodes, and the pattern fits them anyway. Reporting it is defensible — the file is
+  // broken — but it is a match nobody designed, so it is recorded rather than asserted.
+  //
+  // What is asserted is the part that holds for all five and is what the shipped scoping relies on:
+  // each still matches its own TypeScript spelling. The guard keeping them off `.js` files at all
+  // is the extension test above.
+  effect('the TypeScript-only rules still match their own TypeScript spelling', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const spellings: Readonly<Record<string, string>> = {
+        'no-as-any': 'const w = value as any',
+        'no-as-never': 'const n = value as never',
+        'no-double-cast': 'const w = value as unknown as Widget',
+        'no-type-assertion': 'const w = value as Widget',
+        'prefer-smart-constructor': 'const w: Widget = { id, name }',
+      }
+
+      const wrong: string[] = []
+      for (const rule of rules.filter((candidate) => TYPESCRIPT_ONLY.has(candidate.id))) {
+        const code = spellings[rule.id]
+        if (code === undefined) {
+          wrong.push(`${rule.id}: no spelling given`)
+          continue
+        }
+
+        const unscoped = { ...rule, files: undefined, ignores: undefined }
+        if ((yield* checkFile([unscoped], { content: code, path: 'src/a.ts' })).length === 0) {
+          wrong.push(`${rule.id}: stopped matching its own TypeScript spelling`)
+        }
+      }
 
       expect(wrong).toEqual([])
     }),

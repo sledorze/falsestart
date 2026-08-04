@@ -18,6 +18,7 @@ export type { FileScope } from './scope.ts'
 export {
   appliesTo,
   extensionGlobGroup,
+  grammarFor,
   JAVASCRIPT_EXTENSIONS,
   samplePath,
   SOURCE_EXTENSIONS,
