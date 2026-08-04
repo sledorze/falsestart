@@ -35,8 +35,16 @@ export interface Diagnosis {
 }
 
 export interface DiagnoseOptions {
-  /** Where this installation's release notes are, if it has any. Verified before it is printed. */
-  readonly changelogPath: string
+  /**
+   * Where this installation's release notes are. Verified to be a readable file before being
+   * printed, so a wrong or absent path costs a line of the report rather than the whole report.
+   *
+   * OPTIONAL, and that is a compatibility decision rather than a convenience one: `DiagnoseOptions`
+   * is part of the published library surface, so a required field here is a compile error in every
+   * caller that predates it — a minor release turning a consumer's `tsc` red, which is exactly the
+   * surprise this whole change exists to spare people.
+   */
+  readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
@@ -70,11 +78,20 @@ export const diagnose = (
     // to a preset and turn a green repo red; 0.2.0 did it twice, and the release notes were not even
     // in the package, so the only way to find out was to pack both versions and diff them by hand.
     //
-    // Printed only when the file is really there. A path offered for an artifact that is absent
-    // sends the reader looking for the one thing that would have answered them, which is worse than
-    // saying nothing — and it is absent in every installation published before this line existed.
+    // Printed only when a readable FILE is really there. A path offered for an artifact that is
+    // absent sends the reader looking for the one thing that would have answered them, which is
+    // worse than saying nothing — and it is absent in every installation published before this line
+    // existed. `stat` rather than `exists` because "there is a directory of that name" is not the
+    // claim being made, and a filesystem that cannot answer at all gets the same answer as "no": the
+    // reader's next step is identical, and this is the one report still available when things break.
     const fs = yield* FileSystem.FileSystem
-    if (yield* fs.exists(changelogPath).pipe(Effect.orElseSucceed(() => false))) {
+    const isReadableFile = (path: string) =>
+      fs.stat(path).pipe(
+        Effect.map((info) => info.type === 'File'),
+        Effect.orElseSucceed(() => false),
+      )
+
+    if (changelogPath !== undefined && (yield* isReadableFile(changelogPath))) {
       lines.push(`changes  ${changelogPath} — what this version changed, including any rule that is new`)
     }
     lines.push('')

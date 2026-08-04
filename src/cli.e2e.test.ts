@@ -172,6 +172,30 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  it.effect('--doctor names a changelog that is really inside the installation it reports on', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        // Only a process can check this. The path is computed in `cli.ts` from `import.meta.url`,
+        // `cli.ts` is excluded from coverage, and every unit test injects the path itself — so the
+        // one value that is actually hard to get right is asserted by nothing. It is hard because
+        // the tsc emit and the esbuild bundle do not sit at the same depth: re-anchoring it to
+        // `../../CHANGELOG.md` leaves all 390 other tests green while the line silently disappears
+        // from the shipped binary. Checked by doing it.
+        const fs = yield* FileSystem.FileSystem
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath], '')
+
+        const reported = result.stdout.split('\n').find((line) => line.startsWith('changes')) ?? ''
+        expect(reported).toContain('CHANGELOG.md')
+
+        // Naming a path is worth nothing if the path is not there — which is the entire complaint
+        // this feature answers, so it must not be reproduced by the feature itself.
+        const named = reported.slice('changes'.length).trim().split(' ')[0] ?? ''
+        expect(yield* fs.exists(named)).toBeTruthy()
+      }),
+    ),
+  )
+
   it.effect('refuses a flag where a value belongs, rather than waiting on a payload', () =>
     Effect.gen(function* () {
       // `--rules -x` consumed the flag as the directory and blocked on stdin forever, with no
