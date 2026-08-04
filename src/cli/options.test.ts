@@ -152,6 +152,13 @@ describe('the scan command', () => {
     })
   })
 
+  it('collects --exclude globs, repeatably', () => {
+    expect(parseArguments(['scan', '--exclude', 'legacy/**', '--exclude', 'gen/**', 'a.ts'])).toMatchObject({
+      exclude: ['legacy/**', 'gen/**'],
+      paths: ['a.ts'],
+    })
+  })
+
   it('refuses --update-baseline with nothing to write to', () => {
     const parsed = parseArguments(['scan', '--update-baseline', 'a.ts'])
 

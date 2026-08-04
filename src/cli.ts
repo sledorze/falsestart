@@ -5,6 +5,7 @@
  * Everything interesting happens in `respond` and `parseArguments`; this file exists to connect
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
@@ -146,6 +147,35 @@ const writeBaselineFile = (
     yield* Effect.orElseSucceed(fs.writeFileString(baselinePath, body), () => undefined)
   })
 
+/**
+ * Which of these paths the caller's own `.gitignore` already covers, according to git itself.
+ *
+ * Asked rather than reimplemented. `.gitignore` semantics are git's — nested files, negation,
+ * anchoring, precedence between them — and an approximation that is subtly wrong would decline to
+ * judge files nobody excluded, silently, which is the failure this whole area exists to remove.
+ *
+ * Best effort by design: no git, no repository, or any other failure yields an empty set, and the
+ * structural defaults still apply. A scan must not stop working because git is absent — and the
+ * documented recipes pipe paths FROM git, which has already filtered them.
+ */
+const gitIgnored = (paths: readonly string[], projectDirectory: string): ReadonlySet<string> => {
+  if (paths.length === 0) {
+    return new Set()
+  }
+
+  const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
+    cwd: projectDirectory,
+    encoding: 'utf8',
+    input: paths.join('\u0000'),
+  })
+
+  // `check-ignore` exits 1 when nothing matched, which is an answer rather than a failure. Only a
+  // spawn error or git's own 128 means we learned nothing.
+  return result.error !== undefined || result.status === null || result.status > 1
+    ? new Set()
+    : new Set(result.stdout.split('\u0000').filter((line) => line.length > 0))
+}
+
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
   const args = yield* stdio.args
@@ -223,7 +253,7 @@ const program = Effect.gen(function* () {
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory)
             : yield* loadConfigFile(options.configPath)
-        return yield* applyScopeOverrides(loaded, configured)
+        return { exclude: configured.exclude ?? [], rules: yield* applyScopeOverrides(loaded, configured) }
       }),
     )
 
@@ -238,7 +268,18 @@ const program = Effect.gen(function* () {
       return yield* new Exit({ code: ScanExit.Broken })
     }
     const accepted = loadedBaseline.success
-    const report = yield* Effect.result(scan({ baseline: accepted, paths, projectDirectory, rules: prepared.success }))
+    const report = yield* Effect.result(
+      scan({
+        baseline: accepted,
+        // The config is the repository's standing policy; the flag is this run's addition to it.
+        // Neither replaces the other, or one of them silently drops what the other established.
+        exclude: [...prepared.success.exclude, ...options.exclude],
+        gitignored: gitIgnored(paths, projectDirectory),
+        paths,
+        projectDirectory,
+        rules: prepared.success.rules,
+      }),
+    )
 
     if (report._tag === 'Failure') {
       yield* write(`falsestart: ${report.failure.path}: ${report.failure.reason}\n`, stdio.stderr())

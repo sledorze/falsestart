@@ -8,6 +8,7 @@ describe('library surface', () => {
     expect(Object.keys(falsestart).toSorted()).toEqual([
       'ConfigError',
       'DEFAULT_CONFIG_CANDIDATES',
+      'DEFAULT_EXCLUSIONS',
       'JAVASCRIPT_EXTENSIONS',
       'MatchError',
       'RuleLoadError',
@@ -40,6 +41,7 @@ describe('library surface', () => {
       'makeConfigUnsafe',
       'parseConfig',
       'parseRule',
+      'partitionPaths',
       'render',
       'respond',
       'samplePath',

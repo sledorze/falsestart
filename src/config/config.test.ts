@@ -192,6 +192,46 @@ describe('applying scope overrides', () => {
 // An override REPLACES `files` rather than merging into them, so an extension left out of the
 // restatement is silently unguarded and nothing fails — there is simply no file with that
 // extension in the repo yet to go unchecked. These are the cases the comparison has to get right.
+describe('repository-wide exclusions', () => {
+  effect('reads an exclude list', () =>
+    Effect.gen(function* () {
+      // A fact about the REPOSITORY, not about one invocation. Left to the command line alone, the
+      // same list has to be repeated in lefthook.yml, in a husky script and in CI, and the copies
+      // drift — which this codebase has already had to fix twice elsewhere.
+      const config = yield* parsed('{"exclude":["legacy/**","gen/**"],"rules":{}}')
+
+      expect(config.exclude).toEqual(['legacy/**', 'gen/**'])
+    }),
+  )
+
+  effect('reads an exclude list even with no rules block at all', () =>
+    Effect.gen(function* () {
+      expect((yield* parsed('{"exclude":["legacy/**"]}')).exclude).toEqual(['legacy/**'])
+    }),
+  )
+
+  effect('leaves exclude absent when the config does not mention it', () =>
+    Effect.gen(function* () {
+      expect((yield* parsed('{"rules":{}}')).exclude).toBeUndefined()
+    }),
+  )
+
+  effect('refuses an exclude that is not a list of globs, rather than ignoring it', () =>
+    Effect.gen(function* () {
+      // Silently dropping it would leave a repository believing it had excluded something.
+      const error = yield* Effect.flip(parsed('{"exclude":"legacy/**","rules":{}}'))
+
+      expect(error.reasons.join(', ')).toContain('exclude must be an array')
+    }),
+  )
+
+  effect('refuses a list containing something that is not a glob', () =>
+    Effect.gen(function* () {
+      expect((yield* Effect.flip(parsed('{"exclude":["ok/**",7],"rules":{}}'))).reasons).toHaveLength(1)
+    }),
+  )
+})
+
 describe('narrowed scope', () => {
   const shipped = ruleOf('no-thing', ['**/*.{ts,tsx,mts,cts,js}'])
 

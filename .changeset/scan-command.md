@@ -27,6 +27,14 @@ git diff --cached --name-only --diff-filter=ACM -z |
 Use `-z`/`-0` rather than newlines: `git diff --name-only` C-quotes any non-ASCII path, which then
 opens as ENOENT and is silently skipped by the gate meant to check it.
 
+**Dependencies are never judged.** `node_modules` and `.git` are always excluded, and anything
+`.gitignore` covers is excluded too — asked of `git check-ignore` rather than reimplemented, and
+best-effort so a scan still works without git. Anything else belongs in `falsestart.config.ts` as a top-level `exclude` array — the repository's
+standing policy, stated once instead of repeated in `lefthook.yml`, a husky script and CI, where
+the copies drift. `--exclude <glob>` adds to it for a single run rather than replacing it. `dist/`,
+`build/` and `vendor/` are deliberately not default exclusions, because projects author real source
+in directories with those names. Every exclusion is counted in the summary.
+
 **Paths come from the caller, never discovered.** Your hook runner already computes the list and
 does it better. One thing worth knowing: `{push_files}` is the whole tree on a branch's _first_
 push, because there is no upstream to diff against.

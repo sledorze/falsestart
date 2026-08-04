@@ -30,6 +30,19 @@ export interface ScopeOverride {
 }
 
 export interface Config {
+  /**
+   * Paths a scan should leave alone, for this repository, once.
+   *
+   * Belongs here rather than only on the command line because it is a fact about the REPOSITORY,
+   * not about one invocation of it. Left as a flag alone, the same list has to be repeated in
+   * `lefthook.yml`, in a husky script and in CI, and the copies drift — which is the failure this
+   * codebase has already fixed twice, in the shipped rule globs and in its own scope overrides.
+   *
+   * `node_modules` and `.git` are always excluded and need no entry. `--exclude` adds to this
+   * rather than replacing it: a config is the repository's standing policy and a flag is one run's
+   * addition to it, so neither can silently drop what the other established.
+   */
+  readonly exclude?: readonly string[] | undefined
   readonly rules: Readonly<Record<string, ScopeOverride>>
 }
 
@@ -97,9 +110,15 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
       return Effect.fail(new ConfigError({ reasons: [`${origin}: config must be an object`] }))
     }
 
+    const declaredExclude = document['exclude']
+    if (declaredExclude !== undefined && !isGlobList(declaredExclude)) {
+      return Effect.fail(new ConfigError({ reasons: [`${origin}: exclude must be an array of glob strings`] }))
+    }
+    const exclude = declaredExclude === undefined ? {} : { exclude: declaredExclude }
+
     const declared = document['rules']
     if (declared === undefined) {
-      return Effect.succeed(EMPTY_CONFIG)
+      return Effect.succeed({ ...EMPTY_CONFIG, ...exclude })
     }
     if (!isMapping(declared)) {
       return Effect.fail(new ConfigError({ reasons: [`${origin}: rules must be an object`] }))
@@ -116,7 +135,9 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
       }
     }
 
-    return reasons.length > 0 ? Effect.fail(new ConfigError({ reasons })) : Effect.succeed({ rules: overrides })
+    return reasons.length > 0
+      ? Effect.fail(new ConfigError({ reasons }))
+      : Effect.succeed({ ...exclude, rules: overrides })
   })
 
 export const parseConfig = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>

@@ -288,6 +288,26 @@ layer(platform)('the scan report', (it) => {
     ),
   )
 
+  it.effect('counts what it deliberately did not judge', () =>
+    withFiles({ 'node_modules/pkg/i.ts': VIOLATION, 'src/a.ts': VIOLATION }, (root) =>
+      Effect.gen(function* () {
+        const outcome = render(
+          yield* scan({
+            paths: [`${root}/src/a.ts`, `${root}/node_modules/pkg/i.ts`],
+            projectDirectory: root,
+            rules: [yield* noAsAny],
+          }),
+        )
+
+        // A dependency is not this repository's to answer for — but declining to judge it must be
+        // stated, or "scanned everything and it was clean" and "quietly skipped half of it" look
+        // the same.
+        expect(outcome.text).toContain('1 excluded')
+        expect(outcome.text).toContain('scanned 1 file(s)')
+      }),
+    ),
+  )
+
   it.effect('names the file, line and rule of each finding', () =>
     withFiles({ 'src/a.ts': `const ok = 1\n${VIOLATION}` }, (root) =>
       Effect.gen(function* () {
