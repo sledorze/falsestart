@@ -44,6 +44,20 @@ When you create or edit any doc — **or any source file a doc links to**:
 5. Commit your doc changes **together with** the `.cairn/` sidecar changes — a doc
    edit without its matching sidecar update is exactly what `check` is designed to catch.
 
+**Never resolve a `.cairn/` conflict by hand.** A rebase across two branches that both touched docs
+conflicts on the sidecar hashes, and BOTH SIDES ARE WRONG — the hash describes the merged tree,
+which neither parent contains. Observed: resolving `.cairn/_SUMMARY.md.json` by taking one side and
+then running `pnpm stamp` produced a _third_ value. Take either side to get the rebase moving, then
+re-stamp and commit that; picking a side and stopping records a hash for a tree that never existed,
+and `check` goes green on it.
+
+Also worth knowing about the tool's reach: a summary can state a fact about a file it does not LINK
+to — `README.summary.md` lists what the tarball ships, which is a claim about `package.json` — and
+cairn cannot see that edge at all. `--refs` hashes the targets of `[text](path)` links, and
+`--prose-refs` fires on a backticked path that MOVED. A sentence naming neither stays green while
+going false, which is what happened when `CHANGELOG.md` was added to `files`. Claims of that shape
+belong in `src/documented.test.ts`, where several already live.
+
 ## Commands
 
 - `pnpm check` — check summaries + links + **reference drift** (exit 1 on any problem).
@@ -191,6 +205,12 @@ upstream made it green either way — that one is now documented in place, point
 does guard it.
 
 None were caught by review. All four were caught by reverting the fix and looking.
+
+**Table-driven tests use `describe.each` + `effect`, not `it.effect.each`.** The curried form
+`it.effect.each(table)(name, fn)` leaves oxlint's vitest plugin unable to resolve the callee:
+`no-standalone-expect` can be satisfied by adding it to `additionalTestBlockFunctions`, but
+`expect-expect` still reports every case as a test with no assertions. `describe.each` wrapping the
+`effect` wrapper this repo already registers needs no config change and lints clean.
 
 **Convert every manual dogfooding proof into a permanent test before moving on.** A bug
 you found by hand and fixed, with no test added, is a bug that can silently come back.

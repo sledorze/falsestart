@@ -18,10 +18,58 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Schema } from 'effect'
+import { loadRules } from './checking/loader.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+
+/** The `files` array, read from the manifest rather than restated where it would drift from it. */
+const packagedFiles = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const manifest = yield* fs.readFileString('package.json')
+
+  return yield* Effect.orDie(
+    Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+      Effect.map((parsed) => (parsed as { readonly files: readonly string[] }).files),
+    ),
+  )
+})
+
+/**
+ * Counts as the docs spell them, because prose says "twenty-three" and not "23".
+ *
+ * Only the range the corpus can plausibly occupy. A count outside it fails loudly here rather than
+ * silently matching nothing, which is the failure mode a lookup table invites.
+ */
+const NUMBER_WORDS: readonly string[] = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+  'twenty',
+  'twenty-one',
+  'twenty-two',
+  'twenty-three',
+  'twenty-four',
+  'twenty-five',
+]
 
 /** Root modules that are entry points in their own right, alongside every `<area>/index.ts`. */
 const ROOT_ENTRY_POINTS = new Set(['src/cli.ts', 'src/index.ts'])
@@ -99,6 +147,56 @@ layer(platform)('documentation covers the source', (it) => {
       const undocumented = SHIPPED_RULE_IDS.filter((id) => !reference.includes(`\`${id}\``))
 
       expect(undocumented).toEqual([])
+    }),
+  )
+
+  // Seven counts are written into the prose and exactly ONE of them was asserted — the `All N
+  // rules` line below. Adding `no-effect-assertion` meant hand-editing the other six across three
+  // files, found by grep; missing one would have shipped a doc that miscounts its own corpus, with
+  // every check green. The single existing assertion is the proof this is cheap to guard, not a
+  // reason to guard only one of them.
+  it.effect('every rule count written into the docs matches the corpus', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reachesJavaScript = (rule: { readonly files?: readonly string[] | undefined }): boolean =>
+        (rule.files ?? []).some((glob) => glob.includes('js'))
+
+      const all = yield* loadRules('rules')
+      // A count past the end fails loudly rather than matching nothing, which is the failure a
+      // lookup table invites: a silent miss would read as "the docs say the right number".
+      const word = (count: number): string => NUMBER_WORDS[count] ?? `NO-WORD-FOR-${count}`
+      const capitalised = (count: number): string => {
+        const spelled = word(count)
+        return `${spelled.slice(0, 1).toUpperCase()}${spelled.slice(1)}`
+      }
+
+      const total = all.length
+      const javascript = all.filter((rule) => reachesJavaScript(rule)).length
+      const typescriptOnly = total - javascript
+      const cleanCode = (yield* loadRules('rules/clean-code')).length
+      const effect = (yield* loadRules('rules/effect')).length
+
+      const claims = [
+        { file: 'README.md', text: `\`clean-code\` is ${word(cleanCode)} rules` },
+        { file: 'README.md', text: `\`effect\` is ${word(effect)} rules` },
+        { file: 'README.md', text: `${capitalised(javascript)} of the ${word(total)} rules match JavaScript` },
+        { file: 'docs/reference.md', text: `${capitalised(javascript)} of the ${word(total)} rules are scoped` },
+        { file: 'docs/reference.md', text: `${capitalised(typescriptOnly)} stay TypeScript-only` },
+        {
+          file: 'docs/reference.summary.md',
+          text: `${capitalised(javascript)} of ${word(total)} shipped rules`,
+        },
+      ]
+
+      const wrong: string[] = []
+      for (const claim of claims) {
+        const content = yield* fs.readFileString(claim.file)
+        if (!content.includes(claim.text)) {
+          wrong.push(`${claim.file}: expected to say "${claim.text}"`)
+        }
+      }
+
+      expect(wrong).toEqual([])
     }),
   )
 
@@ -184,6 +282,28 @@ layer(platform)('documentation covers the source', (it) => {
       )
 
       expect(unshipped).toEqual([])
+    }),
+  )
+
+  // The summary's tarball inventory is a claim about `package.json`, and cairn cannot reach it.
+  // `--refs` hashes the targets of `[text](path)` LINKS, and this sentence links nothing;
+  // `--prose-refs` fires on a backticked citation whose target MOVED, and it names no path at all.
+  // So the doc-to-summary edge stays green while the inventory goes false, which is exactly what
+  // happened: adding `CHANGELOG.md` to `files` left the summary listing a tarball that no longer
+  // existed, through a full `pnpm verify` and a merged PR. Found by eye, which is the one method
+  // the tooling exists to replace — so it is a test now.
+  it.effect('the summary names every file the package actually ships', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const summary = yield* fs.readFileString('README.summary.md')
+      const shipped = yield* packagedFiles
+
+      // Matched on the name a reader would recognise, not the filename: the sentence says
+      // "CODE_OF_CONDUCT", not "CODE_OF_CONDUCT.md", and pinning the extension would fail on prose
+      // that is perfectly correct.
+      const unnamed = shipped.filter((entry) => !summary.includes(entry.replace(/\.md$/, '')))
+
+      expect(unnamed).toEqual([])
     }),
   )
 

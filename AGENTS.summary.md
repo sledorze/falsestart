@@ -7,7 +7,11 @@ The conventions this repository holds contributors to. Four of them.
 Freshness is tracked by content hash in `.cairn/` sidecars, outside the docs themselves, so it
 survives clone and CI. `--refs` extends this to the _content_ of source files a doc links to, so a
 doc goes stale when what it describes changes rather than only when a path breaks. Author the prose,
-then `pnpm stamp`, then `pnpm check`. Three config-only checks exist and none is enabled:
+then `pnpm stamp`, then `pnpm check`. Never resolve a `.cairn/` conflict by hand: on a rebase both
+sides are wrong, because the hash describes a merged tree neither parent holds — take either, then
+re-stamp. And a summary can state a fact about a file it does not LINK to (the tarball inventory in
+`README.summary.md` is a claim about `package.json`), which cairn cannot see at all; claims of that
+shape belong in `src/documented.test.ts`. Three config-only checks exist and none is enabled:
 `checks.coverage` (doc-kind rules) would restate in config what four documents already say,
 `checks.docCoverage` (is this source file linked from a doc) contradicts the rule that documents
 cite entry points and nothing below them, and `checks.freshness` (commit age) is a proxy for the
@@ -25,7 +29,8 @@ adjacent, similar-looking file is left alone.
 
 **Shipping one iteration well.** Full local verify before every push (`pnpm verify`: lint,
 format:check, typecheck, coverage:ci, build, docs — it must cover every gate CI applies, or verify can be
-green while the merge is red). `pre-push` runs typecheck+test+build+docs+coverage+mutation. See every new test fail before trusting it — write it first, or revert the implementation and watch
+green while the merge is red). `pre-push` runs typecheck+test+build+docs+coverage+mutation. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
+oxlint's callee resolution. See every new test fail before trusting it — write it first, or revert the implementation and watch
 it go red; a test only ever observed passing is a claim, not a check, and four in one change passed
 for reasons unrelated to the code. Dogfood the real behaviour against the scenario a
 feature is meant to catch, including the negative case, then convert that proof into a permanent
