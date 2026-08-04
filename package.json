@@ -84,7 +84,7 @@
     "effect": "4.0.0-beta.102",
     "esbuild": "^0.28.1",
     "lefthook": "^2.1.0",
-    "oxlint": "1.74.0",
+    "oxlint": "1.76.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",
