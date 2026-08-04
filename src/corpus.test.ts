@@ -51,6 +51,7 @@ const TYPESCRIPT_ONLY: ReadonlySet<string> = new Set([
   'no-as-any',
   'no-as-never',
   'no-double-cast',
+  'no-effect-assertion',
   'no-type-assertion',
   'prefer-smart-constructor',
 ])
@@ -97,6 +98,20 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
   'no-double-cast': {
     allows: ['const w = value as Widget', 'const u: unknown = value'],
     catches: ['const w = value as unknown as Widget'],
+  },
+  'no-effect-assertion': {
+    allows: [
+      'const w = value as Widget',
+      // The type ANNOTATION is the remedy the message names, so it must never be the offence.
+      'const run: Effect.Effect<string> = decode(input)',
+    ],
+    catches: ['const s = read() as Effect.Effect<string>', 'const l = build() as Layer.Layer<Widgets>'],
+    // Every other rule exempts test files; this one exists BECAUSE they do, so its exemption has to
+    // be somewhere else. JavaScript is the honest choice: it has no `as` expression to find.
+    exempt: 'src/service.js',
+    // Asserted at a TEST path on purpose. At `src/service.ts` this rule would prove nothing that
+    // `no-type-assertion` does not already prove.
+    path: 'src/service.test.ts',
   },
   'no-empty-catch': {
     allows: [
@@ -318,6 +333,35 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
   },
 }
 
+/**
+ * What the blanket test-file exemption must and must not let through — the regression that produced
+ * `no-effect-assertion`, written down as it happened.
+ *
+ * falsestart was wired as a `PreToolUse` hook with `--preset all`, it ran on the write, and it
+ * ALLOWED it. Proved by piping identical content at two paths through the built binary:
+ * `src/packaging.ts` came back denied by `no-type-assertion`, `src/packaging.test.ts` came back
+ * silent. Three coercions reached `main` that way, none of them load-bearing.
+ *
+ * The two rows are inseparable, which is why they are one table. The exemption exists for a real
+ * case — a mock needs `as never` to satisfy a signature it will never honour — so a rule that
+ * closed the hole by forbidding that too would just be the blanket's mirror image, and the answer
+ * to "why is my fixture blocked" would be a rule nobody can scope away per file.
+ */
+const TEST_FILE_CASES = [
+  {
+    blocked: true,
+    code: 'const s = yield* handle.stdout.pipe(Stream.mkString) as Effect.Effect<string>',
+    name: 'catches a coercion into an Effect type in a test file, where every other assertion rule steps aside',
+    path: 'src/packaging.test.ts',
+  },
+  {
+    blocked: false,
+    code: "const fs = layerNoop({ stat: () => Effect.fail(new Error('nope') as never) })",
+    name: 'leaves alone the fixture cast the test-file exemption exists for',
+    path: 'src/service.test.ts',
+  },
+] as const
+
 const expectationsFor = (ruleId: string): readonly RuleExpectation[] => {
   const example = EXAMPLES[ruleId]
   if (example === undefined) {
@@ -413,6 +457,23 @@ describe('shipped rule corpus', () => {
       expect(overreaching).toEqual([])
     }),
   )
+
+  // Table-driven, but `describe.each` + `effect` rather than `it.effect.each`: the curried form
+  // `it.effect.each(table)(name, fn)` leaves oxlint's vitest plugin unable to resolve the callee,
+  // so it reports every case as a test with no assertions. The wrapper this file already uses is
+  // registered with the linter; the table is what matters, not which layer iterates it.
+  describe.each(TEST_FILE_CASES)('$name', ({ blocked, code, path }) => {
+    effect(blocked ? 'is blocked' : 'is left alone', () =>
+      Effect.gen(function* () {
+        const rules = yield* corpus
+
+        const findings = yield* checkFile(rules, { content: code, path })
+        const ids = findings.map((finding) => finding.ruleId)
+
+        expect(ids.includes('no-effect-assertion')).toBe(blocked)
+      }),
+    )
+  })
 
   effect('the exported rule-id union matches what actually ships', () =>
     Effect.gen(function* () {
@@ -585,6 +646,7 @@ describe('shipped rule corpus', () => {
         'no-as-any': 'const w = value as any',
         'no-as-never': 'const n = value as never',
         'no-double-cast': 'const w = value as unknown as Widget',
+        'no-effect-assertion': 'const s = read() as Effect.Effect<string>',
         'no-type-assertion': 'const w = value as Widget',
         'prefer-smart-constructor': 'const w: Widget = { id, name }',
       }

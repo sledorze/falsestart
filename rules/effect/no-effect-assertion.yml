@@ -1,0 +1,36 @@
+id: no-effect-assertion
+language: tsx
+severity: error
+message: 'Asserting a value into an Effect type erases the error and requirement channels that type exists to carry: the compiler stops tracking what can fail and what must be provided, and the failure resurfaces at runtime with nothing in the signature that predicted it. Let the type be inferred, or fix the pipeline until the inferred type is the one you wanted.'
+note: |
+  An Effect type is not a shape, it is a claim about three things: what a computation produces,
+  what it can fail with, and what it needs. Asserting into one keeps the first and silently
+  discards the other two.
+
+  The usual shape is a pipeline whose inferred error channel is not `never`, cast until it
+  compiles:
+
+      const stdout = yield* handle.stdout.pipe(decodeText, mkString) as Effect.Effect<string>
+
+  That says "this cannot fail" about a stream that can. Nothing checks the claim, and the whole
+  reason for the typed error channel is gone at exactly the point it was about to be useful.
+
+  Deliberately NOT exempt in test files, and that is the point of the rule rather than an
+  oversight. Every other assertion rule steps aside there, because a fixture cast is real — a mock
+  needs `as never` to satisfy a signature it will never honour. That blanket is what let three of
+  these into this repo's own tests, where a helper claiming an infallible stream is exactly as
+  wrong as it would be in `src/`, and less likely to be read.
+
+  It matches the TYPE being asserted to, never the variable's name or the expression: a value
+  called `effect` is not the subject, and a plain `value as Widget` is somebody else's rule.
+
+  Only the types that carry an error or requirement channel are listed. `as const` and
+  `as unknown` cannot be wrong and are not `as`-into-an-Effect anyway.
+rule:
+  kind: as_expression
+  pattern: $EXPR as $TYPE
+constraints:
+  TYPE:
+    regex: '^(Effect|Stream|Layer|Sink|Channel|Fiber|Deferred|STM)[.<]'
+files:
+  - '**/*.{ts,tsx,mts,cts}'

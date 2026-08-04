@@ -146,6 +146,7 @@ falsestart does, having caught its own config doing exactly this.
 | `no-empty-catch`                | clean-code | An empty catch discards the error and the fact that anything went wrong…                        |
 | `no-hardcoded-credential`       | clean-code | This string literal has the shape of a real credential. Read it from con…                       |
 | `no-type-assertion`             | clean-code | A type assertion tells the compiler to stop checking rather than establi…                       |
+| `no-effect-assertion`           | effect     | Asserting a value into an Effect type erases the error and requirement c…                       |
 | `no-await`                      | effect     | await drops out of the Effect world: no typed error channel and no inter…                       |
 | `no-json-global`                | effect     | JSON.parse returns any and throws on malformed input, and JSON.stringify is partial in ways it… |
 | `no-manual-effect-run-in-tests` | effect     | Running an Effect by hand in a test supplies its own runtime, so requirements vanish from the … |
@@ -163,14 +164,14 @@ falsestart does, having caught its own config doing exactly this.
 | `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
 | `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
 
-Seventeen of the twenty-two rules are scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — every TypeScript
+Seventeen of the twenty-three rules are scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — every TypeScript
 and JavaScript extension, with `*.test.*`, `*.spec.*` and `*.bench.*` variants exempt (the three
 test-only rules invert that). They match runtime constructs — `try`, `await`, `process.env`,
 `fetch`, `new Promise`, `JSON.parse` — which JavaScript has just as much as TypeScript does, and
 each is tested against real JavaScript rather than assumed to work there.
 
-Five stay TypeScript-only: `no-as-any`, `no-as-never`, `no-double-cast`, `no-type-assertion` and
-`prefer-smart-constructor`. Not because they cannot fire on a `.js` file — every rule declares
+Six stay TypeScript-only: `no-as-any`, `no-as-never`, `no-double-cast`, `no-effect-assertion`,
+`no-type-assertion` and `prefer-smart-constructor`. Not because they cannot fire on a `.js` file — every rule declares
 `language: tsx`, the parser is picked by that rather than by the extension, and all five do fire on
 TypeScript syntax at a `.js` path. It is that **valid JavaScript cannot contain what they match**:
 there is no `as` expression and no `const $NAME: $TYPE = {…}` annotation to find. Scoping them to
@@ -181,9 +182,17 @@ guarded when nothing there can fire. A test asserts both directions.
 One gap this leaves, named rather than implied: JavaScript's own way of asserting a type is a JSDoc
 cast (`/** @type {any} */ (value)`), and no shipped rule catches it.
 
-All 22 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
+All 23 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and
 `no-manual-effect-run-in-tests` apply **only** to test files — the inverse of every other rule.
+
+`no-effect-assertion` is the one rule with **no test-file exemption at all**, and that is deliberate
+rather than an omission. The blanket exemption every other assertion rule carries exists for fixture
+casts a mock genuinely needs — `as never` to satisfy a signature it will never honour — but it also
+waves through `as Effect.Effect<string>`, which claims a stream cannot fail when it can. A test
+helper making that claim is exactly as wrong as a source file making it, and less likely to be read.
+Scope it away per-repo in `falsestart.config.ts` if you disagree; the point is that the default is
+not silence.
 
 `Schema.Class`, `ErrorClass`, `TaggedClass` and `TaggedErrorClass` constructors do validate and
 throw — `new Widget({ id: 42 })` raises `Expected string, got 42`. There is deliberately **no rule**
