@@ -13,7 +13,7 @@ import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
 import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
-import { appliesTo } from './checking/scope.ts'
+import { appliesTo, extensionGlobGroup, JAVASCRIPT_EXTENSIONS, TYPESCRIPT_EXTENSIONS } from './checking/scope.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import type { RuleExpectation } from './testing/assess.ts'
 import { assessRule, findUntestedRules } from './testing/assess.ts'
@@ -22,8 +22,8 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
 const corpus = loadRules('rules').pipe(Effect.provide(platform), Effect.orDie)
 
-const TYPESCRIPT_EXTENSIONS = ['ts', 'tsx', 'mts', 'cts'] as const
-const JAVASCRIPT_EXTENSIONS = ['js', 'jsx', 'mjs', 'cjs'] as const
+// Imported rather than restated. These lists had four independent copies, and a restated list with
+// one entry missing is precisely how `.mts` went unguarded for a release.
 
 /**
  * Rules that stay off JavaScript, because valid JavaScript cannot contain what they match.
@@ -542,6 +542,35 @@ describe('shipped rule corpus', () => {
           wrong.push(`${rule.id}: fires on valid JavaScript, so excluding it from .js loses real coverage`)
         }
       }
+
+      expect(wrong).toEqual([])
+    }),
+  )
+
+  // The extension list is restated 74 times across `rules/*.yml` — four globs per rule — and a rule
+  // document cannot import a constant, because staying readable by the upstream ast-grep CLI is the
+  // point of using its format. So the duplication is structural and stays. What need not stay is
+  // its being UNCHECKED: a restatement with one entry missing is exactly how `.mts` and `.cts` went
+  // unguarded for a release, and the copies are indistinguishable from the correct list by eye.
+  //
+  // This asserts every restatement against the single definition in `scope.ts`. Adding a language
+  // there now fails here, naming each file still to be updated, instead of silently covering less
+  // than the list says.
+  effect('every rule builds its globs from the one extension list', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const typescript = extensionGlobGroup(TYPESCRIPT_EXTENSIONS)
+      const everything = extensionGlobGroup([...TYPESCRIPT_EXTENSIONS, ...JAVASCRIPT_EXTENSIONS])
+
+      const wrong = rules.flatMap((rule) => {
+        const expected = TYPESCRIPT_ONLY.has(rule.id) ? typescript : everything
+        const globs = [...(rule.files ?? []), ...(rule.ignores ?? [])]
+
+        return globs
+          .filter((glob) => glob.includes('{') && !glob.includes(expected))
+          .map((glob) => `${rule.id}: ${glob} does not use ${expected}`)
+      })
 
       expect(wrong).toEqual([])
     }),

@@ -14,6 +14,69 @@
  */
 import picomatch from 'picomatch'
 
+/**
+ * The languages a shipped rule can reach, in one place.
+ *
+ * These lists existed in four independent copies — one per consumer — while the globs built from
+ * them are restated 74 times across `rules/*.yml`. That is not a tidiness complaint: a restated
+ * list with one entry missing is exactly how `.mts` and `.cts` went unguarded for a release, and
+ * then how this repo's own config silently stopped covering them again afterwards. A single
+ * definition is what lets `corpus.test.ts` assert that all 74 restatements still agree with it.
+ *
+ * `.js` and friends are here because fifteen of the twenty rules match runtime constructs that
+ * JavaScript has too. The five keying on TypeScript syntax use only the first list.
+ */
+export const TYPESCRIPT_EXTENSIONS = ['ts', 'tsx', 'mts', 'cts'] as const
+export const JAVASCRIPT_EXTENSIONS = ['js', 'jsx', 'mjs', 'cjs'] as const
+
+/** Every extension a shipped rule may be scoped to. */
+export const SOURCE_EXTENSIONS: readonly string[] = [...TYPESCRIPT_EXTENSIONS, ...JAVASCRIPT_EXTENSIONS]
+
+/** The brace alternation a rule's `files` glob is written with, built rather than retyped. */
+export const extensionGlobGroup = (extensions: readonly string[]): string => `{${extensions.join(',')}}`
+
+/**
+ * A filename matching `pattern` but carrying `extension` — `*.test.{ts,tsx}` becomes
+ * `file.test.mts`. Everything between the stem and the extension is kept, because that is what
+ * distinguishes a test-only rule's scope from an ordinary one's.
+ */
+const sampleFileName = (pattern: string, extension: string): string => {
+  const parts = pattern.split('.')
+  const stem = parts.slice(0, -1).map((part) => (part.includes('*') ? 'file' : part))
+
+  return [...stem, extension].join('.')
+}
+
+/**
+ * A concrete path that `glob` admits, carrying `extension`.
+ *
+ * Comparing two globs in general is a question about glob semantics with no useful answer;
+ * comparing what they ADMIT, at concrete paths, is a question with a concrete one. This is what
+ * makes "did that override drop a language?" answerable.
+ *
+ * The point is to hold the DIRECTORY constant while varying only the language. Probing a fixed
+ * `src/a.ts` instead made every directory narrowing — `files: ['src/domain/**']`, the documented
+ * use of scope overrides — report as though it had dropped all eight extensions.
+ *
+ * It lives here rather than beside its caller because it is glob semantics, and glob semantics
+ * belong with `appliesTo` — the module docstring's whole argument is that this reasoning is subtle
+ * enough to keep in one place with its own negative tests.
+ */
+export const samplePath = (glob: string, extension: string): string => {
+  // Sliced rather than indexed: `lastIndexOf` returning -1 for a glob with no `/` is already the
+  // right answer for both halves, so there is no impossible `undefined` branch to write a test for.
+  const slash = glob.lastIndexOf('/')
+  const last = glob.slice(slash + 1)
+  // `**` is a directory wildcard, even though every other trailing segment carrying a dot is a
+  // filename.
+  const namesAFile = last !== '**' && last.includes('.')
+
+  const head = namesAFile ? glob.slice(0, Math.max(slash, 0)) : glob
+  const directories = head === '' ? [] : head.split('/').map((segment) => (segment.includes('*') ? 'probe' : segment))
+
+  return [...directories, namesAFile ? sampleFileName(last, extension) : `file.${extension}`].join('/')
+}
+
 export interface FileScope {
   /** Globs the path must match. Absent means "every path". */
   readonly files?: readonly string[] | undefined

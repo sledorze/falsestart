@@ -167,6 +167,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `SHIPPED_RULE_IDS`          | constant    | checking |
 | `SUPPORTED_LANGUAGES`       | constant    | checking |
 | `appliesTo`                 | function    | checking |
+| `extensionGlobGroup`        | function    | checking |
 | `applyScopeOverrides`       | function    | config   |
 | `assessRule`                | function    | testing  |
 | `checkFile`                 | function    | checking |
@@ -186,8 +187,14 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `parseConfig`               | function    | config   |
 | `parseRule`                 | function    | checking |
 | `respond`                   | function    | hook     |
+| `samplePath`                | function    | checking |
 | `toScopingPath`             | function    | checking |
 | `validateConfig`            | function    | config   |
+
+The extension lists `TYPESCRIPT_EXTENSIONS`, `JAVASCRIPT_EXTENSIONS` and `SOURCE_EXTENSIONS` are
+exported too, with `extensionGlobGroup` to build the `{ts,tsx,…}` alternation from one of them. A
+rules package faces the same restatement problem falsestart does — four globs per rule, and a
+missing entry is silent — so the list it must agree with is importable rather than copied.
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
