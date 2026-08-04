@@ -115,6 +115,73 @@ describe('command line', () => {
   it('refuses a bare positional argument', () => {
     expect(parseArguments(['my-rules'])._tag).toBe('Invalid')
   })
+})
+
+describe('the scan command', () => {
+  it('takes paths as positional arguments', () => {
+    expect(parseArguments(['scan', 'src/a.ts', 'src/b.ts'])).toMatchObject({
+      _tag: 'Scan',
+      pathSource: 'Argv',
+      paths: ['src/a.ts', 'src/b.ts'],
+    })
+  })
+
+  it('dispatches on args[0] and nowhere else', () => {
+    // "Positionals are allowed once `scan` is seen" would admit this, and a misconfiguration that
+    // still runs is what this module exists to refuse.
+    expect(parseArguments(['my-rules', 'scan'])._tag).toBe('Invalid')
+  })
+
+  it('reads paths from stdin when asked, newline or NUL', () => {
+    expect(parseArguments(['scan', '-'])).toMatchObject({ pathSource: 'Newline' })
+    expect(parseArguments(['scan', '-0'])).toMatchObject({ pathSource: 'Nul' })
+  })
+
+  it('keeps the rule-set flags the hook uses', () => {
+    expect(parseArguments(['scan', '--preset', 'all', '--config', 'c.json', 'a.ts'])).toMatchObject({
+      configPath: 'c.json',
+      paths: ['a.ts'],
+      preset: 'all',
+    })
+  })
+
+  it('takes a baseline, and a request to write one', () => {
+    expect(parseArguments(['scan', '--baseline', 'b.json', '--update-baseline', 'a.ts'])).toMatchObject({
+      baselinePath: 'b.json',
+      writeBaseline: true,
+    })
+  })
+
+  it('refuses --update-baseline with nothing to write to', () => {
+    const parsed = parseArguments(['scan', '--update-baseline', 'a.ts'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--baseline')
+  })
+
+  it('refuses the scan-only flags outside scan, rather than ignoring them', () => {
+    // A flag accepted and silently dropped is the failure this file's opening paragraph forbids,
+    // and one shipped that way once already.
+    for (const args of [['--baseline', 'b.json'], ['--update-baseline'], ['some/path.ts']]) {
+      expect(parseArguments(args)._tag).toBe('Invalid')
+    }
+  })
+
+  it('refuses --warn-unscoped with scan, whose report already carries the aggregate', () => {
+    const parsed = parseArguments(['scan', '--warn-unscoped', 'a.ts'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--warn-unscoped')
+  })
+
+  it('refuses scan combined with a mode that answers a different question', () => {
+    expect(parseArguments(['scan', '--doctor'])._tag).toBe('Invalid')
+    expect(parseArguments(['scan', '--version'])._tag).toBe('Invalid')
+  })
+
+  it('still refuses an unrecognised flag inside scan', () => {
+    expect(parseArguments(['scan', '--rulez', 'x'])._tag).toBe('Invalid')
+  })
 
   it('answers --help with usage text', () => {
     const parsed = parseArguments(['--help'])

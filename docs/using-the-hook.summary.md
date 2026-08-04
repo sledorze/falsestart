@@ -18,6 +18,18 @@ signal is noisy — measured on the shipped presets it fires on every `.md`, `.j
 write under all three. Test files are the preset-dependent row: all six `clean-code` rules ignore
 them, so they warn under it, while `effect` carries three rules that exist to judge them.
 
+**`falsestart scan [paths…]`** is the second enforcement point, for a git hook or CI, because the
+write-time hook sees only `Edit`/`Write`/`NotebookEdit` — a `Bash` heredoc, any git operation, an
+editor, another agent and every pre-existing file bypass it. Paths come from the caller (lefthook's
+`{staged_files}`/`{push_files}`, husky's `git diff`), never discovered; use `-z`/`-0`, since git
+C-quotes non-ASCII paths into something that opens as ENOENT. `{push_files}` is the whole tree on a
+branch's first push. Exit codes are its own contract — 0 clean, 1 findings, 2 could-not-run — and it
+fails CLOSED where the hook fails open, because a gate that cannot run must stop rather than pass
+everything. It judges whole files where the hook judges introduced text, so it is strictly stricter:
+64% of real TypeScript files already carry a finding, which is what `--baseline`/`--update-baseline`
+absorb. Every run prints `scanned N, M in scope, K finding(s)`; `M = 0` is the signal that a run
+enforced nothing, which otherwise looks identical to success.
+
 Behaviour: an `error`-severity match blocks with the rule's message; softer severities do not
 block; a path outside a rule's `files`/`ignores` never runs it; other tools are ignored. A rule
 tree that will not load, or a rule that cannot run, produces a visible error while letting the

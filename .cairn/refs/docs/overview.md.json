@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "77e8537604c2427a41d6c506f77418a1fb5077f479c66e8d698ccee0d6eca466",
+      "hash": "bb052cfa6c775fdc45b1e7d4088954f0d99a8426bc72f8cba7970ee67401de25",
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "da381bcf2080879d4f3520838e367045ca6bf5f4a2aef0183ededcb23251a1a0",
+      "hash": "488d490bbc7a98657a9e587334c1213210837055cb8b9b794e14936d5b0d1461",
       "target": "./architecture.md"
     }
   ]
