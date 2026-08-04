@@ -5,10 +5,11 @@
  * deployment — and because loading it reaches for the filesystem and the module loader, which
  * nothing in the domain is allowed to do.
  */
-export type { Config, Config as FalsestartConfig, ScopeOverride } from './config.ts'
+export type { Config, Config as FalsestartConfig, NarrowedScope, ScopeOverride } from './config.ts'
 export {
   applyScopeOverrides,
   ConfigError,
+  findNarrowedScopes,
   makeConfig,
   makeConfigUnsafe,
   parseConfig,

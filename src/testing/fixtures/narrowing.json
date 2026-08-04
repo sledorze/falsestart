@@ -1,0 +1,7 @@
+{
+  "rules": {
+    "no-try-catch": {
+      "files": ["**/*.{ts,tsx}"]
+    }
+  }
+}

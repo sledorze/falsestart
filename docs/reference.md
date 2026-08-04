@@ -82,6 +82,25 @@ An override naming a rule that is not loaded is an error, not a no-op. Use a **t
 a `.ts` config — it is type-stripped and imported without a filesystem location, so a value import
 cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`.
 
+**An override replaces a rule's `files`; it does not merge into them.** That is deliberate — a merge
+could never remove anything — but it means an override written to add one exemption has to restate
+the whole glob, and any extension left out of the restatement is silently no longer guarded. The
+narrowing direction is the dangerous one, because nothing fails: there is simply no `.mts` file yet
+for anyone to notice going unchecked.
+
+`--doctor` reports it, naming the rule and the extensions dropped:
+
+```
+config   falsestart.config.ts — 1 override(s): no-try-catch
+         no-try-catch stops covering .mts, .cts, .js, .jsx, .mjs, .cjs — the override replaces the rule's own files
+```
+
+Reported, not refused: narrowing is what overrides are for, and `files: ['src/domain/**/*.ts']` is
+the documented example. Only the language dimension is compared, never directories, because that is
+where narrowing is nearly always an accident of restating a glob rather than a decision. The same
+comparison is available as `findNarrowedScopes` if you want to assert it in your own test suite —
+falsestart does, having caught its own config doing exactly this.
+
 ## Shipped rules
 
 | Rule                            | Set        | Catches                                                                                         |
@@ -155,6 +174,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `decide`                    | function    | hook     |
 | `diagnose`                  | function    | hook     |
 | `findDefaultConfigs`        | function    | config   |
+| `findNarrowedScopes`        | function    | config   |
 | `findUntestedRules`         | function    | testing  |
 | `findViolations`            | function    | checking |
 | `judgesPayload`             | function    | hook     |
@@ -170,8 +190,8 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `validateConfig`            | function    | config   |
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
-`Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `HookResponse`,
-`RespondOptions`,
+`Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
+`HookResponse`, `RespondOptions`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 

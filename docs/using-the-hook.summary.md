@@ -35,7 +35,10 @@ package is just a `rules/` directory of ast-grep documents. Where each rule appl
 and `ShippedRuleId`; use a type-only import, since a `.ts` config is type-stripped and imported
 without a filesystem location. `files` is required in an override; `ignores` is optional and, when
 omitted, the rule keeps its own. Two competing default configs are an error rather than a
-precedence rule, and an override for a rule that is not loaded is an error, not a silent no-op.
+precedence rule, and an override for a rule that is not loaded is an error, not a silent no-op. An
+override REPLACES `files` rather than merging into them, so an extension left out of the
+restatement is silently unguarded; `--doctor` names the rule and the extensions dropped, and
+`findNarrowedScopes` exposes the same comparison to a test suite.
 
 Rules are ast-grep documents needing `id`, `language`, and `rule`, optionally `message`,
 `severity`, `files`, `ignores`, `constraints`, `utils`. Always scope with `files`, and give every
