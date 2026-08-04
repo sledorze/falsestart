@@ -118,6 +118,13 @@ const readBaseline = (
       return yield* new BaselineUnreadable({ reason: `${baselinePath}: not a JSON array of fingerprints` })
     }
 
+    // A non-string entry is a corrupt baseline, not a line to skip. Skipping quietly loads a
+    // PARTIAL baseline, which is the same silent-wrong-answer this whole flag was just fixed to
+    // stop reporting: fewer accepted findings than the file claims, with nothing said about it.
+    if (parsed.success.some((entry) => typeof entry !== 'string')) {
+      return yield* new BaselineUnreadable({ reason: `${baselinePath}: contains entries that are not fingerprints` })
+    }
+
     const counts = new Map<string, number>()
     for (const entry of parsed.success) {
       if (typeof entry === 'string') {
