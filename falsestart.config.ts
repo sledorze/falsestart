@@ -31,16 +31,35 @@ export default {
     //
     // Both are the exception the rule's own note names. PARSING is never in this list.
     'no-json-global': {
-      files: ['**/*.{ts,tsx}'],
-      ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', '**/*.bench.{ts,tsx}', 'src/hook/respond.ts', 'src/cli.ts'],
+      files: ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+      ignores: [
+        '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        'src/hook/respond.ts',
+        'src/cli.ts',
+      ],
     },
     'no-type-assertion': {
-      files: ['**/*.{ts,tsx}'],
+      files: ['**/*.{ts,tsx,mts,cts}'],
       // An override REPLACES the rule's scope rather than merging with it, so the rule's own
-      // exclusions have to be restated here. Adding one exemption and forgetting them silently
-      // widens the rule to files it never covered — which is how this file first turned three
-      // test-file violations green-to-red.
-      ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}', '**/*.bench.{ts,tsx}', 'src/checking/matcher.ts'],
+      // globs have to be restated here in full. That cuts BOTH ways, and this file had only ever
+      // worried about one of them.
+      //
+      // Forgetting an `ignores` entry widens the rule to files it never covered — which is how
+      // this file first turned three test-file violations green-to-red.
+      //
+      // Forgetting an extension in `files` NARROWS it, and that direction is silent. Both of these
+      // overrides said `{ts,tsx}` and had quietly stopped covering `.mts` and `.cts` since the
+      // release that added them, plus every JavaScript extension once `no-json-global` grew them.
+      // Nothing failed; there simply were no `.mts` files here yet for anyone to notice. `--doctor`
+      // now names the extensions an override drops, which is how this was finally caught.
+      ignores: [
+        '**/*.test.{ts,tsx,mts,cts}',
+        '**/*.spec.{ts,tsx,mts,cts}',
+        '**/*.bench.{ts,tsx,mts,cts}',
+        'src/checking/matcher.ts',
+      ],
     },
   },
 } satisfies FalsestartConfig

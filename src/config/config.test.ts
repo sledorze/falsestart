@@ -1,6 +1,6 @@
 import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { applyScopeOverrides, makeConfig, makeConfigUnsafe, parseConfig } from './config.ts'
+import { applyScopeOverrides, findNarrowedScopes, makeConfig, makeConfigUnsafe, parseConfig } from './config.ts'
 import type { Rule } from '../checking/rule.ts'
 
 const ruleOf = (id: string, files?: readonly string[], ignores?: readonly string[]): Rule => ({
@@ -187,4 +187,96 @@ describe('applying scope overrides', () => {
       expect(yield* applyScopeOverrides(rules, { rules: {} })).toEqual(rules)
     }),
   )
+})
+
+// An override REPLACES `files` rather than merging into them, so an extension left out of the
+// restatement is silently unguarded and nothing fails — there is simply no file with that
+// extension in the repo yet to go unchecked. These are the cases the comparison has to get right.
+describe('narrowed scope', () => {
+  const shipped = ruleOf('no-thing', ['**/*.{ts,tsx,mts,cts,js}'])
+
+  it('names the extensions an override drops', () => {
+    const scoped = ruleOf('no-thing', ['**/*.{ts,tsx}'])
+
+    expect(findNarrowedScopes([shipped], [scoped])).toEqual([
+      { lostExtensions: ['mts', 'cts', 'js'], ruleId: 'no-thing' },
+    ])
+  })
+
+  it('says nothing when the override keeps every extension', () => {
+    // Narrowing by DIRECTORY is the documented use of this feature and must stay silent, or the
+    // report becomes noise on exactly the configs that are using overrides correctly.
+    const scoped = ruleOf('no-thing', ['src/domain/**/*.{ts,tsx,mts,cts,js}'])
+
+    expect(findNarrowedScopes([shipped], [scoped])).toEqual([])
+  })
+
+  it('says nothing when the override covers more than the rule shipped with', () => {
+    const scoped = ruleOf('no-thing', ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'])
+
+    expect(findNarrowedScopes([shipped], [scoped])).toEqual([])
+  })
+
+  it('probes a test-only rule where it actually applies', () => {
+    // Probing `src/a.ts` against a rule scoped to `*.test.*` reports every extension as lost, for
+    // reasons that have nothing to do with the override — the three test-only shipped rules would
+    // each produce a spurious eight-extension complaint.
+    const testOnly = ruleOf('no-thing', ['**/*.test.{ts,tsx,mts,cts,js}'])
+    const keptWhole = ruleOf('no-thing', ['**/*.test.{ts,tsx,mts,cts,js}'])
+    const trimmed = ruleOf('no-thing', ['**/*.test.{ts,tsx}'])
+
+    expect(findNarrowedScopes([testOnly], [keptWhole])).toEqual([])
+    expect(findNarrowedScopes([testOnly], [trimmed])).toEqual([
+      { lostExtensions: ['mts', 'cts', 'js'], ruleId: 'no-thing' },
+    ])
+  })
+
+  it('treats a rule with no files as covering everything, so any override narrows it', () => {
+    const unscoped = ruleOf('no-thing')
+    const scoped = ruleOf('no-thing', ['**/*.ts'])
+
+    expect(findNarrowedScopes([unscoped], [scoped])).toEqual([
+      { lostExtensions: ['tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'], ruleId: 'no-thing' },
+    ])
+  })
+
+  it('handles a glob with no directory part', () => {
+    const rootOnly = ruleOf('no-thing', ['*.{ts,tsx,mts}'])
+    const trimmed = ruleOf('no-thing', ['*.ts'])
+
+    expect(findNarrowedScopes([rootOnly], [trimmed])).toEqual([{ lostExtensions: ['tsx', 'mts'], ruleId: 'no-thing' }])
+  })
+
+  it('handles a shipped glob that ends in a directory wildcard rather than a filename', () => {
+    const everywhere = ruleOf('no-thing', ['src/**'])
+    const trimmed = ruleOf('no-thing', ['src/**/*.{ts,tsx}'])
+
+    expect(findNarrowedScopes([everywhere], [trimmed])).toEqual([
+      { lostExtensions: ['mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'], ruleId: 'no-thing' },
+    ])
+  })
+
+  it('handles an OVERRIDE glob that ends in a directory wildcard', () => {
+    // `src/**` names no file of its own, so the probe has to invent one rather than rewrite the
+    // last segment — rewriting would turn `**` into `file.mts` and quietly move the directory,
+    // making the comparison answer a question about a path neither glob was ever asked about.
+    // An override that restricts the directory and nothing else has dropped no language.
+    const shippedWide = ruleOf('no-thing', ['**/*.{ts,tsx,mts}'])
+    const directoryOnly = ruleOf('no-thing', ['src/**'])
+
+    expect(findNarrowedScopes([shippedWide], [directoryOnly])).toEqual([])
+  })
+
+  it('reports nothing when the override sets no files at all, since that admits everything', () => {
+    const scoped = ruleOf('no-thing')
+
+    expect(findNarrowedScopes([shipped], [scoped])).toEqual([])
+  })
+
+  it('ignores a rule the scoped set does not contain', () => {
+    // The two arrays are independent inputs, not guaranteed to be the same rule set — a caller
+    // comparing a preset against a differently-loaded tree would otherwise get a report about
+    // rules that are simply not there.
+    expect(findNarrowedScopes([shipped], [])).toEqual([])
+  })
 })

@@ -18,7 +18,13 @@
  */
 import { Effect } from 'effect'
 import type { FileSystem, Path } from 'effect'
-import { applyScopeOverrides, findDefaultConfigs, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
+import {
+  applyScopeOverrides,
+  findDefaultConfigs,
+  findNarrowedScopes,
+  loadConfigFile,
+  loadDefaultConfig,
+} from '../config/index.ts'
 import { appliesTo, loadRules } from '../checking/index.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
@@ -86,6 +92,14 @@ export const diagnose = (
     if (scoped._tag === 'Failure') {
       lines.push(`         OVERRIDES REJECTED — ${scoped.failure.reasons.join('; ')}`)
       return { healthy: false, lines }
+    }
+
+    // Printed under `config`, because it is a fact about what the override did rather than about
+    // the rules. Informational: narrowing is the feature working, and only the reader knows whether
+    // this particular narrowing was meant.
+    for (const narrowed of findNarrowedScopes(loaded.success, scoped.success)) {
+      const lost = narrowed.lostExtensions.map((extension) => `.${extension}`).join(', ')
+      lines.push(`         ${narrowed.ruleId} stops covering ${lost} — the override replaces the rule's own files`)
     }
 
     lines.push(`tools    ${Object.keys(WRITE_TOOLS).toSorted().join(', ')} — any other tool call is ignored`)

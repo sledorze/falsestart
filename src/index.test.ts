@@ -22,6 +22,7 @@ describe('library surface', () => {
       'decide',
       'diagnose',
       'findDefaultConfigs',
+      'findNarrowedScopes',
       'findUntestedRules',
       'findViolations',
       'judgesPayload',
