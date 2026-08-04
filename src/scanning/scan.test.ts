@@ -190,12 +190,45 @@ files:
     ),
   )
 
+  // Accepting one occurrence must not accept the next. Keyed as a set, baselining a file that
+  // contained two identical `as any` lines made a THIRD identical line invisible — copy-pasting
+  // more of an already-accepted pattern was permanently unguarded. The written file always listed
+  // one entry per occurrence; only the reader collapsed them.
+  it.effect('absorbs exactly as many occurrences as it accepted, not every identical one', () =>
+    withFiles({ 'src/a.ts': `${VIOLATION}\n${VIOLATION}\n` }, (root) =>
+      Effect.gen(function* () {
+        const rules = [yield* noAsAny]
+        const path = `${root}/src/a.ts`
+
+        const before = yield* scan({ paths: [path], projectDirectory: root, rules })
+        expect(before.fresh).toHaveLength(2)
+
+        const accepted = new Map<string, number>()
+        for (const finding of before.fresh) {
+          const key = fingerprint(path, finding)
+          accepted.set(key, (accepted.get(key) ?? 0) + 1)
+        }
+
+        // Same file, unchanged: both are absorbed.
+        const unchanged = yield* scan({ baseline: accepted, paths: [path], projectDirectory: root, rules })
+        expect(unchanged.fresh).toHaveLength(0)
+
+        // One more identical line: the extra occurrence is reported.
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.writeFileString(path, `${VIOLATION}\n${VIOLATION}\n${VIOLATION}\n`)
+
+        const grown = yield* scan({ baseline: accepted, paths: [path], projectDirectory: root, rules })
+        expect(grown.fresh).toHaveLength(1)
+      }),
+    ),
+  )
+
   it.effect('accepts a finding the baseline already carries, and still reports a new one', () =>
     withFiles({ 'src/a.ts': VIOLATION, 'src/b.ts': VIOLATION }, (root) =>
       Effect.gen(function* () {
         const rules = [yield* noAsAny]
         const first = yield* scan({ paths: [`${root}/src/a.ts`], projectDirectory: root, rules })
-        const accepted = new Set(first.fresh.map((finding) => fingerprint(`${root}/src/a.ts`, finding)))
+        const accepted = new Map(first.fresh.map((finding) => [fingerprint(`${root}/src/a.ts`, finding), 1]))
 
         const second = yield* scan({
           baseline: accepted,

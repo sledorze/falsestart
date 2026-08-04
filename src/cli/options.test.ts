@@ -179,6 +179,17 @@ describe('the scan command', () => {
     expect(parseArguments(['scan', '--version'])._tag).toBe('Invalid')
   })
 
+  it('answers --help with the SCAN usage, not the hook usage', () => {
+    // Handing a reader a different command's usage documents neither. `scan` has its own flags and
+    // its own exit codes, and the generic text mentions none of them.
+    const parsed = parseArguments(['scan', '--help'])
+
+    expect(parsed._tag).toBe('Help')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('--baseline')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('--update-baseline')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('-0')
+  })
+
   it('still refuses an unrecognised flag inside scan', () => {
     expect(parseArguments(['scan', '--rulez', 'x'])._tag).toBe('Invalid')
   })

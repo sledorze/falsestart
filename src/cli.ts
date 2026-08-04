@@ -79,28 +79,53 @@ const VERSION: string = createRequire(import.meta.url)('../package.json').versio
 const PACKAGED_RULES_ROOT: string = fileURLToPath(new URL('../rules', import.meta.url))
 
 /**
- * The accepted-findings file: a flat JSON array of fingerprints.
+ * The accepted-findings file: a flat JSON array with one entry per accepted occurrence.
  *
  * Deliberately not a rich record. A baseline is a second source of truth, and the way that stops
- * being a liability is by holding as little as possible and only ever shrinking — a fingerprint is
- * present or it is not. An absent file is an empty baseline rather than an error, so
- * `--baseline` can be wired into a hook before the file exists.
+ * being a liability is by holding as little as possible.
+ *
+ * Read as COUNTS rather than a set. Membership alone meant that accepting one
+ * `const x = value as any` in a file accepted every identical line in it, forever — so
+ * copy-pasting more of an already-baselined pattern was invisible to the gate. The file always
+ * listed one entry per occurrence; only the reader was lossy.
+ *
+ * An ABSENT file is an empty baseline, so `--baseline` can be wired into a hook before the file
+ * exists. A file that is present and unreadable is a `Broken` failure instead: silently treating a
+ * typo'd path, a directory or malformed JSON as "nothing accepted yet" makes a broken baseline
+ * indistinguishable from a real and growing set of new violations.
  */
+class BaselineUnreadable extends Data.TaggedError('BaselineUnreadable')<{ readonly reason: string }> {}
+
 const readBaseline = (
   baselinePath: string | undefined,
-): Effect.Effect<ReadonlySet<string> | undefined, never, FileSystem.FileSystem> =>
+): Effect.Effect<ReadonlyMap<string, number> | undefined, BaselineUnreadable, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     if (baselinePath === undefined) {
       return undefined
     }
 
     const fs = yield* FileSystem.FileSystem
-    const text = yield* Effect.orElseSucceed(fs.readFileString(baselinePath), () => '[]')
-    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(text))
+    const read = yield* Effect.result(fs.readFileString(baselinePath))
 
-    return parsed._tag === 'Failure' || !Array.isArray(parsed.success)
-      ? new Set<string>()
-      : new Set(parsed.success.filter((entry): entry is string => typeof entry === 'string'))
+    if (read._tag === 'Failure') {
+      return read.failure.reason._tag === 'NotFound'
+        ? new Map<string, number>()
+        : yield* new BaselineUnreadable({ reason: `${baselinePath}: ${read.failure.reason._tag}` })
+    }
+
+    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(read.success))
+    if (parsed._tag === 'Failure' || !Array.isArray(parsed.success)) {
+      return yield* new BaselineUnreadable({ reason: `${baselinePath}: not a JSON array of fingerprints` })
+    }
+
+    const counts = new Map<string, number>()
+    for (const entry of parsed.success) {
+      if (typeof entry === 'string') {
+        counts.set(entry, (counts.get(entry) ?? 0) + 1)
+      }
+    }
+
+    return counts
   })
 
 const writeBaselineFile = (
@@ -200,7 +225,12 @@ const program = Effect.gen(function* () {
       return yield* new Exit({ code: ScanExit.Broken })
     }
 
-    const accepted = yield* readBaseline(options.baselinePath)
+    const loadedBaseline = yield* Effect.result(readBaseline(options.baselinePath))
+    if (loadedBaseline._tag === 'Failure') {
+      yield* write(`falsestart: ${loadedBaseline.failure.reason}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+    const accepted = loadedBaseline.success
     const report = yield* Effect.result(scan({ baseline: accepted, paths, projectDirectory, rules: prepared.success }))
 
     if (report._tag === 'Failure') {
