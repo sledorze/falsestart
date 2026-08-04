@@ -13,7 +13,7 @@ holds nothing your own `package.json` did not ask for. That is not about `effect
 Register it in `.claude/settings.json` (strict JSON) with an `Edit|Write|NotebookEdit` matcher and
 the CLI invoked by path — `node "$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js"`.
 A bare `falsestart` exits 127 while the hook still shows as registered. Choose the preset
-deliberately: `clean-code` assumes only TypeScript, `all` includes the Effect set.
+deliberately: `clean-code` assumes no framework and reaches JavaScript as well as TypeScript, `all` includes the Effect set.
 Rules are ast-grep documents, so the same file stays readable by the upstream CLI. A rule acts on a
 file only when its own `files`/`ignores` globs admit the path — matching content is never on its own
 a reason to touch a file.

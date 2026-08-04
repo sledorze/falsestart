@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "7a85ed418040921f45197d0122a828c4d72b145f986d60a3d7fb4b8e894c6c9c",
+      "hash": "5db8eeb788b21b7d6390a032a5cdcf071160f65f59c139a032eb5fa71b637344",
       "target": "./README.md"
     },
     {
-      "hash": "3c10e72ddf26a36793b8de1930991a836211b77a8931f59d685965ec9f2d7ca3",
+      "hash": "dc8f8cf44897648684f6adfa8c5856cd2d3d857d46dce23df6a62f4d5b9dc625",
       "target": "./README.summary.md"
     },
     {
@@ -17,7 +17,7 @@
       "target": "./AGENTS.summary.md"
     },
     {
-      "hash": "3e2dd9a4f169856f86ca6108d77ce5cc1474e8744768367fa88fe001199edddc",
+      "hash": "5cd6acbdf97819507031ee5de4f75a0bfc70a2960d7e8538cf97b0c5fb0bf369",
       "target": "./CONTRIBUTING.md"
     },
     {

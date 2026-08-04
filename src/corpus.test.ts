@@ -61,6 +61,12 @@ const src = 'src/service.ts'
 // aimed at accidental non-interpolation, which is exactly what this example needs on purpose.
 const INTERPOLATION = `const label = \`id: ${'$'}{widget.id}\``
 
+// Built rather than written out, for the same reason the AWS example below uses AWS's own
+// documented example key: a file that tests a credential detector should not contain anything a
+// credential scanner has to make a judgement call about. `gitleaks` runs on every commit here.
+const FAKE_GITHUB_TOKEN = `ghp_${'A'.repeat(36)}`
+const STRIPE_TEST_KEY = `sk_test_${'4'.repeat(24)}`
+
 /**
  * `catches` must trip the rule; `allows` must not. Paths are meaningful — scope is behaviour.
  *
@@ -91,6 +97,35 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
   'no-double-cast': {
     allows: ['const w = value as Widget', 'const u: unknown = value'],
     catches: ['const w = value as unknown as Widget'],
+  },
+  'no-empty-catch': {
+    allows: [
+      'try { a() } catch (cause) { report(cause) }',
+      'try { a() } catch (cause) { throw cause }',
+      // A comment is the documented escape hatch: it is the record of a decision, which is exactly
+      // what distinguishes ignoring an error from swallowing one.
+      'try { a() } catch { /* the caller polls, so a failed refresh is not worth reporting */ }',
+    ],
+    catches: ['try { a() } catch (cause) {}', 'try { a() } catch {}'],
+  },
+  'no-hardcoded-credential': {
+    allows: [
+      // The prefix alone is not a credential, and prose about one is not one either.
+      "const scheme = 'AKIA'",
+      "const help = 'create a ghp_ token and put it in CI'",
+      // A field NAME, which is what a name-based rule would fire on and this one must not.
+      "const field = 'password'",
+      "const password = 'hunter2'",
+      'const key = process.env.AWS_ACCESS_KEY_ID',
+      // Stripe's test keys are publishable by design; only `sk_live_` is a secret.
+      `const stripe = '${STRIPE_TEST_KEY}'`,
+    ],
+    catches: [
+      // AWS's own documented example key, so nothing here is a real secret.
+      "const key = 'AKIAIOSFODNN7EXAMPLE'",
+      `const token = '${FAKE_GITHUB_TOKEN}'`,
+      "const pem = '-----BEGIN RSA PRIVATE KEY-----'",
+    ],
   },
   'no-json-global': {
     allows: [
