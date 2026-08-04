@@ -13,7 +13,7 @@ import { Effect } from 'effect'
 import type { MatchError, ParsedSource } from './matcher.ts'
 import { findViolationsIn, parseSource } from './matcher.ts'
 import type { Language, Rule, Severity } from './rule.ts'
-import { appliesTo, grammarFor } from './scope.ts'
+import { appliesTo, grammarFor, SOURCE_EXTENSIONS } from './scope.ts'
 
 export interface Finding {
   readonly column: number
@@ -62,7 +62,7 @@ export const checkFile = (
     (group) => {
       const [language, applicable] = group
 
-      return parseSource(language, file.content).pipe(Effect.flatMap((root) => allFindingsFor(root, applicable)))
+      return parseSource(language, file.content).pipe(Effect.flatMap((root) => allFindingsFor(root, applicable, file)))
     },
   ).pipe(Effect.map((perLanguage) => onePerRulePerPosition(perLanguage.flat())))
 
@@ -96,22 +96,84 @@ const byLanguage = (rules: readonly Rule[], filePath: string): readonly (readonl
 }
 
 /** Every applicable rule of one language, run against the tree that language was parsed into. */
-const allFindingsFor = (root: ParsedSource, rules: readonly Rule[]): Effect.Effect<Finding[], MatchError> =>
-  Effect.all(rules.map((rule) => findingsFor(root, rule))).pipe(Effect.map((perRule) => perRule.flat()))
+const allFindingsFor = (
+  root: ParsedSource,
+  rules: readonly Rule[],
+  file: FileUnderCheck,
+): Effect.Effect<Finding[], MatchError> =>
+  Effect.all(rules.map((rule) => findingsFor(root, rule, file))).pipe(Effect.map((perRule) => perRule.flat()))
 
-const findingsFor = (root: ParsedSource, rule: Rule): Effect.Effect<Finding[], MatchError> =>
+const asFindings = (rule: Rule) => (violations: readonly { column: number; line: number; text: string }[]) =>
+  violations.map((violation): Finding => ({
+    column: violation.column,
+    line: violation.line,
+    message: explain(rule),
+    ruleId: rule.id,
+    severity: rule.severity ?? 'error',
+    text: violation.text,
+  }))
+
+/**
+ * One rule against the file, falling back to the grammar the rule DECLARES when it cannot run
+ * under the file's.
+ *
+ * Choosing the grammar by extension made this reachable through ordinary configuration: widen a
+ * TypeScript-syntax rule to `.js` with a `files` override and `$X as any` no longer compiles. The
+ * whole check for that file then failed, and because the hook treats "a rule could not run" as
+ * non-blocking, a real `process.exit(1)` in the same file was ALLOWED. One misconfigured rule
+ * turned the guard off for everything else.
+ *
+ * The declared grammar is the one its author wrote the pattern against, so it is the right second
+ * choice. A rule that runs under neither still fails, and is still reported — the fallback must not
+ * become a way of swallowing a genuinely broken rule.
+ */
+const findingsFor = (root: ParsedSource, rule: Rule, file: FileUnderCheck): Effect.Effect<Finding[], MatchError> =>
   findViolationsIn(root, rule).pipe(
-    Effect.map((violations) =>
-      violations.map((violation): Finding => ({
-        column: violation.column,
-        line: violation.line,
-        message: explain(rule),
-        ruleId: rule.id,
-        severity: rule.severity ?? 'error',
-        text: violation.text,
-      })),
+    Effect.map(asFindings(rule)),
+    Effect.catch(() =>
+      parseSource(rule.language, file.content).pipe(
+        Effect.flatMap((declared) => findViolationsIn(declared, rule)),
+        Effect.map(asFindings(rule)),
+      ),
     ),
   )
+
+export interface GrammarFallback {
+  /** The grammar the rule declares, which it will fall back to. */
+  readonly declared: Language
+  /** An extension the rule is scoped to whose grammar cannot compile it. */
+  readonly extension: string
+  readonly ruleId: string
+}
+
+/**
+ * Rules that cannot run under the grammar their own scope implies, and so will fall back.
+ *
+ * The fallback in `findingsFor` is what stops one misconfigured rule from disabling every other
+ * rule for a file — but a rule quietly running under a different grammar than its files imply is
+ * exactly the sort of fact that stays true for months and then surprises somebody.
+ *
+ * It is a property of the RULE SET rather than of any one write, so it is answered once, here,
+ * for `--doctor` to report, instead of being emitted on every tool call where it would become
+ * noise and then be ignored.
+ *
+ * Compiled against empty source: a pattern that is invalid for a grammar is invalid regardless of
+ * what it is pointed at, so no file is needed to find out.
+ */
+export const fallbacks = (rules: readonly Rule[]): Effect.Effect<readonly GrammarFallback[]> =>
+  Effect.all(
+    rules.flatMap((rule) =>
+      SOURCE_EXTENSIONS.filter((extension) => appliesTo(rule, `probe.${extension}`)).map((extension) =>
+        parseSource(grammarFor(rule.language, `probe.${extension}`), '').pipe(
+          Effect.flatMap((root) => findViolationsIn(root, rule)),
+          Effect.as<readonly GrammarFallback[]>([]),
+          Effect.orElseSucceed<readonly GrammarFallback[]>(() => [
+            { declared: rule.language, extension, ruleId: rule.id },
+          ]),
+        ),
+      ),
+    ),
+  ).pipe(Effect.map((perProbe) => perProbe.flat()))
 
 /**
  * One finding per rule per position.

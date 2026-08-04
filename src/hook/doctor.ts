@@ -25,7 +25,7 @@ import {
   loadConfigFile,
   loadDefaultConfig,
 } from '../config/index.ts'
-import { appliesTo, loadRules } from '../checking/index.ts'
+import { appliesTo, fallbacks, loadRules } from '../checking/index.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
 export interface Diagnosis {
@@ -100,6 +100,16 @@ export const diagnose = (
     for (const narrowed of findNarrowedScopes(loaded.success, scoped.success)) {
       const lost = narrowed.lostExtensions.map((extension) => `.${extension}`).join(', ')
       lines.push(`         ${narrowed.ruleId} stops covering ${lost} — the override replaces the rule's own files`)
+    }
+
+    // A rule that cannot run under the grammar its own scope implies falls back to the grammar it
+    // declares, which keeps one misconfigured rule from disabling every other rule for a file. That
+    // recovery must not be silent: it is a fact about the RULE SET, so it is stated once here
+    // rather than on every tool call, where it would become noise and then be ignored.
+    for (const fallback of yield* fallbacks(scoped.success)) {
+      lines.push(
+        `         ${fallback.ruleId} falls back to ${fallback.declared} for .${fallback.extension} — its pattern does not compile under that file's grammar`,
+      )
     }
 
     lines.push(`tools    ${Object.keys(WRITE_TOOLS).toSorted().join(', ')} — any other tool call is ignored`)
