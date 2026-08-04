@@ -21,7 +21,9 @@ adjacent, similar-looking file is left alone.
 
 **Shipping one iteration well.** Full local verify before every push (`pnpm verify`: lint,
 format:check, typecheck, coverage:ci, build, docs — it must cover every gate CI applies, or verify can be
-green while the merge is red). `pre-push` runs typecheck+test+build+docs+coverage+mutation. Dogfood the real behaviour against the scenario a
+green while the merge is red). `pre-push` runs typecheck+test+build+docs+coverage+mutation. See every new test fail before trusting it — write it first, or revert the implementation and watch
+it go red; a test only ever observed passing is a claim, not a check, and four in one change passed
+for reasons unrelated to the code. Dogfood the real behaviour against the scenario a
 feature is meant to catch, including the negative case, then convert that proof into a permanent
 test. Treat a structural claim in a doc as unverified until checked, not merely re-read. Before
 pushing, get an adversarial review from ONE subagent prompted to refute, given the artifact rather

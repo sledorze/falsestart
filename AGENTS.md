@@ -159,6 +159,20 @@ exercise it for real, including the negative case: construct the exact scenario 
 feature is meant to catch, confirm it's reported/blocked, then revert and confirm it's
 clean again.
 
+**See every new test fail before you trust it.** Write it first, or if you did not, revert the
+implementation and watch it go red. A test that has only ever been observed passing is a claim, not
+a check — and the failure is silent, because a green suite is exactly what it looks like.
+
+This is not hypothetical here. One test asserted the `--doctor` flag was carried onto a code path
+that did not consume it, and passed the whole time nothing did. One searched the entire README for
+an install command and passed against a README saying "do NOT run this command". One asserted three
+substrings that already appeared elsewhere in the same output, and passed against a diagnostic that
+reported nothing at all. One claimed to guard a path-normalisation bug while a `realPath` call
+upstream made it green either way — that one is now documented in place, pointing at the test that
+does guard it.
+
+None were caught by review. All four were caught by reverting the fix and looking.
+
 **Convert every manual dogfooding proof into a permanent test before moving on.** A bug
 you found by hand and fixed, with no test added, is a bug that can silently come back.
 Prefer a real temp directory / real filesystem fixture over an in-memory test double
