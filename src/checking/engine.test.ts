@@ -379,6 +379,64 @@ files:
     }),
   )
 
+  effect('finds a fallback for a rule scoped to a directory, not just a bare extension', () =>
+    Effect.gen(function* () {
+      // Probing with a bare `probe.js` skipped every directory-anchored rule — which is the shape
+      // the CLI's own help documents (`files: ['src/domain/**/*.ts']`). The fallback then happened
+      // in production while the diagnostic reported the rule set healthy: silent, which is the one
+      // thing this report exists to prevent.
+      const directoryScoped = `
+id: domain-as-any
+language: tsx
+message: 'as any'
+rule:
+  pattern: $X as any
+files:
+  - 'src/domain/**/*.js'
+`
+      const rules = yield* rulesOf(directoryScoped)
+
+      expect(yield* fallbacks(rules)).toEqual([{ declared: 'tsx', extension: 'js', ruleId: 'domain-as-any' }])
+    }),
+  )
+
+  effect('covers a rule that declares no files at all, which reaches every path', () =>
+    Effect.gen(function* () {
+      // A rule may rely entirely on its matcher. It still lands on `.js` files, and its pattern
+      // still has to compile there or fall back.
+      const unscoped = `
+id: everywhere-as-any
+language: tsx
+message: 'as any'
+rule:
+  pattern: $X as any
+`
+      const rules = yield* rulesOf(unscoped)
+      const reported = yield* fallbacks(rules)
+
+      expect(reported.map((entry) => entry.extension).toSorted()).toEqual(['cjs', 'js', 'jsx', 'mjs'])
+    }),
+  )
+
+  effect('does not call a rule that runs under NO grammar a fallback', () =>
+    Effect.gen(function* () {
+      // "Falls back to tsx" claims a working recovery. A rule that cannot run at all has none, and
+      // is reported as broken elsewhere; saying both is worse than saying one.
+      const broken = `
+id: broken
+language: tsx
+message: 'broken'
+rule:
+  matches: no-such-util
+files:
+  - '**/*.ts'
+`
+      const rules = yield* rulesOf(broken)
+
+      expect(yield* fallbacks(rules)).toEqual([])
+    }),
+  )
+
   effect('says nothing about the shipped corpus, which is the point', () =>
     Effect.gen(function* () {
       const rules = yield* rulesOf(

@@ -13,7 +13,7 @@ import { Effect } from 'effect'
 import type { MatchError, ParsedSource } from './matcher.ts'
 import { findViolationsIn, parseSource } from './matcher.ts'
 import type { Language, Rule, Severity } from './rule.ts'
-import { appliesTo, grammarFor, SOURCE_EXTENSIONS } from './scope.ts'
+import { appliesTo, grammarFor, samplePath, SOURCE_EXTENSIONS } from './scope.ts'
 
 export interface Finding {
   readonly column: number
@@ -160,20 +160,48 @@ export interface GrammarFallback {
  * Compiled against empty source: a pattern that is invalid for a grammar is invalid regardless of
  * what it is pointed at, so no file is needed to find out.
  */
+const compiles = (language: Language, rule: Rule): Effect.Effect<boolean> =>
+  parseSource(language, '').pipe(
+    Effect.flatMap((root) => findViolationsIn(root, rule)),
+    Effect.as(true),
+    Effect.orElseSucceed(() => false),
+  )
+
 export const fallbacks = (rules: readonly Rule[]): Effect.Effect<readonly GrammarFallback[]> =>
+  Effect.all(rules.map((rule) => fallbacksFor(rule))).pipe(Effect.map((perRule) => perRule.flat()))
+
+/**
+ * The extensions this rule is scoped to, each with a path its own globs actually admit.
+ *
+ * Probing with a bare `probe.js` skipped every directory-anchored rule — `files:
+ * ['src/domain/**\/*.ts']` is the shape the help text documents — so the fallback went unreported
+ * while happening in production. `samplePath` exists for exactly this: hold the directory constant
+ * and vary only the extension.
+ */
+const scopedPaths = (rule: Rule): readonly (readonly [string, string])[] => {
+  // No `files` means every path, so this glob stands in for wherever the rule lands.
+  const globs = rule.files === undefined ? ['**/*'] : rule.files
+
+  return SOURCE_EXTENSIONS.flatMap((extension) => {
+    const path = globs.map((glob) => samplePath(glob, extension)).find((probe) => appliesTo(rule, probe))
+
+    return path === undefined ? [] : [[extension, path] as const]
+  })
+}
+
+const fallbacksFor = (rule: Rule): Effect.Effect<readonly GrammarFallback[]> =>
   Effect.all(
-    rules.flatMap((rule) =>
-      SOURCE_EXTENSIONS.filter((extension) => appliesTo(rule, `probe.${extension}`)).map((extension) =>
-        parseSource(grammarFor(rule.language, `probe.${extension}`), '').pipe(
-          Effect.flatMap((root) => findViolationsIn(root, rule)),
-          Effect.as<readonly GrammarFallback[]>([]),
-          Effect.orElseSucceed<readonly GrammarFallback[]>(() => [
-            { declared: rule.language, extension, ruleId: rule.id },
-          ]),
+    scopedPaths(rule).map(([extension, path]) =>
+      Effect.all([compiles(grammarFor(rule.language, path), rule), compiles(rule.language, rule)]).pipe(
+        Effect.map(([underFile, underDeclared]): readonly GrammarFallback[] =>
+          // Only a rule that fails under the file's grammar AND runs under its own has a fallback.
+          // One that runs under neither has no recovery to report, and is reported as broken
+          // elsewhere; claiming both is worse than claiming one.
+          underFile || !underDeclared ? [] : [{ declared: rule.language, extension, ruleId: rule.id }],
         ),
       ),
     ),
-  ).pipe(Effect.map((perProbe) => perProbe.flat()))
+  ).pipe(Effect.map((perExtension) => perExtension.flat()))
 
 /**
  * One finding per rule per position.
