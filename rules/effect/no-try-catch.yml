@@ -5,8 +5,8 @@ message: 'try/catch produces an untyped `unknown` error that the compiler cannot
 rule:
   kind: try_statement
 files:
-  - '**/*.{ts,tsx,mts,cts}'
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
 ignores:
-  - '**/*.test.{ts,tsx,mts,cts}'
-  - '**/*.spec.{ts,tsx,mts,cts}'
-  - '**/*.bench.{ts,tsx,mts,cts}'
+  - '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'

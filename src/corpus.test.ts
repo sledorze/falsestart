@@ -11,6 +11,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
+import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
 import { appliesTo } from './checking/scope.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
@@ -21,17 +22,38 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
 const corpus = loadRules('rules').pipe(Effect.provide(platform), Effect.orDie)
 
-/** Which extensions the shipped corpus is meant to reach, and which it must stay off. */
-const EXTENSION_EXPECTATIONS = [
-  ['ts', true],
-  ['tsx', true],
-  ['mts', true],
-  ['cts', true],
-  ['js', false],
-  ['jsx', false],
-  ['mjs', false],
-  ['cjs', false],
-] as const
+const TYPESCRIPT_EXTENSIONS = ['ts', 'tsx', 'mts', 'cts'] as const
+const JAVASCRIPT_EXTENSIONS = ['js', 'jsx', 'mjs', 'cjs'] as const
+
+/**
+ * Rules that stay off JavaScript, because valid JavaScript cannot contain what they match.
+ *
+ * The distinction matters, because the tempting shorter version — "these rules cannot fire on
+ * JavaScript" — is false, and was written here before being measured. Every rule declares
+ * `language: tsx`, and the parser is chosen by that, never by the file's extension. So
+ * `const w = value as any` at `src/a.js` fires exactly as it does at `src/a.ts`; all five of these
+ * do, unscoped. What cannot happen is a *valid JavaScript file* containing an `as` expression or
+ * a `const $NAME: $TYPE = {…}` annotation in the first place.
+ *
+ * They are excluded anyway, and `--warn-unscoped` is the reason to be precise about it. Scoping
+ * them to `.js` would put a `clean-code`-only JavaScript repo "in scope" for four rules that its
+ * source can never trip, which silences the one signal that would have told that repo the preset
+ * does nothing for it. Coverage that cannot fire reads as protection and is not — the same
+ * confusion, one level up, that this whole area exists to clear.
+ *
+ * The real gap this leaves is worth naming: JavaScript's own way of asserting a type, a JSDoc
+ * cast like `/** @type {any} *\/ (value)`, is caught by no shipped rule at all.
+ *
+ * Every other rule matches a runtime construct — `try`, `await`, `process.env`, `fetch`,
+ * `new Promise`, `JSON.parse` — that JavaScript has exactly as much as TypeScript does.
+ */
+const TYPESCRIPT_ONLY: ReadonlySet<string> = new Set([
+  'no-as-any',
+  'no-as-never',
+  'no-double-cast',
+  'no-type-assertion',
+  'prefer-smart-constructor',
+])
 
 const src = 'src/service.ts'
 
@@ -393,6 +415,34 @@ describe('shipped rule corpus', () => {
     }),
   )
 
+  // Scope says a rule is ALLOWED to look at a `.js` file. Whether it can actually find anything
+  // there is a separate question, and the one that decides whether widening the globs bought any
+  // protection: every rule declares `language: tsx`, so a JavaScript file is handed to the TSX
+  // parser. That is expected to work — TSX is a superset — but "expected to" is how the `.mts`
+  // hole got shipped, so each widened rule is run over real JavaScript rather than argued about.
+  effect('each rule widened to JavaScript actually fires on JavaScript', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+      const widened = rules.filter((rule) => !TYPESCRIPT_ONLY.has(rule.id))
+
+      const inert: string[] = []
+      for (const rule of widened) {
+        const example = EXAMPLES[rule.id]
+        const testOnly = (rule.files ?? []).some((glob) => glob.includes('.test.'))
+        const path = `src/a.${testOnly ? 'test.' : ''}js`
+
+        for (const code of example?.catches ?? []) {
+          const findings = yield* checkFile([rule], { content: code, path })
+          if (findings.length === 0) {
+            inert.push(`${rule.id}: silent on JavaScript for ${JSON.stringify(code)}`)
+          }
+        }
+      }
+
+      expect(inert).toEqual([])
+    }),
+  )
+
   effect('every rule behaves as its examples say', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
@@ -422,10 +472,10 @@ describe('shipped rule corpus', () => {
   // writing the examples for `no-json-global` before the rule and watching the suite pass.
   // Extensions are scope, and scope is behaviour. `.mts` and `.cts` are TypeScript and were silently
   // unguarded — a repo using them installed falsestart and got nothing, with no signal at all.
-  // `.js`/`.jsx` stay out deliberately: the four assertion rules match syntax that does not exist in
-  // JavaScript, and `.js` in a TypeScript repo is usually build scripts and generated output. A repo
-  // that wants them adds one config override; being silently guarded is not as easy to undo.
-  effect('covers every TypeScript extension and no JavaScript one', () =>
+  // JavaScript was the same hole one language over: a repo written in `.js` installed falsestart,
+  // saw a registered and healthy hook, and had every write pass unexamined. The split is now by
+  // what a rule CAN match rather than by which language a repo is assumed to be written in.
+  effect('covers every extension whose language its pattern can match', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
 
@@ -433,8 +483,14 @@ describe('shipped rule corpus', () => {
         // Three rules are the inverse — they apply only to tests — so they are probed at a test path.
         const testOnly = (rule.files ?? []).some((glob) => glob.includes('.test.'))
         const at = (extension: string) => `src/a.${testOnly ? 'test.' : ''}${extension}`
+        const reachesJavaScript = !TYPESCRIPT_ONLY.has(rule.id)
 
-        return EXTENSION_EXPECTATIONS.flatMap(([extension, covered]) =>
+        const expectations = [
+          ...TYPESCRIPT_EXTENSIONS.map((extension) => [extension, true] as const),
+          ...JAVASCRIPT_EXTENSIONS.map((extension) => [extension, reachesJavaScript] as const),
+        ]
+
+        return expectations.flatMap(([extension, covered]) =>
           appliesTo(rule, at(extension)) === covered
             ? []
             : [`${rule.id}: ${covered ? 'does not cover' : 'reaches'} .${extension}`],
@@ -442,6 +498,52 @@ describe('shipped rule corpus', () => {
       })
 
       expect(misscoped).toEqual([])
+    }),
+  )
+
+  // Both halves of the claim above, asserted in both directions, because the first draft of this
+  // asserted only the easy half and drew the wrong conclusion from it. At a `.js` path with scope
+  // removed, each of these rules fires on the TypeScript spelling — so the exclusion is a scope
+  // DECISION, not an inability — and stays silent on the JavaScript spelling of the same idea,
+  // which is what makes the decision the right one.
+  effect('the TypeScript-only rules are excluded by what JavaScript can express, not by inability', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const spellings: Readonly<Record<string, { readonly javascript: string; readonly typescript: string }>> = {
+        'no-as-any': { javascript: 'const w = value', typescript: 'const w = value as any' },
+        'no-as-never': { javascript: 'const n = value', typescript: 'const n = value as never' },
+        'no-double-cast': { javascript: 'const w = value', typescript: 'const w = value as unknown as Widget' },
+        'no-type-assertion': { javascript: 'const w = value', typescript: 'const w = value as Widget' },
+        'prefer-smart-constructor': {
+          // The annotation is what the pattern keys on; without it this is an ordinary object.
+          javascript: 'const w = { id, name }',
+          typescript: 'const w: Widget = { id, name }',
+        },
+      }
+
+      const wrong: string[] = []
+      for (const rule of rules.filter((candidate) => TYPESCRIPT_ONLY.has(candidate.id))) {
+        const spelling = spellings[rule.id]
+        if (spelling === undefined) {
+          wrong.push(`${rule.id}: no spellings given`)
+          continue
+        }
+
+        // Scope removed on purpose: the question here is what the PATTERN can match at a `.js`
+        // path, which is precisely what the globs are then chosen to allow or refuse.
+        const unscoped = { ...rule, files: undefined, ignores: undefined }
+        const at = (content: string) => checkFile([unscoped], { content, path: 'src/a.js' })
+
+        if ((yield* at(spelling.typescript)).length === 0) {
+          wrong.push(`${rule.id}: silent on TypeScript syntax at a .js path — the exclusion claim is stale`)
+        }
+        if ((yield* at(spelling.javascript)).length > 0) {
+          wrong.push(`${rule.id}: fires on valid JavaScript, so excluding it from .js loses real coverage`)
+        }
+      }
+
+      expect(wrong).toEqual([])
     }),
   )
 

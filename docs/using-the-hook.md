@@ -102,14 +102,19 @@ It is off by default because the honest signal is noisy. Measured against the sh
 | Written file      | `clean-code` | `effect` | `all`  |
 | ----------------- | ------------ | -------- | ------ |
 | TypeScript source | silent       | silent   | silent |
-| JavaScript source | warns        | warns    | warns  |
+| JavaScript source | warns        | silent   | silent |
 | Markdown or JSON  | warns        | warns    | warns  |
 | TypeScript test   | warns        | silent   | silent |
+| JavaScript test   | warns        | silent   | silent |
 
 Every documentation and config write warns under all three, which is most writes in most repos —
-and a warning you see on most writes is one you stop reading. Test files are the preset-dependent
-row: `clean-code`'s four rules all ignore them, while `effect` carries three rules that exist to
-judge them.
+and a warning you see on most writes is one you stop reading.
+
+The rest of the table is the two presets disagreeing, and it disagrees usefully. `clean-code` is
+four rules that all key on TypeScript syntax and all ignore tests, so under it a JavaScript file or
+a test file genuinely has nothing that can fire — and it says so. `effect` reaches both: fifteen of
+its rules match JavaScript, and three exist specifically to judge tests. A row that reads "warns"
+is not a defect to silence; it is the preset telling you what it does not cover.
 
 Rules can come from three places:
 

@@ -17,8 +17,11 @@ problem without blocking. Blocking is deliberately not exit 2, which discards st
 `ignores`, `constraints`, `utils` optional. Severity defaults to `error`. Documents under `_utils/`
 are fragments needing only `id` and `rule`.
 
-Shipped rules match `**/*.{ts,tsx,mts,cts}`; `.js`/`.jsx`/`.mjs`/`.cjs` are excluded by design
-and need an explicit `files` override.
+Fifteen shipped rules match `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — the constructs they catch
+exist in both languages. Five (`no-as-any`, `no-as-never`, `no-double-cast`, `no-type-assertion`,
+`prefer-smart-constructor`) stay TypeScript-only: they do fire on TS syntax at a `.js` path, since
+the parser follows `language: tsx` rather than the extension, but valid JavaScript cannot contain
+an `as` expression or a typed `const` to find. A JSDoc cast is caught by nothing.
 
 **Configuration:** per-rule `files` (required) and `ignores` (optional, omission keeps the rule's
 own). An override for a rule that is not loaded is an error. A `.ts` config must use a type-only
