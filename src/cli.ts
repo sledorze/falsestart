@@ -5,21 +5,51 @@
  * Everything interesting happens in `respond` and `parseArguments`; this file exists to connect
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
+import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
-import type { Preset } from './cli/index.ts'
-import { parseArguments } from './cli/index.ts'
+import { packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
+import {
+  fingerprint,
+  parseIgnoredPaths,
+  readBaseline,
+  render,
+  scan,
+  ScanExit,
+  writeBaseline,
+} from './scanning/index.ts'
+import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from './config/index.ts'
+import { loadRules } from './checking/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
  * intent is legible where it is raised and where it is handled.
  */
 class Exit extends Data.TaggedError('Exit')<{ readonly code: number }> {}
+
+/**
+ * Applies an `Exit` to the process.
+ *
+ * `runMain` exits 1 on ANY failure, so failing with an `Exit` carrying a code did not set that
+ * code — it set 1. That was invisible while every exit was 1 anyway; it became a silent bug the
+ * moment `scan` needed 2 to mean "the gate is broken" rather than "your code has violations", which
+ * is the one distinction stopping a git hook from teaching people to use `--no-verify`.
+ *
+ * Setting `process.exitCode` and completing normally is what actually reaches the shell.
+ */
+const applyExit = <A, E, R>(effect: Effect.Effect<A, Exit | E, R>): Effect.Effect<A | void, E, R> =>
+  Effect.catchIf(
+    effect,
+    (failure): failure is Exit => failure instanceof Exit,
+    (exit) =>
+      Effect.sync(() => {
+        process.exitCode = exit.code
+      }),
+  )
 
 const write = (text: string, sink: Sink) => Stream.make(text).pipe(Stream.run(sink))
 
@@ -44,42 +74,73 @@ const emit = (response: HookResponse) =>
 const VERSION: string = createRequire(import.meta.url)('../package.json').version
 
 /**
- * Where the packaged rules live, resolved from this module rather than from the caller's cwd.
+ * Where the packaged rules live, anchored on this module rather than on the caller's cwd.
  *
  * `import.meta.url` points at the installed `dist/cli.js`, so `../rules` finds them wherever a
  * package manager put the package — including pnpm's content-addressed store, where guessing
  * `node_modules/@sledorze/falsestart/rules` does not work.
+ *
+ * The anchor is computed HERE and handed to `presetDirectory`, rather than read inside it: the
+ * executable is bundled to `dist/cli.js` while the library build also emits `dist/cli/resolve.js`,
+ * and a self-anchored `../rules` would mean a different directory in each. Only the shell knows
+ * which artifact it is.
  */
-const presetDirectory = (preset: Preset): string => {
-  const packaged = fileURLToPath(new URL('../rules', import.meta.url))
-  return preset === 'all' ? packaged : `${packaged}/${preset}`
-}
+const PACKAGED_RULES_ROOT: string = fileURLToPath(new URL('../rules', import.meta.url))
 
 /**
- * Resolves `--rules pkg:<name>` to the rules directory inside an installed package.
- *
- * Resolution runs from the PROJECT, not from falsestart's own location, so the package is found
- * wherever the consumer's package manager put it — the reason `node_modules/<name>/rules` is not
- * simply joined by hand, since that path does not exist under pnpm's layout.
- *
- * A specifier may name a subdirectory (`@acme/rules/strict`) to take part of a rule set, mirroring
- * what `--preset` does for the rules shipped here.
+ * This installation's release notes, anchored the same way and for the same reason: a consumer
+ * cannot be told to read `node_modules/@sledorze/falsestart/CHANGELOG.md` when a package manager may
+ * have put the package somewhere else entirely. `--doctor` checks the file is there before printing
+ * it, which is what makes this safe to compute for an installation that predates shipping it.
  */
-const packageRulesDirectory = (specifier: string, projectDirectory: string): string => {
-  const scoped = specifier.startsWith('@')
-  const segments = specifier.split('/')
-  const packageName = segments.slice(0, scoped ? 2 : 1).join('/')
-  const subdirectory = segments.slice(scoped ? 2 : 1).join('/')
+const CHANGELOG_PATH: string = fileURLToPath(new URL('../CHANGELOG.md', import.meta.url))
 
-  const resolve = createRequire(join(projectDirectory, 'noop.js'))
-  const manifest = resolve.resolve(`${packageName}/package.json`)
+/**
+ * Which of these paths the caller's own `.gitignore` covers, according to git itself.
+ *
+ * Asked rather than reimplemented: `.gitignore` semantics are git's — nested files, negation,
+ * anchoring, precedence — and an approximation that is subtly wrong would decline to judge files
+ * nobody excluded, silently.
+ *
+ * Best effort by design: no git, no repository, or any other failure yields an empty set and the
+ * structural defaults still apply. Only the SPAWN lives here, because this is the one file allowed
+ * to know a process exists; reading its output is `parseIgnoredPaths`, where it can be tested.
+ */
+const gitIgnored = (paths: readonly string[], projectDirectory: string): ReadonlySet<string> => {
+  if (paths.length === 0) {
+    return new Set()
+  }
 
-  return join(dirname(manifest), 'rules', subdirectory)
+  const result = spawnSync('git', ['check-ignore', '--stdin', '-z'], {
+    cwd: projectDirectory,
+    encoding: 'utf8',
+    input: paths.join('\u0000'),
+  })
+
+  // `check-ignore` exits 1 when nothing matched, which is an answer rather than a failure. Only a
+  // spawn error or git's own 128 means we learned nothing.
+  return result.error !== undefined || result.status === null || result.status > 1
+    ? new Set()
+    : parseIgnoredPaths(result.stdout)
 }
 
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
-  const options = parseArguments(yield* stdio.args)
+  const args = yield* stdio.args
+  const options = parseArguments(args)
+
+  /**
+   * What "falsestart could not do its job" means to the caller, which depends on who is asking.
+   *
+   * The hook reads exit 1 as a non-blocking error notice and lets the write proceed. A shell
+   * running `scan` in a git hook reads 1 as "your code has violations", so a broken installation
+   * reported as 1 is indistinguishable from a failing gate — and that is what teaches people to
+   * reach for `--no-verify`. Scan says 2 instead.
+   *
+   * Read from `args` rather than from `options`, because the shared failure paths below run before
+   * — and, for `Invalid`, instead of — the mode being known.
+   */
+  const brokenCode = args[0] === 'scan' ? ScanExit.Broken : 1
 
   if (options._tag === 'Help') {
     return yield* write(`${options.text}\n`, stdio.stdout())
@@ -93,7 +154,7 @@ const program = Effect.gen(function* () {
     // Refusing the run is itself the non-blocking error notice: the write proceeds, but the
     // misconfiguration is visible rather than silently running some other rule set.
     yield* write(`falsestart: ${options.problem}\n`, stdio.stderr())
-    return yield* new Exit({ code: 1 })
+    return yield* new Exit({ code: brokenCode })
   }
 
   const projectDirectory = process.cwd()
@@ -103,7 +164,7 @@ const program = Effect.gen(function* () {
       catch: String,
       try: (): string => {
         if (options.preset !== undefined) {
-          return presetDirectory(options.preset)
+          return presetDirectory(options.preset, PACKAGED_RULES_ROOT)
         }
         return options.rulesPackage === undefined
           ? options.rulesDirectory
@@ -116,13 +177,90 @@ const program = Effect.gen(function* () {
   // and non-blocking, so a missing dependency cannot stop every write in the repo.
   if (located._tag === 'Failure') {
     yield* write(`falsestart: could not resolve rules package (${located.failure})\n`, stdio.stderr())
-    return yield* new Exit({ code: 1 })
+    return yield* new Exit({ code: brokenCode })
+  }
+
+  if (options._tag === 'Scan') {
+    // Paths on stdin only when asked for. Reading it unconditionally is how `--rules --doctor`
+    // once hung with no output: a mode that waits on input nobody is sending looks identical to a
+    // slow one.
+    const piped = options.pathSource === 'Argv' ? '' : yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
+    const delimiter = options.pathSource === 'Nul' ? '\u0000' : '\n'
+    const paths = [
+      ...options.paths,
+      ...piped
+        .split(delimiter)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0),
+    ]
+
+    const prepared = yield* Effect.result(
+      Effect.gen(function* () {
+        const loaded = yield* loadRules(located.success)
+        const configured =
+          options.configPath === undefined
+            ? yield* loadDefaultConfig(projectDirectory)
+            : yield* loadConfigFile(options.configPath)
+        return { exclude: configured.exclude ?? [], rules: yield* applyScopeOverrides(loaded, configured) }
+      }),
+    )
+
+    if (prepared._tag === 'Failure') {
+      yield* write(`falsestart: ${prepared.failure.reasons.join('\n')}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+
+    const loadedBaseline = yield* Effect.result(readBaseline(options.baselinePath))
+    if (loadedBaseline._tag === 'Failure') {
+      yield* write(`falsestart: ${loadedBaseline.failure.reason}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+    const accepted = loadedBaseline.success
+    const report = yield* Effect.result(
+      scan({
+        baseline: accepted,
+        // The config is the repository's standing policy; the flag is this run's addition to it.
+        // Neither replaces the other, or one of them silently drops what the other established.
+        exclude: [...prepared.success.exclude, ...options.exclude],
+        gitignored: gitIgnored(paths, projectDirectory),
+        paths,
+        projectDirectory,
+        rules: prepared.success.rules,
+      }),
+    )
+
+    if (report._tag === 'Failure') {
+      yield* write(`falsestart: ${report.failure.path}: ${report.failure.reason}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+
+    if (options.writeBaseline && options.baselinePath !== undefined) {
+      const all = report.success.scanned.flatMap((file) =>
+        file.findings.map((finding) => fingerprint(file.path, finding)),
+      )
+      // Wrapped like every other fallible step here. Left bare, a write failure propagated to
+      // `runMain`, which exits 1 with no output at all — silence, and the code that means "your
+      // code has violations" rather than "this could not run".
+      const wrote = yield* Effect.result(writeBaseline(options.baselinePath, all))
+      if (wrote._tag === 'Failure') {
+        yield* write(`falsestart: ${wrote.failure.reason}\n`, stdio.stderr())
+        return yield* new Exit({ code: ScanExit.Broken })
+      }
+
+      yield* write(`falsestart: wrote ${all.length} accepted finding(s) to ${options.baselinePath}\n`, stdio.stdout())
+      return
+    }
+
+    const outcome = render(report.success)
+    yield* write(`${outcome.text}\n`, stdio.stdout())
+    return yield* outcome.exitCode === ScanExit.Clean ? Effect.void : new Exit({ code: outcome.exitCode })
   }
 
   // `--doctor` answers a question about the installation, so it must not wait on a payload that
   // will never arrive. Reading stdin below happens only on the judging path.
   if (options._tag === 'Doctor') {
     const diagnosis = yield* diagnose({
+      changelogPath: CHANGELOG_PATH,
       configPath: options.configPath,
       projectDirectory,
       rulesDirectory: located.success,
@@ -143,6 +281,7 @@ const program = Effect.gen(function* () {
     // rules, which `--preset` and `pkg:` both put inside node_modules.
     projectDirectory,
     rulesDirectory: located.success,
+    warnUnscoped: options.warnUnscoped,
   })
 
   yield* emit(response)
@@ -193,4 +332,4 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.
 // to stderr in the shape the hook contract expects; re-reporting would double it.
 silenceConfigLoadingWarnings()
 
-NodeRuntime.runMain(program.pipe(Effect.provide(platform)), { disableErrorReporting: true })
+NodeRuntime.runMain(program.pipe(applyExit, Effect.provide(platform)), { disableErrorReporting: true })

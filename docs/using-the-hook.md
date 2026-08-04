@@ -48,20 +48,36 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 ```
 
 ```
-falsestart 0.0.1
+falsestart <the installed version>
+changes  …/CHANGELOG.md — what this version changed, including any rule that is new
 
-rules    …/rules/clean-code — 4 loaded
+rules    …/rules/clean-code — 6 loaded
 config   no config file in /repo — 0 override(s)
 tools    Edit, NotebookEdit, Write — any other tool call is ignored
 scope
-           4 rule(s) apply to src/a.ts
-           4 rule(s) apply to src/nested/deep/a.ts
-           4 rule(s) apply to src/a.mts
+           6 rule(s) apply to src/a.ts
+           6 rule(s) apply to src/nested/deep/a.ts
+           6 rule(s) apply to src/a.mts
            0 rule(s) apply to src/a.test.ts
-           0 rule(s) apply to src/a.js
+           2 rule(s) apply to src/a.js
 
 check    the sample `const widget = payload as any` at src/nested/example.ts was blocked
 ```
+
+The first line is the version that actually answered, and it is worth reading rather than skipping:
+a hook wired at a path still holding an older copy reports on that copy's rules, and every line
+below it will look plausible while describing a package you did not think you were running. Check
+it against the version your lockfile resolved. It is elided above on purpose — a real version
+printed here would be a number that goes stale at the next release, which is the failure this
+paragraph is about.
+
+The `changes` line is the second half of that question: not which version you have, but what it does
+to you. A MINOR bump can add an `error`-severity rule to a preset, which makes a repo that passed
+yesterday fail today — `0.2.0` did it twice — and a version number on its own cannot tell you that.
+It names the changelog inside the package you are actually running, so the answer comes from the same
+copy every other line in the report describes. The line is absent if that file is not there, which is
+the case for every version published before it existed — `0.1.0` and `0.2.0` shipped no changelog at
+all, so on those the only way to see what an upgrade added was to pack both versions and diff them.
 
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not
@@ -74,6 +90,43 @@ top-level files while leaving every nested source file — nearly the whole code
 rule reaches any probed path it says so and still exits **0** — "misses five `src/` paths" is not
 "misses everything", and a rule set scoped to `lib/**` or a monorepo's `packages/*/src/**` blocks
 perfectly well while probing zero here. Read the block; do not gate CI on the exit code alone.
+
+### When a write was not checked at all
+
+`--doctor` answers the question for a fixed set of sample paths. `--warn-unscoped` answers it for
+the paths your repo actually writes: with it on, a judged write that no rule is scoped to reports
+itself instead of passing in silence.
+
+```
+{"systemMessage":"falsestart:\nno rule is scoped to src/probe.js, so this write was not checked"}
+```
+
+It decides nothing — the write proceeds — and it can never pre-empt a block, because a rule that
+could block is a rule that applies. Reach for it when a write you expected to be stopped was not:
+the two silences it separates ("no rule looked at this" and "every rule looked and approved") are
+identical from the outside, and the first is the one that means the guard is inert.
+
+It is off by default because the honest signal is noisy. Measured against the shipped presets:
+
+| Written file      | `clean-code` | `effect` | `all`  |
+| ----------------- | ------------ | -------- | ------ |
+| TypeScript source | silent       | silent   | silent |
+| JavaScript source | silent       | silent   | silent |
+| Markdown or JSON  | warns        | warns    | warns  |
+| TypeScript test   | warns        | silent   | silent |
+| JavaScript test   | warns        | silent   | silent |
+
+Every documentation and config write warns under all three, which is most writes in most repos —
+and a warning you see on most writes is one you stop reading.
+
+Test files are the row where the presets disagree, and they disagree usefully. All six `clean-code`
+rules ignore tests, so under it a test file genuinely has nothing that can fire — and it says so.
+`effect` carries three rules that exist specifically to judge tests. A row that reads "warns" is not
+a defect to silence; it is the preset telling you what it does not cover.
+
+The JavaScript row changed when `no-empty-catch` and `no-hardcoded-credential` were added: they are
+the first `clean-code` rules that reach JavaScript, so that preset stopped being inert there. It is
+worth noticing that the signal moved on its own — this table is measured, not maintained by hand.
 
 Rules can come from three places:
 
@@ -97,6 +150,92 @@ existing setup loads — the worst failure available to a tool whose job is enfo
 A package that will not resolve is reported and does not block, like every other misconfiguration:
 a missing dependency must not stop every write in the repo.
 
+## Catching what bypasses the hook
+
+The hook judges a tool call, so it sees `Edit`, `Write` and `NotebookEdit` and nothing else. A
+`Bash` heredoc, a `>` redirect, `git checkout`, `git merge`, `git revert`, a person in an editor,
+another agent, and every file that predates the hook being installed all reach disk unexamined.
+
+`falsestart scan` is the second enforcement point, for a git hook or CI:
+
+```yaml
+# lefthook.yml
+pre-push:
+  commands:
+    falsestart:
+      run: node node_modules/@sledorze/falsestart/dist/cli.js scan --preset all {push_files}
+```
+
+```sh
+# .husky/pre-commit — -z and -0 together, because git C-quotes non-ASCII paths
+git diff --cached --name-only --diff-filter=ACM -z |
+  node node_modules/@sledorze/falsestart/dist/cli.js scan --preset all -0
+```
+
+Use `-z`/`-0` rather than plain newlines. `git diff --name-only` C-quotes any path outside ASCII, so
+a filename with an accent in it arrives wrapped in literal double quotes with its bytes escaped —
+`"src/caf\303\251.ts"` — and opens as ENOENT. A file silently skipped by the gate meant to check it.
+
+**Dependencies are never judged.** `node_modules` and `.git` are always excluded, and anything your
+`.gitignore` covers is excluded too — asked of `git check-ignore` rather than reimplemented. A
+finding in somebody else's library is one nobody can act on, and that noise is what gets a gate
+switched off. Anything else belongs in the config, once, rather than in every hook command line:
+
+```ts
+// falsestart.config.ts
+export default { exclude: ['legacy/**', 'generated/**'], rules: {} } satisfies FalsestartConfig
+```
+
+`--exclude <glob>` adds to that for a single run; it does not replace it.
+
+`dist/`, `build/` and `vendor/` are deliberately not excluded by default: plenty of projects author
+real source in directories with those names. Every exclusion is counted in the summary line, so
+nothing is dropped in silence.
+
+**Paths come from you, never from falsestart.** Your hook runner already computes the list and does
+it better: lefthook has `{staged_files}` and `{push_files}`, husky users have `git diff`. Doing it
+here would mean depending on git being installed, on being in a work tree, and on a ref existing.
+
+One thing to know about `{push_files}`: on the **first** push of a branch there is no upstream, so
+it expands to the whole tree. Adoption day is a full-repo scan, which is what `--baseline` is for.
+
+### It is stricter than the hook, on purpose
+
+An `Edit` payload carries only the text it would introduce, so the hook judges what a change **adds**.
+A scan parses whole files, so it reports everything already there. Measured over 424 files of real
+hand-written TypeScript, **64% already carry at least one finding** under the shipped rules. Passing
+only changed files bounds each commit; it does not change the odds that a file you touched already
+violates.
+
+So a one-line edit to a legacy file is allowed by the hook and blocked by the scan on lines you
+never wrote. Accept what is already there once:
+
+```sh
+falsestart scan --preset all --baseline .falsestart-baseline.json --update-baseline $(git ls-files)
+```
+
+After that the baseline absorbs those findings and only new ones fail. It holds fingerprints rather
+than line numbers, so a finding that moves when something is inserted above it is still the same
+finding, and reformatting does not churn the file.
+
+It records **one entry per occurrence** and absorbs exactly that many. Accepting two identical
+`as any` lines in a file does not accept a third — otherwise copy-pasting more of an
+already-accepted pattern would be invisible to the gate forever.
+
+A `--baseline` file that does not exist yet means "nothing accepted", so you can wire the flag in
+before creating it. A file that exists but cannot be read — a typo'd path, a directory, malformed
+JSON — is an error and exits 2. Treating that as an empty baseline would make a broken baseline
+indistinguishable from a real and growing set of new violations.
+
+### Read the summary line
+
+Every run that got far enough to judge anything ends with `scanned N file(s), M in scope, K
+finding(s)`; a run that could not start says why instead and exits 2. `M` is the one to read. A bare
+"no findings" is printed by a genuinely clean run, by a run whose paths matched no rule, by a run
+given no paths at all, and by `scan` accidentally wired as the `PreToolUse` command — where exit 0
+with non-JSON on stdout reads to the agent runtime as "allow", silently permitting every write. When
+`M` is `0` the run says so outright.
+
 ## Publishing your own rules
 
 A rules package is a directory of ast-grep documents under `rules/` and nothing more:
@@ -118,6 +257,7 @@ opinion about, and does not even load the rule tree for them.
 | Write/Edit matching an `error` rule       | Blocked, with the rule's message                               |
 | Write/Edit matching a softer rule         | Allowed; advice that blocks is indistinguishable from an error |
 | Path outside the rule's `files`/`ignores` | Rule never runs                                                |
+| Path outside **every** rule's scope       | Silent, unless `--warn-unscoped` — then reported, not blocked  |
 | Any other tool                            | Ignored                                                        |
 | Rule tree will not load                   | Visible error, write proceeds                                  |
 | A rule cannot run                         | Visible error, write proceeds                                  |
@@ -129,7 +269,8 @@ rule file should not hold a repository hostage.
 
 The shipped corpus lives in [`rules/`](../rules) and is split by what it assumes:
 
-- `rules/clean-code/` — generic TypeScript. No framework assumptions.
+- `rules/clean-code/` — generic hygiene, no framework assumptions. Four rules key on TypeScript
+  syntax; `no-empty-catch` and `no-hardcoded-credential` reach JavaScript as well.
 - `rules/effect/` — assumes an Effect codebase. `no-await` in particular forbids a construct most
   TypeScript projects use freely, so adopt this directory only if that is what you want.
 
@@ -141,6 +282,12 @@ listing.
 
 A rule ships with `files`/`ignores` chosen by an author who does not know your directory structure.
 A config re-scopes it without touching the rule. Write it in TypeScript and the compiler checks it:
+
+**An override replaces the rule's globs; it does not merge into them.** So writing one to add a
+single exemption means restating the rule's whole `files` glob, and an extension you leave out is
+silently no longer guarded — nothing fails, because there is no file with that extension yet for
+anyone to notice going unchecked. falsestart's own config did this for two releases. `--doctor`
+now names the rule and the extensions dropped; read that line whenever you add an override.
 
 ```ts
 // falsestart.config.ts

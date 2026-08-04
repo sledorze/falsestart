@@ -202,6 +202,99 @@ describe('project-relative scoping', () => {
   )
 })
 
+// A judged write that no rule is scoped to is indistinguishable, from the outside, from a write
+// every rule examined and approved. Both are silence. A repo that wires up the hook and writes
+// only `.js` gets a guard that is installed, registered, healthy, and inert — which is how this
+// came in: a probe carrying a hardcoded credential and a swallowed catch went through untouched,
+// and the report was "falsestart does not block", not "falsestart does not cover .js".
+//
+// Opt-in, because the honest version of this signal is noisy. Measured against the shipped
+// presets: it fires on every `.md`, `.json`, `.yml` and `.js` write under all three, and on test
+// files under `clean-code` only — `all` and `effect` carry three rules that judge test files, so
+// those stay quiet. Default-on would train the reader to ignore it, which is worse than saying
+// nothing, because an ignored warning still looks like coverage.
+describe('unscoped writes', () => {
+  const scopedToTypeScript = `${noAsAny}files:\n  - '**/*.ts'\n`
+
+  const inRepo = (path: string, content = 'const x = value as any') => ({
+    cwd: '/repo',
+    tool_input: { content, file_path: path },
+    tool_name: 'Write',
+  })
+
+  effect('advises when asked and no rule is scoped to the path', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(scopedToTypeScript), inRepo('/repo/src/widget.js'), {
+        warnUnscoped: true,
+      })
+
+      expect(decision._tag).toBe('Advise')
+      // The path is the whole point: "something was unguarded" without saying what is not
+      // actionable, and the reader cannot tell which of their globs is wrong.
+      expect(decision._tag === 'Advise' && decision.note).toContain('src/widget.js')
+    }),
+  )
+
+  effect('stays silent about the same write when not asked', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(scopedToTypeScript), inRepo('/repo/src/widget.js'))
+
+      expect(decision._tag).toBe('Defer')
+    }),
+  )
+
+  // The negative that matters. "No rule applies" and "every rule applied and found nothing" are
+  // the two silences this is meant to tell apart; conflating them would make the warning fire on
+  // every clean write in the repo, which is every write.
+  effect('says nothing when a rule does apply and finds nothing', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(scopedToTypeScript),
+        inRepo('/repo/src/widget.ts', 'const x = value as Widget'),
+        { warnUnscoped: true },
+      )
+
+      expect(decision._tag).toBe('Defer')
+    }),
+  )
+
+  effect('does not warn about a tool it was never going to judge', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(scopedToTypeScript),
+        { tool_input: {}, tool_name: 'Bash' },
+        {
+          warnUnscoped: true,
+        },
+      )
+
+      expect(decision._tag).toBe('Defer')
+    }),
+  )
+
+  effect('never turns a denial into advice', () =>
+    Effect.gen(function* () {
+      // Advising is a non-blocking outcome. If the warning ever pre-empted a real finding it would
+      // convert a block into a pass — the tool failing at the one thing it exists to do.
+      const decision = yield* decide(yield* rulesOf(scopedToTypeScript), inRepo('/repo/src/widget.ts'), {
+        warnUnscoped: true,
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  effect('reports an empty rule set on every judged write, which is the honest answer', () =>
+    Effect.gen(function* () {
+      // Loading zero rules is the most complete version of "guarding nothing", and the one most
+      // likely to be believed healthy — `--doctor` says `0 loaded`, but nobody runs it twice.
+      const decision = yield* decide([], inRepo('/repo/src/widget.ts'), { warnUnscoped: true })
+
+      expect(decision._tag).toBe('Advise')
+    }),
+  )
+})
+
 describe('notebook writes', () => {
   effect('judges a NotebookEdit by the source it would introduce', () =>
     Effect.gen(function* () {

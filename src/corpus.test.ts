@@ -11,8 +11,9 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
+import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
-import { appliesTo } from './checking/scope.ts'
+import { appliesTo, extensionGlobGroup, JAVASCRIPT_EXTENSIONS, TYPESCRIPT_EXTENSIONS } from './checking/scope.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import type { RuleExpectation } from './testing/assess.ts'
 import { assessRule, findUntestedRules } from './testing/assess.ts'
@@ -21,23 +22,51 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
 const corpus = loadRules('rules').pipe(Effect.provide(platform), Effect.orDie)
 
-/** Which extensions the shipped corpus is meant to reach, and which it must stay off. */
-const EXTENSION_EXPECTATIONS = [
-  ['ts', true],
-  ['tsx', true],
-  ['mts', true],
-  ['cts', true],
-  ['js', false],
-  ['jsx', false],
-  ['mjs', false],
-  ['cjs', false],
-] as const
+// Imported rather than restated. These lists had four independent copies, and a restated list with
+// one entry missing is precisely how `.mts` went unguarded for a release.
+
+/**
+ * Rules that stay off JavaScript, because valid JavaScript cannot contain what they match.
+ *
+ * The distinction matters, because the tempting shorter version — "these rules cannot fire on
+ * JavaScript" — is false, and was written here before being measured. Every rule declares
+ * `language: tsx`, and the parser is chosen by that, never by the file's extension. So
+ * `const w = value as any` at `src/a.js` fires exactly as it does at `src/a.ts`; all five of these
+ * do, unscoped. What cannot happen is a *valid JavaScript file* containing an `as` expression or
+ * a `const $NAME: $TYPE = {…}` annotation in the first place.
+ *
+ * They are excluded anyway, and `--warn-unscoped` is the reason to be precise about it. Scoping
+ * them to `.js` would put a `clean-code`-only JavaScript repo "in scope" for four rules that its
+ * source can never trip, which silences the one signal that would have told that repo the preset
+ * does nothing for it. Coverage that cannot fire reads as protection and is not — the same
+ * confusion, one level up, that this whole area exists to clear.
+ *
+ * The real gap this leaves is worth naming: JavaScript's own way of asserting a type, a JSDoc
+ * cast like `/** @type {any} *\/ (value)`, is caught by no shipped rule at all.
+ *
+ * Every other rule matches a runtime construct — `try`, `await`, `process.env`, `fetch`,
+ * `new Promise`, `JSON.parse` — that JavaScript has exactly as much as TypeScript does.
+ */
+const TYPESCRIPT_ONLY: ReadonlySet<string> = new Set([
+  'no-as-any',
+  'no-as-never',
+  'no-double-cast',
+  'no-effect-assertion',
+  'no-type-assertion',
+  'prefer-smart-constructor',
+])
 
 const src = 'src/service.ts'
 
 // Assembled rather than written inline: a literal `${` inside a plain string trips a lint rule
 // aimed at accidental non-interpolation, which is exactly what this example needs on purpose.
 const INTERPOLATION = `const label = \`id: ${'$'}{widget.id}\``
+
+// Built rather than written out, for the same reason the AWS example below uses AWS's own
+// documented example key: a file that tests a credential detector should not contain anything a
+// credential scanner has to make a judgement call about. `gitleaks` runs on every commit here.
+const FAKE_GITHUB_TOKEN = `ghp_${'A'.repeat(36)}`
+const STRIPE_TEST_KEY = `sk_test_${'4'.repeat(24)}`
 
 /**
  * `catches` must trip the rule; `allows` must not. Paths are meaningful — scope is behaviour.
@@ -69,6 +98,49 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
   'no-double-cast': {
     allows: ['const w = value as Widget', 'const u: unknown = value'],
     catches: ['const w = value as unknown as Widget'],
+  },
+  'no-effect-assertion': {
+    allows: [
+      'const w = value as Widget',
+      // The type ANNOTATION is the remedy the message names, so it must never be the offence.
+      'const run: Effect.Effect<string> = decode(input)',
+    ],
+    catches: ['const s = read() as Effect.Effect<string>', 'const l = build() as Layer.Layer<Widgets>'],
+    // Every other rule exempts test files; this one exists BECAUSE they do, so its exemption has to
+    // be somewhere else. JavaScript is the honest choice: it has no `as` expression to find.
+    exempt: 'src/service.js',
+    // Asserted at a TEST path on purpose. At `src/service.ts` this rule would prove nothing that
+    // `no-type-assertion` does not already prove.
+    path: 'src/service.test.ts',
+  },
+  'no-empty-catch': {
+    allows: [
+      'try { a() } catch (cause) { report(cause) }',
+      'try { a() } catch (cause) { throw cause }',
+      // A comment is the documented escape hatch: it is the record of a decision, which is exactly
+      // what distinguishes ignoring an error from swallowing one.
+      'try { a() } catch { /* the caller polls, so a failed refresh is not worth reporting */ }',
+    ],
+    catches: ['try { a() } catch (cause) {}', 'try { a() } catch {}'],
+  },
+  'no-hardcoded-credential': {
+    allows: [
+      // The prefix alone is not a credential, and prose about one is not one either.
+      "const scheme = 'AKIA'",
+      "const help = 'create a ghp_ token and put it in CI'",
+      // A field NAME, which is what a name-based rule would fire on and this one must not.
+      "const field = 'password'",
+      "const password = 'hunter2'",
+      'const key = process.env.AWS_ACCESS_KEY_ID',
+      // Stripe's test keys are publishable by design; only `sk_live_` is a secret.
+      `const stripe = '${STRIPE_TEST_KEY}'`,
+    ],
+    catches: [
+      // AWS's own documented example key, so nothing here is a real secret.
+      "const key = 'AKIAIOSFODNN7EXAMPLE'",
+      `const token = '${FAKE_GITHUB_TOKEN}'`,
+      "const pem = '-----BEGIN RSA PRIVATE KEY-----'",
+    ],
   },
   'no-json-global': {
     allows: [
@@ -261,6 +333,35 @@ const EXAMPLES: Readonly<Record<string, Example>> = {
   },
 }
 
+/**
+ * What the blanket test-file exemption must and must not let through — the regression that produced
+ * `no-effect-assertion`, written down as it happened.
+ *
+ * falsestart was wired as a `PreToolUse` hook with `--preset all`, it ran on the write, and it
+ * ALLOWED it. Proved by piping identical content at two paths through the built binary:
+ * `src/packaging.ts` came back denied by `no-type-assertion`, `src/packaging.test.ts` came back
+ * silent. Three coercions reached `main` that way, none of them load-bearing.
+ *
+ * The two rows are inseparable, which is why they are one table. The exemption exists for a real
+ * case — a mock needs `as never` to satisfy a signature it will never honour — so a rule that
+ * closed the hole by forbidding that too would just be the blanket's mirror image, and the answer
+ * to "why is my fixture blocked" would be a rule nobody can scope away per file.
+ */
+const TEST_FILE_CASES = [
+  {
+    blocked: true,
+    code: 'const s = yield* handle.stdout.pipe(Stream.mkString) as Effect.Effect<string>',
+    name: 'catches a coercion into an Effect type in a test file, where every other assertion rule steps aside',
+    path: 'src/packaging.test.ts',
+  },
+  {
+    blocked: false,
+    code: "const fs = layerNoop({ stat: () => Effect.fail(new Error('nope') as never) })",
+    name: 'leaves alone the fixture cast the test-file exemption exists for',
+    path: 'src/service.test.ts',
+  },
+] as const
+
 const expectationsFor = (ruleId: string): readonly RuleExpectation[] => {
   const example = EXAMPLES[ruleId]
   if (example === undefined) {
@@ -357,6 +458,23 @@ describe('shipped rule corpus', () => {
     }),
   )
 
+  // Table-driven, but `describe.each` + `effect` rather than `it.effect.each`: the curried form
+  // `it.effect.each(table)(name, fn)` leaves oxlint's vitest plugin unable to resolve the callee,
+  // so it reports every case as a test with no assertions. The wrapper this file already uses is
+  // registered with the linter; the table is what matters, not which layer iterates it.
+  describe.each(TEST_FILE_CASES)('$name', ({ blocked, code, path }) => {
+    effect(blocked ? 'is blocked' : 'is left alone', () =>
+      Effect.gen(function* () {
+        const rules = yield* corpus
+
+        const findings = yield* checkFile(rules, { content: code, path })
+        const ids = findings.map((finding) => finding.ruleId)
+
+        expect(ids.includes('no-effect-assertion')).toBe(blocked)
+      }),
+    )
+  })
+
   effect('the exported rule-id union matches what actually ships', () =>
     Effect.gen(function* () {
       // The union is what a TypeScript config is checked against, so it drifting from the corpus
@@ -393,6 +511,34 @@ describe('shipped rule corpus', () => {
     }),
   )
 
+  // Scope says a rule is ALLOWED to look at a `.js` file. Whether it can actually find anything
+  // there is a separate question, and the one that decides whether widening the globs bought any
+  // protection: every rule declares `language: tsx`, so a JavaScript file is handed to the TSX
+  // parser. That is expected to work — TSX is a superset — but "expected to" is how the `.mts`
+  // hole got shipped, so each widened rule is run over real JavaScript rather than argued about.
+  effect('each rule widened to JavaScript actually fires on JavaScript', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+      const widened = rules.filter((rule) => !TYPESCRIPT_ONLY.has(rule.id))
+
+      const inert: string[] = []
+      for (const rule of widened) {
+        const example = EXAMPLES[rule.id]
+        const testOnly = (rule.files ?? []).some((glob) => glob.includes('.test.'))
+        const path = `src/a.${testOnly ? 'test.' : ''}js`
+
+        for (const code of example?.catches ?? []) {
+          const findings = yield* checkFile([rule], { content: code, path })
+          if (findings.length === 0) {
+            inert.push(`${rule.id}: silent on JavaScript for ${JSON.stringify(code)}`)
+          }
+        }
+      }
+
+      expect(inert).toEqual([])
+    }),
+  )
+
   effect('every rule behaves as its examples say', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
@@ -422,10 +568,10 @@ describe('shipped rule corpus', () => {
   // writing the examples for `no-json-global` before the rule and watching the suite pass.
   // Extensions are scope, and scope is behaviour. `.mts` and `.cts` are TypeScript and were silently
   // unguarded — a repo using them installed falsestart and got nothing, with no signal at all.
-  // `.js`/`.jsx` stay out deliberately: the four assertion rules match syntax that does not exist in
-  // JavaScript, and `.js` in a TypeScript repo is usually build scripts and generated output. A repo
-  // that wants them adds one config override; being silently guarded is not as easy to undo.
-  effect('covers every TypeScript extension and no JavaScript one', () =>
+  // JavaScript was the same hole one language over: a repo written in `.js` installed falsestart,
+  // saw a registered and healthy hook, and had every write pass unexamined. The split is now by
+  // what a rule CAN match rather than by which language a repo is assumed to be written in.
+  effect('covers every extension whose language its pattern can match', () =>
     Effect.gen(function* () {
       const rules = yield* corpus
 
@@ -433,8 +579,14 @@ describe('shipped rule corpus', () => {
         // Three rules are the inverse — they apply only to tests — so they are probed at a test path.
         const testOnly = (rule.files ?? []).some((glob) => glob.includes('.test.'))
         const at = (extension: string) => `src/a.${testOnly ? 'test.' : ''}${extension}`
+        const reachesJavaScript = !TYPESCRIPT_ONLY.has(rule.id)
 
-        return EXTENSION_EXPECTATIONS.flatMap(([extension, covered]) =>
+        const expectations = [
+          ...TYPESCRIPT_EXTENSIONS.map((extension) => [extension, true] as const),
+          ...JAVASCRIPT_EXTENSIONS.map((extension) => [extension, reachesJavaScript] as const),
+        ]
+
+        return expectations.flatMap(([extension, covered]) =>
           appliesTo(rule, at(extension)) === covered
             ? []
             : [`${rule.id}: ${covered ? 'does not cover' : 'reaches'} .${extension}`],
@@ -442,6 +594,78 @@ describe('shipped rule corpus', () => {
       })
 
       expect(misscoped).toEqual([])
+    }),
+  )
+
+  // The extension list is restated 74 times across `rules/*.yml` — four globs per rule — and a rule
+  // document cannot import a constant, because staying readable by the upstream ast-grep CLI is the
+  // point of using its format. So the duplication is structural and stays. What need not stay is
+  // its being UNCHECKED: a restatement with one entry missing is exactly how `.mts` and `.cts` went
+  // unguarded for a release, and the copies are indistinguishable from the correct list by eye.
+  effect('every rule builds its globs from the one extension list', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const typescript = extensionGlobGroup(TYPESCRIPT_EXTENSIONS)
+      const everything = extensionGlobGroup([...TYPESCRIPT_EXTENSIONS, ...JAVASCRIPT_EXTENSIONS])
+
+      const wrong = rules.flatMap((rule) => {
+        const expected = TYPESCRIPT_ONLY.has(rule.id) ? typescript : everything
+        const globs = [...(rule.files ?? []), ...(rule.ignores ?? [])]
+
+        return globs
+          .filter((glob) => glob.includes('{') && !glob.includes(expected))
+          .map((glob) => `${rule.id}: ${glob} does not use ${expected}`)
+      })
+
+      expect(wrong).toEqual([])
+    }),
+  )
+
+  // The list above says these rules do not reach JavaScript, and the reason changed when the
+  // grammar started following the file extension rather than the rule.
+  //
+  // It used to be a claim about what valid JavaScript can CONTAIN: the patterns matched perfectly
+  // well at a `.js` path, because the rule chose the parser. Now the file chooses, and under the
+  // JavaScript grammar four of the five patterns are not merely unmatched but uncompilable — the
+  // rule fails loudly rather than quietly reporting nothing, which is the better failure.
+  //
+  // `prefer-smart-constructor` is the exception and worth knowing: its pattern still matches
+  // `const w: Widget = {…}` in a `.js` file, because that text is not valid JavaScript, the grammar
+  // yields error nodes, and the pattern fits them anyway. Reporting it is defensible — the file is
+  // broken — but it is a match nobody designed, so it is recorded rather than asserted.
+  //
+  // What is asserted is the part that holds for all five and is what the shipped scoping relies on:
+  // each still matches its own TypeScript spelling. The guard keeping them off `.js` files at all
+  // is the extension test above.
+  effect('the TypeScript-only rules still match their own TypeScript spelling', () =>
+    Effect.gen(function* () {
+      const rules = yield* corpus
+
+      const spellings: Readonly<Record<string, string>> = {
+        'no-as-any': 'const w = value as any',
+        'no-as-never': 'const n = value as never',
+        'no-double-cast': 'const w = value as unknown as Widget',
+        'no-effect-assertion': 'const s = read() as Effect.Effect<string>',
+        'no-type-assertion': 'const w = value as Widget',
+        'prefer-smart-constructor': 'const w: Widget = { id, name }',
+      }
+
+      const wrong: string[] = []
+      for (const rule of rules.filter((candidate) => TYPESCRIPT_ONLY.has(candidate.id))) {
+        const code = spellings[rule.id]
+        if (code === undefined) {
+          wrong.push(`${rule.id}: no spelling given`)
+          continue
+        }
+
+        const unscoped = { ...rule, files: undefined, ignores: undefined }
+        if ((yield* checkFile([unscoped], { content: code, path: 'src/a.ts' })).length === 0) {
+          wrong.push(`${rule.id}: stopped matching its own TypeScript spelling`)
+        }
+      }
+
+      expect(wrong).toEqual([])
     }),
   )
 

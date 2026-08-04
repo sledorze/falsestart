@@ -9,6 +9,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: 'my-rules',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -19,6 +20,49 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
+    })
+  })
+
+  it('recognises --warn-unscoped', () => {
+    expect(parseArguments(['--warn-unscoped'])).toEqual({
+      _tag: 'Run',
+      configPath: undefined,
+      preset: undefined,
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
+      warnUnscoped: true,
+    })
+  })
+
+  it('leaves the warning off unless asked', () => {
+    expect(parseArguments([])).toMatchObject({ warnUnscoped: false })
+  })
+
+  it('refuses --warn-unscoped with --doctor rather than accepting a flag it ignores', () => {
+    // This shipped the other way first: the flag was recorded on the `Doctor` result, nothing
+    // consumed it, and `--doctor --warn-unscoped` was byte-identical to `--doctor`. The test that
+    // was here asserted the PARSE and passed the whole time, which is worse than no test — it
+    // documented plumbing that did not exist. `--warn-unscoped` reports on the path a real payload
+    // carries; `--doctor` reads no payload.
+    const parsed = parseArguments(['--doctor', '--warn-unscoped'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--warn-unscoped')
+  })
+
+  it('leaves --doctor with no warnUnscoped field at all', () => {
+    // Absent rather than `false`: a field nothing reads is one the next reader has to check for a
+    // consumer that is not there.
+    expect(parseArguments(['--doctor'])).not.toHaveProperty('warnUnscoped')
+  })
+
+  it('does not consume the argument after --warn-unscoped', () => {
+    // The valueless-flag regression this file already carries scars from: a flag that eats the
+    // next token turned `--rules --doctor` into a hang with no output.
+    expect(parseArguments(['--warn-unscoped', '--rules', 'my-rules'])).toMatchObject({
+      rulesDirectory: 'my-rules',
+      warnUnscoped: true,
     })
   })
 
@@ -71,6 +115,91 @@ describe('command line', () => {
   it('refuses a bare positional argument', () => {
     expect(parseArguments(['my-rules'])._tag).toBe('Invalid')
   })
+})
+
+describe('the scan command', () => {
+  it('takes paths as positional arguments', () => {
+    expect(parseArguments(['scan', 'src/a.ts', 'src/b.ts'])).toMatchObject({
+      _tag: 'Scan',
+      pathSource: 'Argv',
+      paths: ['src/a.ts', 'src/b.ts'],
+    })
+  })
+
+  it('dispatches on args[0] and nowhere else', () => {
+    // "Positionals are allowed once `scan` is seen" would admit this, and a misconfiguration that
+    // still runs is what this module exists to refuse.
+    expect(parseArguments(['my-rules', 'scan'])._tag).toBe('Invalid')
+  })
+
+  it('reads paths from stdin when asked, newline or NUL', () => {
+    expect(parseArguments(['scan', '-'])).toMatchObject({ pathSource: 'Newline' })
+    expect(parseArguments(['scan', '-0'])).toMatchObject({ pathSource: 'Nul' })
+  })
+
+  it('keeps the rule-set flags the hook uses', () => {
+    expect(parseArguments(['scan', '--preset', 'all', '--config', 'c.json', 'a.ts'])).toMatchObject({
+      configPath: 'c.json',
+      paths: ['a.ts'],
+      preset: 'all',
+    })
+  })
+
+  it('takes a baseline, and a request to write one', () => {
+    expect(parseArguments(['scan', '--baseline', 'b.json', '--update-baseline', 'a.ts'])).toMatchObject({
+      baselinePath: 'b.json',
+      writeBaseline: true,
+    })
+  })
+
+  it('collects --exclude globs, repeatably', () => {
+    expect(parseArguments(['scan', '--exclude', 'legacy/**', '--exclude', 'gen/**', 'a.ts'])).toMatchObject({
+      exclude: ['legacy/**', 'gen/**'],
+      paths: ['a.ts'],
+    })
+  })
+
+  it('refuses --update-baseline with nothing to write to', () => {
+    const parsed = parseArguments(['scan', '--update-baseline', 'a.ts'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--baseline')
+  })
+
+  it('refuses the scan-only flags outside scan, rather than ignoring them', () => {
+    // A flag accepted and silently dropped is the failure this file's opening paragraph forbids,
+    // and one shipped that way once already.
+    for (const args of [['--baseline', 'b.json'], ['--update-baseline'], ['some/path.ts']]) {
+      expect(parseArguments(args)._tag).toBe('Invalid')
+    }
+  })
+
+  it('refuses --warn-unscoped with scan, whose report already carries the aggregate', () => {
+    const parsed = parseArguments(['scan', '--warn-unscoped', 'a.ts'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--warn-unscoped')
+  })
+
+  it('refuses scan combined with a mode that answers a different question', () => {
+    expect(parseArguments(['scan', '--doctor'])._tag).toBe('Invalid')
+    expect(parseArguments(['scan', '--version'])._tag).toBe('Invalid')
+  })
+
+  it('answers --help with the SCAN usage, not the hook usage', () => {
+    // Handing a reader a different command's usage documents neither. `scan` has its own flags and
+    // its own exit codes, and the generic text mentions none of them.
+    const parsed = parseArguments(['scan', '--help'])
+
+    expect(parsed._tag).toBe('Help')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('--baseline')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('--update-baseline')
+    expect(parsed._tag === 'Help' && parsed.text).toContain('-0')
+  })
+
+  it('still refuses an unrecognised flag inside scan', () => {
+    expect(parseArguments(['scan', '--rulez', 'x'])._tag).toBe('Invalid')
+  })
 
   it('answers --help with usage text', () => {
     const parsed = parseArguments(['--help'])
@@ -94,6 +223,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: 'second',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -103,6 +233,7 @@ describe('command line', () => {
       configPath: 'my.json',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -119,6 +250,7 @@ describe('command line', () => {
       configPath: 'c.json',
       rulesDirectory: 'r',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -129,6 +261,7 @@ describe('command line', () => {
       preset: 'effect',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -158,6 +291,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: '@acme/falsestart-rules',
+      warnUnscoped: false,
     })
   })
 
