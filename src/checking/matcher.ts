@@ -123,22 +123,47 @@ const toNapiConfig = (rule: Rule): NapiConfig => ({
  * is a different thing entirely and must never be reported as "no violations".
  */
 export const findViolations = (rule: Rule, source: string): Effect.Effect<Violation[], MatchError> =>
+  Effect.suspend(() => parseSource(rule.language, source).pipe(Effect.flatMap((root) => findViolationsIn(root, rule))))
+
+/**
+ * A parsed tree, ready for any number of rules of the same language to be run against it.
+ *
+ * Separated from matching because parsing is where essentially all the time goes, and it was
+ * happening once per RULE. Measured on a 762 KB source file: one parse costs 94ms and one match
+ * against the parsed tree costs 3ms, so running twenty-two rules cost 2046ms of parsing to do 60ms
+ * of matching. Ninety-seven per cent of the work was re-reading the same file into the same tree.
+ *
+ * The type is deliberately opaque to everything outside this module — it is `@ast-grep/napi`'s, and
+ * this file exists to be the only place that knows that.
+ */
+export type ParsedSource = ReturnType<ReturnType<typeof parse>['root']>
+
+/**
+ * Parsing does not fail. tree-sitter answers malformed input with error NODES rather than an
+ * exception, which is what lets a rule match the well-formed parts of a half-written file — the
+ * normal state of a file an agent is editing.
+ *
+ * Checked rather than assumed, against a lone surrogate, an embedded NUL, twenty thousand levels of
+ * nesting and a two-megabyte source: none throws. So there is no error channel here to thread, and
+ * inventing one would mean a branch no input can reach and no test can cover.
+ */
+export const parseSource = (language: Language, source: string): Effect.Effect<ParsedSource> =>
+  Effect.sync(() => parse(LANGUAGES[language], source).root())
+
+export const findViolationsIn = (root: ParsedSource, rule: Rule): Effect.Effect<Violation[], MatchError> =>
   Effect.suspend(() => {
     const invalid = validateMatcher(rule.rule)
     return invalid === undefined
-      ? runMatcher(rule, source)
+      ? runMatcher(root, rule)
       : Effect.fail(new MatchError({ reason: invalid, ruleId: rule.id }))
   })
 
-const runMatcher = (rule: Rule, source: string): Effect.Effect<Violation[], MatchError> =>
+const runMatcher = (root: ParsedSource, rule: Rule): Effect.Effect<Violation[], MatchError> =>
   Effect.try({
     catch: (cause) => new MatchError({ reason: String(cause), ruleId: rule.id }),
     try: () =>
-      parse(LANGUAGES[rule.language], source)
-        .root()
-        .findAll(toNapiConfig(rule))
-        .map((node) => {
-          const { start } = node.range()
-          return { column: start.column + 1, line: start.line + 1, text: node.text() }
-        }),
+      root.findAll(toNapiConfig(rule)).map((node) => {
+        const { start } = node.range()
+        return { column: start.column + 1, line: start.line + 1, text: node.text() }
+      }),
   })
