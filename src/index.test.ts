@@ -28,6 +28,7 @@ describe('library surface', () => {
       'decide',
       'diagnose',
       'extensionGlobGroup',
+      'fallbacks',
       'findDefaultConfigs',
       'findNarrowedScopes',
       'findUntestedRules',

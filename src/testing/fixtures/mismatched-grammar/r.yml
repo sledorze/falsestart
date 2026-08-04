@@ -1,0 +1,8 @@
+id: as-any-in-javascript
+language: tsx
+severity: error
+message: 'Scoped to .js, but `$X as any` is not a valid pattern under the JavaScript grammar.'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.{ts,js}'

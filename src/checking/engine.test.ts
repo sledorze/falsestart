@@ -1,6 +1,6 @@
 import { describe, effect, expect } from '@effect/vitest'
 import { Effect } from 'effect'
-import { checkFile } from './engine.ts'
+import { checkFile, fallbacks } from './engine.ts'
 import type { Rule } from './rule.ts'
 import { parseRule } from './rule.ts'
 
@@ -255,6 +255,146 @@ files:
       const rules = yield* rulesOf(cssRule)
 
       expect(yield* checkFile(rules, { content: 'a { color: red !important; }', path: 'src/a.css' })).toHaveLength(1)
+    }),
+  )
+})
+
+/**
+ * A rule that cannot run under the file's grammar must not silence the rules that can.
+ *
+ * Choosing the grammar from the extension made this reachable through ordinary configuration:
+ * widen a TypeScript-syntax rule to `.js` with a documented `files` override, and its pattern no
+ * longer compiles — `$X as any` is not valid under the JavaScript grammar. The whole check for that
+ * file then failed, so a real `process.exit(1)` in the same file was ALLOWED, because the hook
+ * treats "a rule could not run" as non-blocking. One misconfigured rule turned the guard off.
+ *
+ * The answer is to fall back to the grammar the rule itself declares. That is the grammar its
+ * author wrote the pattern against, so it is the one under which it is meant to compile.
+ */
+describe('a rule that cannot run under the file grammar', () => {
+  const asAnyForJs = `
+id: no-as-any
+language: tsx
+message: 'as any'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.{ts,js}'
+`
+
+  const noProcessExit = `
+id: no-process-exit
+language: tsx
+message: 'no process.exit'
+rule:
+  pattern: process.exit($$$ARGS)
+files:
+  - '**/*.{ts,js}'
+`
+
+  effect('does not stop the other rules from reporting', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(asAnyForJs, noProcessExit)
+
+      const found = yield* checkFile(rules, { content: 'process.exit(1)', path: 'src/a.js' })
+
+      expect(found.map((finding) => finding.ruleId)).toEqual(['no-process-exit'])
+    }),
+  )
+
+  effect('falls back to the grammar the rule declares, so it still matches what it was written for', () =>
+    Effect.gen(function* () {
+      // `kind: jsx_element` exists in the TSX grammar and not in TypeScript. A rule declaring
+      // `tsx` and scoped to `.ts` is asking for exactly that, and must keep working.
+      const jsxRule = `
+id: no-jsx
+language: tsx
+message: 'no jsx'
+rule:
+  kind: jsx_element
+files:
+  - '**/*.ts'
+`
+      const rules = yield* rulesOf(jsxRule)
+
+      const found = yield* checkFile(rules, { content: 'const x = <div>hi</div>', path: 'src/a.ts' })
+
+      expect(found.map((finding) => finding.ruleId)).toEqual(['no-jsx'])
+    }),
+  )
+
+  effect('still reports a rule that cannot run under EITHER grammar', () =>
+    Effect.gen(function* () {
+      // The fallback must not become a way of swallowing a genuinely broken rule.
+      const broken = `
+id: broken
+language: tsx
+message: 'broken'
+rule:
+  matches: no-such-util
+files:
+  - '**/*.ts'
+`
+      const rules = yield* rulesOf(broken)
+
+      const outcome = yield* Effect.result(checkFile(rules, { content: 'const a = 1', path: 'src/a.ts' }))
+
+      expect(outcome._tag).toBe('Failure')
+    }),
+  )
+})
+
+/**
+ * A fallback that nobody can see is the same disease this codebase keeps treating.
+ *
+ * `findingsFor` silently retries a rule under its declared grammar when the file's grammar cannot
+ * compile it. That keeps one misconfigured rule from disabling the others — but a rule quietly
+ * running under a different grammar than the file implies is exactly the kind of fact that is true
+ * for months and surprises somebody. It is a property of the RULE SET, not of any one write, so it
+ * is reported once rather than on every tool call.
+ */
+describe('reporting a grammar fallback', () => {
+  effect('names a rule that cannot run under the grammar its own scope implies', () =>
+    Effect.gen(function* () {
+      const asAnyForJs = `
+id: no-as-any
+language: tsx
+message: 'as any'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.{ts,js}'
+`
+      const rules = yield* rulesOf(asAnyForJs)
+
+      expect(yield* fallbacks(rules)).toEqual([{ declared: 'tsx', extension: 'js', ruleId: 'no-as-any' }])
+    }),
+  )
+
+  effect('says nothing about a rule that runs everywhere it is scoped', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny("files:\n  - '**/*.{ts,tsx,mts,cts}'"))
+
+      expect(yield* fallbacks(rules)).toEqual([])
+    }),
+  )
+
+  effect('says nothing about the shipped corpus, which is the point', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(
+        noAsAny("files:\n  - '**/*.{ts,tsx,mts,cts}'"),
+        `
+id: no-try-catch
+language: tsx
+message: 'try'
+rule:
+  kind: try_statement
+files:
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+`,
+      )
+
+      expect(yield* fallbacks(rules)).toEqual([])
     }),
   )
 })

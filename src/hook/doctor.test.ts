@@ -155,6 +155,34 @@ layer(platform)('the doctor', (it) => {
     }),
   )
 
+  // A rule that cannot run under the grammar its own scope implies falls back to the grammar it
+  // declares. That keeps one misconfigured rule from disabling every other rule for a file — but a
+  // silent fallback is the same disease this diagnostic exists to cure, so it is stated here, once,
+  // rather than on every tool call where it would become noise.
+  it.effect('names a rule that will fall back to another grammar', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({
+        configPath: 'src/testing/fixtures/empty.json',
+        rulesDirectory: 'src/testing/fixtures/mismatched-grammar',
+      })
+      const reported = diagnosis.lines.find((line) => line.includes('falls back'))
+
+      expect(reported).toBeDefined()
+      expect(reported).toContain('as-any-in-javascript')
+      expect(reported).toContain('.js')
+      // Informational: the rule still runs, under the grammar it declares.
+      expect(diagnosis.healthy).toBeTruthy()
+    }),
+  )
+
+  it.effect('says nothing about grammar for a rule set that runs where it is scoped', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json' })
+
+      expect(diagnosis.lines.join('\n')).not.toContain('falls back')
+    }),
+  )
+
   it.effect('says the sample proved nothing when no rule reaches the sample path', () =>
     Effect.gen(function* () {
       // `src/**.ts` guards top-level files and nothing below them. Reporting the non-block as

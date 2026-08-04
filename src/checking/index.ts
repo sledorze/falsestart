@@ -5,7 +5,8 @@
  * this way is explained in `docs/architecture.md`.
  */
 export type { Finding, FileUnderCheck } from './engine.ts'
-export { checkFile } from './engine.ts'
+export type { GrammarFallback } from './engine.ts'
+export { checkFile, fallbacks } from './engine.ts'
 export { loadRules, RuleLoadError } from './loader.ts'
 export type { Violation } from './matcher.ts'
 export type { ParsedSource } from './matcher.ts'

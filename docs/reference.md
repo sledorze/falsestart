@@ -214,6 +214,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `findDefaultConfigs`        | function    | config   |
 | `findNarrowedScopes`        | function    | config   |
 | `findUntestedRules`         | function    | testing  |
+| `fallbacks`                 | function    | checking |
 | `findViolations`            | function    | checking |
 | `findViolationsIn`          | function    | checking |
 | `parseSource`               | function    | checking |
@@ -242,7 +243,7 @@ missing entry is silent — so the list it must agree with is importable rather 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
 `HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
-`Partitioned`, `PartitionOptions`, `ParsedSource`,
+`Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
 `RuleExpectation`, `CaseResult`, `Identified`.
 
