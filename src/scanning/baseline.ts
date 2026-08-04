@@ -89,12 +89,26 @@ export const readBaseline = (
  * config exemption. `no-json-global`'s own note says the only honest exception is a wire format
  * with no decode side to keep in step — and this file has one, three functions up.
  */
-const Fingerprints = Schema.fromJsonString(Schema.Array(Schema.String))
+const JsonString = Schema.fromJsonString(Schema.String)
 
+/**
+ * Assembled a line at a time rather than encoded as one array, because the layout is the point.
+ *
+ * `fromJsonString` takes no `space` option, so encoding the whole array yields a single compact
+ * line — and a baseline is a file people read in a review. One fingerprint per line means adding
+ * or removing one shows as a one-line diff; compact means every change rewrites the whole file.
+ * That regressed once, silently, because the assertion guarding it had been replaced with a
+ * whitespace-blind round-trip.
+ *
+ * The escaping still goes through the schema, which is what `no-json-global` asks for: the quoting
+ * of each fingerprint is not hand-rolled.
+ */
 export const baselineText = (fingerprints: readonly string[]): Effect.Effect<string> =>
-  Schema.encodeEffect(Fingerprints)([...fingerprints].toSorted()).pipe(
+  Effect.all([...fingerprints].toSorted().map((entry) => Schema.encodeEffect(JsonString)(entry))).pipe(
     Effect.orDie,
-    Effect.map((json) => `${json}\n`),
+    Effect.map((quoted) =>
+      quoted.length === 0 ? '[]\n' : `[\n${quoted.map((entry) => `  ${entry}`).join(',\n')}\n]\n`,
+    ),
   )
 
 export const writeBaseline = (
