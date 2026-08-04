@@ -33,7 +33,7 @@ const stdoutOf = (command: string, args: readonly string[]) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const handle = yield* spawner.spawn(ChildProcess.make(command, [...args]))
-    const stdout = yield* handle.stdout.pipe(Stream.decodeText(), Stream.mkString) as Effect.Effect<string>
+    const stdout = yield* handle.stdout.pipe(Stream.decodeText(), Stream.mkString)
     const exitCode = yield* handle.exitCode
 
     return exitCode === 0 ? stdout : yield* Effect.die(`${command} ${args.join(' ')} exited ${exitCode}`)
