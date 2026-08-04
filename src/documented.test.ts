@@ -45,6 +45,22 @@ const architecture = Effect.gen(function* () {
   return yield* fs.readFileString('docs/architecture.md')
 })
 
+/**
+ * The commands inside the fenced block under `## Install` — what a reader actually copies.
+ *
+ * Structural rather than a search of the whole file: a claim about the install instruction has to
+ * be anchored to the install instruction, or prose that merely mentions the command satisfies it.
+ */
+const installCommands = (readme: string): readonly string[] => {
+  const section = readme.split(/^## /m).find((part) => part.startsWith('Install'))
+  const fenced = section?.match(/```bash\n([\s\S]*?)```/)
+
+  return (fenced?.[1] ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith('#'))
+}
+
 /** `[text](../src/x.ts)` — the links the docs check already tracks the content of. */
 const citedSourceFiles = (markdown: string): readonly string[] =>
   [...markdown.matchAll(/\]\(\.\.\/(src\/[^)]+\.ts)\)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
@@ -168,6 +184,44 @@ layer(platform)('documentation covers the source', (it) => {
       )
 
       expect(unshipped).toEqual([])
+    }),
+  )
+
+  // The README told a first-time user the package was `private: true` and to install a `0.0.1`
+  // tarball packed from a checkout. Both went false at the first release and nothing noticed —
+  // `--refs` tracks what a doc says about SOURCE files, and this claim is about the registry.
+  // Someone followed it, installed a pre-implementation copy, and reported that falsestart blocked
+  // nothing; the tool was fine and the hook was wired correctly.
+  //
+  // The assertion is on the COMMAND BLOCK, not on the file. A first draft searched the whole
+  // README for the right install string, and a README that said "do NOT run `pnpm add -D
+  // @sledorze/falsestart` — install from git instead" passed it, which is the same failure with
+  // the search term embedded in its own refutation. What a reader copies is the fenced block under
+  // `## Install`; that is the only text worth constraining, and constraining it exactly leaves
+  // prose free to mention packing or provenance without breaking the build.
+  it.effect('the README install block installs the package this repo publishes', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const readme = yield* fs.readFileString('README.md')
+      const summary = yield* fs.readFileString('README.summary.md')
+      const manifest = yield* fs.readFileString('package.json')
+
+      const parsed: { readonly name: string; readonly private?: boolean } = yield* Effect.orDie(
+        Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+          Effect.map((value) => value as { readonly name: string; readonly private?: boolean }),
+        ),
+      )
+
+      const install = `pnpm add -D ${parsed.name}`
+
+      expect(installCommands(readme)).toEqual([install])
+      // npmjs.com does not render README.md for this package — the registry's `readme` field is
+      // README.summary.md, so the page a prospective user reads is the summary. Tying the two
+      // together keeps the install instruction from being fixed only where npm will not show it.
+      expect(summary).toContain(install)
+      // An install command for a package npm will refuse to publish is the same failure wearing a
+      // different hat: the command is correct and the package is not there.
+      expect(parsed.private).toBeUndefined()
     }),
   )
 

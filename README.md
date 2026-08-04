@@ -11,16 +11,20 @@ answers with a decision, and code that breaks a rule never reaches the file.
 
 ## Install
 
-Not published yet — the package is `private: true`. Until it is, install from a tarball or a git
-reference:
-
 ```bash
-npm pack                       # in a checkout of this repo
-pnpm add -D ./sledorze-falsestart-0.0.1.tgz
+pnpm add -D @sledorze/falsestart
 ```
 
-`effect` is a required peer dependency, so installing this installs it too. The hook binary itself
-inlines what it needs and never loads yours — the peer is for the library entry point.
+That is the whole install for the hook: the binary inlines what it needs and never loads yours.
+
+Importing falsestart as a **library** works too, straight after that command. What does not work is
+importing `effect` — its peer — from your own code: under pnpm's default isolated `node_modules`,
+`import 'effect'` fails. So declare it yourself if you use it, with `pnpm add effect`.
+
+Being a peer is not the reason. pnpm puts nothing in your project that your own `package.json` did
+not ask for, so `picomatch` — an ordinary dependency of falsestart, not a peer — is equally absent.
+npm's flat layout leaves both importable, and `node-linker=hoisted` makes pnpm do the same, but
+neither is a guarantee to build on: depend on what you import.
 
 ## Wire it up
 

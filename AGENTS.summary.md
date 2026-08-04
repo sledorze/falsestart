@@ -9,8 +9,10 @@ survives clone and CI. `--refs` extends this to the _content_ of source files a 
 doc goes stale when what it describes changes rather than only when a path breaks. Author the prose,
 then `pnpm stamp`, then `pnpm check`.
 
-**Releases** run on Changesets and are gated off by default behind a repository variable; a
-user-facing change should carry a changeset written for someone who will never read the PR.
+**Releases** run on Changesets and are live — `RELEASES_ENABLED` and `NPM_TOKEN` are both set, and
+`0.1.0` was published from `release.yml` with provenance. A user-facing change should carry a
+changeset written for someone who will never read the PR, and `README.md`/`docs/` count as
+user-facing: they ship inside the package, so a docs fix with no changeset never reaches npm.
 
 **Content-mutation safety.** Anything that writes back to a file a person authored must decide _what
 it may touch_ structurally — by path or declared role — never by a content pattern alone. A regex can
