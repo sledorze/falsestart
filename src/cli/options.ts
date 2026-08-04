@@ -60,6 +60,8 @@ export type Options =
       /** Set when `--rules pkg:<name>` was used; the caller resolves it against the project. */
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
+      /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
+      readonly warnUnscoped: boolean
     }
 
 const USAGE = `falsestart — block risky code patterns as they are written
@@ -88,6 +90,14 @@ Options:
                   decision path. Reads no stdin. Exits 1 when a step did not
                   resolve or the sample could not be judged. Use this to
                   check a hook is actually guarding something.
+  --warn-unscoped Report a judged write that lands on a path no rule is
+                  scoped to, instead of passing it in silence. Non-blocking.
+                  Off by default: with the shipped rules it fires on every
+                  .md, .json, .yml and .js write, and a warning you see on
+                  most writes is one you stop reading. Turn it on when a
+                  write you expected to be blocked was not. Refused with
+                  --doctor, which reads no payload to report on and whose
+                  scope block already gives a rule count per probed path.
   --version       Print the version.
   -h, --help      Show this message.
 
@@ -121,6 +131,7 @@ export const parseArguments = (args: readonly string[]): Options => {
   let sawRules = false
   let doctor = false
   let version = false
+  let warnUnscoped = false
 
   // `entries()` rather than an index loop: it yields a defined element, so there is no
   // possibly-undefined fallback branch that no input can ever reach.
@@ -142,6 +153,11 @@ export const parseArguments = (args: readonly string[]): Options => {
 
     if (argument === '--version') {
       version = true
+      continue
+    }
+
+    if (argument === '--warn-unscoped') {
+      warnUnscoped = true
       continue
     }
 
@@ -185,11 +201,23 @@ export const parseArguments = (args: readonly string[]): Options => {
     return { _tag: 'Invalid', problem: '--preset and --rules cannot be combined' }
   }
 
+  // Refused for the same reason, one step milder. `--warn-unscoped` reports on the path a real
+  // payload carries, and `--doctor` reads no payload — so accepting both meant taking a flag and
+  // doing nothing with it, which this file's own opening paragraph forbids. The information is not
+  // missing from `--doctor`: its scope block already prints a rule count per probed path, and `0`
+  // there is the same fact this flag reports at write time.
+  if (doctor && warnUnscoped) {
+    return {
+      _tag: 'Invalid',
+      problem: '--warn-unscoped has no effect with --doctor; its scope block already reports per-path rule counts',
+    }
+  }
+
   if (version) {
     return { _tag: 'Version' }
   }
 
   return doctor
     ? { _tag: 'Doctor', configPath, preset, rulesDirectory, rulesPackage }
-    : { _tag: 'Run', configPath, preset, rulesDirectory, rulesPackage }
+    : { _tag: 'Run', configPath, preset, rulesDirectory, rulesPackage, warnUnscoped }
 }

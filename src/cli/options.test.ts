@@ -9,6 +9,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: 'my-rules',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -19,6 +20,49 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
+    })
+  })
+
+  it('recognises --warn-unscoped', () => {
+    expect(parseArguments(['--warn-unscoped'])).toEqual({
+      _tag: 'Run',
+      configPath: undefined,
+      preset: undefined,
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
+      warnUnscoped: true,
+    })
+  })
+
+  it('leaves the warning off unless asked', () => {
+    expect(parseArguments([])).toMatchObject({ warnUnscoped: false })
+  })
+
+  it('refuses --warn-unscoped with --doctor rather than accepting a flag it ignores', () => {
+    // This shipped the other way first: the flag was recorded on the `Doctor` result, nothing
+    // consumed it, and `--doctor --warn-unscoped` was byte-identical to `--doctor`. The test that
+    // was here asserted the PARSE and passed the whole time, which is worse than no test — it
+    // documented plumbing that did not exist. `--warn-unscoped` reports on the path a real payload
+    // carries; `--doctor` reads no payload.
+    const parsed = parseArguments(['--doctor', '--warn-unscoped'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--warn-unscoped')
+  })
+
+  it('leaves --doctor with no warnUnscoped field at all', () => {
+    // Absent rather than `false`: a field nothing reads is one the next reader has to check for a
+    // consumer that is not there.
+    expect(parseArguments(['--doctor'])).not.toHaveProperty('warnUnscoped')
+  })
+
+  it('does not consume the argument after --warn-unscoped', () => {
+    // The valueless-flag regression this file already carries scars from: a flag that eats the
+    // next token turned `--rules --doctor` into a hang with no output.
+    expect(parseArguments(['--warn-unscoped', '--rules', 'my-rules'])).toMatchObject({
+      rulesDirectory: 'my-rules',
+      warnUnscoped: true,
     })
   })
 
@@ -94,6 +138,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: 'second',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -103,6 +148,7 @@ describe('command line', () => {
       configPath: 'my.json',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -119,6 +165,7 @@ describe('command line', () => {
       configPath: 'c.json',
       rulesDirectory: 'r',
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -129,6 +176,7 @@ describe('command line', () => {
       preset: 'effect',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
+      warnUnscoped: false,
     })
   })
 
@@ -158,6 +206,7 @@ describe('command line', () => {
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: '@acme/falsestart-rules',
+      warnUnscoped: false,
     })
   })
 

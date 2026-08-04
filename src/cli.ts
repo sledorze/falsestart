@@ -143,6 +143,7 @@ const program = Effect.gen(function* () {
     // rules, which `--preset` and `pkg:` both put inside node_modules.
     projectDirectory,
     rulesDirectory: located.success,
+    warnUnscoped: options.warnUnscoped,
   })
 
   yield* emit(response)
