@@ -204,7 +204,8 @@ indistinguishable from a real and growing set of new violations.
 
 ### Read the summary line
 
-Every run ends with `scanned N file(s), M in scope, K finding(s)`. `M` is the one to read. A bare
+Every run that got far enough to judge anything ends with `scanned N file(s), M in scope, K
+finding(s)`; a run that could not start says why instead and exits 2. `M` is the one to read. A bare
 "no findings" is printed by a genuinely clean run, by a run whose paths matched no rule, by a run
 given no paths at all, and by `scan` accidentally wired as the `PreToolUse` command — where exit 0
 with non-JSON on stdout reads to the agent runtime as "allow", silently permitting every write. When
