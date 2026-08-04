@@ -184,6 +184,12 @@ listing.
 A rule ships with `files`/`ignores` chosen by an author who does not know your directory structure.
 A config re-scopes it without touching the rule. Write it in TypeScript and the compiler checks it:
 
+**An override replaces the rule's globs; it does not merge into them.** So writing one to add a
+single exemption means restating the rule's whole `files` glob, and an extension you leave out is
+silently no longer guarded — nothing fails, because there is no file with that extension yet for
+anyone to notice going unchecked. falsestart's own config did this for two releases. `--doctor`
+now names the rule and the extensions dropped; read that line whenever you add an override.
+
 ```ts
 // falsestart.config.ts
 import type { FalsestartConfig } from '@sledorze/falsestart'

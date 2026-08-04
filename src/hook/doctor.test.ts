@@ -107,6 +107,53 @@ layer(platform)('the doctor', (it) => {
     }),
   )
 
+  // An override REPLACES a rule's scope rather than merging with it, so writing one to add a single
+  // exemption silently discards every extension the rule shipped covering. Nothing reported that.
+  // This repo's own config had done it: `no-type-assertion` and `no-json-global` were pinned to
+  // `{ts,tsx}` and had quietly stopped covering `.mts` and `.cts` — the two extensions a previous
+  // release existed to add — with the whole suite green and the doctor calling it healthy.
+  it.effect('names the extensions an override stops covering', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/narrowing.json' })
+
+      // Asserted as one whole line, not as substrings. `.mts` and `.js` already appear in the
+      // scope block and the rule's name in the config line, so a `toContain` for each passed
+      // against a doctor that reported nothing at all — checked, and it did.
+      const reported = diagnosis.lines.find((line) => line.includes('stops covering'))
+
+      expect(reported).toBeDefined()
+      expect(reported).toContain('no-try-catch')
+      expect(reported).toContain('.mts')
+      expect(reported).toContain('.cts')
+      expect(reported).toContain('.js')
+      expect(reported).toContain('.jsx')
+      expect(reported).toContain('.mjs')
+      expect(reported).toContain('.cjs')
+      // It kept the two it was scoped to, so those must NOT be listed as lost.
+      expect(reported).not.toContain('.tsx')
+    }),
+  )
+
+  it.effect('treats narrowing as information, not as a broken installation', () =>
+    Effect.gen(function* () {
+      // Narrowing is what overrides are FOR — `files: ['src/domain/**']` is the documented example.
+      // Failing on it would make the feature unusable; saying nothing is how coverage disappears.
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/narrowing.json' })
+
+      expect(diagnosis.healthy).toBeTruthy()
+    }),
+  )
+
+  it.effect('says nothing about extensions when an override keeps the rule as wide as it ships', () =>
+    Effect.gen(function* () {
+      // The negative that keeps the report worth reading: an override that only adds a file
+      // exemption has not dropped a language, and must not be reported as though it had.
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json' })
+
+      expect(diagnosis.lines.join('\n')).not.toContain('stops covering')
+    }),
+  )
+
   it.effect('says the sample proved nothing when no rule reaches the sample path', () =>
     Effect.gen(function* () {
       // `src/**.ts` guards top-level files and nothing below them. Reporting the non-block as

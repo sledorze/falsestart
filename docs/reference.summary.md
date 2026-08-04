@@ -9,7 +9,9 @@ redirect writes a file falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
 `--config <file>`, `--doctor`, `--warn-unscoped`, `--version`, `--help`. `--doctor` reports what was
-resolved and probes five paths for reachability, reading no stdin. `--warn-unscoped` reports a
+resolved, probes five paths for reachability, and names any rule whose override covers fewer
+extensions than it ships with — an override REPLACES `files` rather than merging, so a restated
+glob that omits an extension silently unguards it. Reads no stdin. `--warn-unscoped` reports a
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 with JSON blocks, exit 0 with no output defers, exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
 
