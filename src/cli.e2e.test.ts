@@ -229,6 +229,93 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  // `scan` had no process-level test at all, and that is exactly how a silent failure shipped:
+  // `writeBaseline` was called unwrapped, so a write error propagated to `runMain` and exited 1
+  // with no output — the code meaning "your code has violations" rather than "this could not run".
+  // Its unit tests passed throughout, because the defect was in the WIRING, and `cli.ts` is
+  // excluded from both the coverage ratchet and mutation testing. Only a real process can see it.
+  it.effect('scan reports findings and stops the commit', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(['scan', '--rules', root, '--config', configPath, `${root}/a.ts`], '')
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toContain('no-as-any')
+        expect(result.stdout).toContain('1 in scope')
+      }),
+    ),
+  )
+
+  it.effect('scan accepts what a baseline already carries, and says so', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const baseline = `${root}/baseline.json`
+        const scan = (extra: readonly string[]) =>
+          runCliRaw(
+            ['scan', '--rules', root, '--config', configPath, '--baseline', baseline, ...extra, `${root}/a.ts`],
+            '',
+          )
+
+        const wrote = yield* scan(['--update-baseline'])
+        expect(wrote.exitCode).toBe(0)
+        expect(wrote.stdout).toContain('accepted finding(s)')
+
+        const after = yield* scan([])
+        expect(after.exitCode).toBe(0)
+        expect(after.stdout).toContain('accepted by baseline')
+      }),
+    ),
+  )
+
+  it.effect('scan says why it could not write a baseline, rather than failing silently', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(
+          [
+            'scan',
+            '--rules',
+            root,
+            '--config',
+            configPath,
+            '--baseline',
+            `${root}/no-such-directory/baseline.json`,
+            '--update-baseline',
+            `${root}/a.ts`,
+          ],
+          '',
+        )
+
+        // 2, not 1: a gate that cannot tell "your code has violations" from "the gate is broken"
+        // is one people learn to bypass.
+        expect(result.exitCode).toBe(2)
+        expect(result.stderr).toContain('baseline.json')
+      }),
+    ),
+  )
+
+  it.effect('scan never judges a dependency, and counts what it left alone', () =>
+    withRules({ 'a.ts': 'const x = v as any', 'no-as-any.yml': noAsAny }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* fs.makeDirectory(path.join(root, 'node_modules', 'pkg'), { recursive: true })
+        yield* fs.writeFileString(path.join(root, 'node_modules', 'pkg', 'i.ts'), 'const y = v as any')
+
+        const configPath = yield* withEmptyConfig(root)
+        const result = yield* runCliRaw(
+          ['scan', '--rules', root, '--config', configPath, `${root}/a.ts`, `${root}/node_modules/pkg/i.ts`],
+          '',
+        )
+
+        expect(result.stdout).toContain('1 excluded')
+        expect(result.stdout).not.toContain('node_modules')
+      }),
+    ),
+  )
+
   // `--preset` is how the documentation tells everyone to start, and it appeared nowhere in this
   // suite — the packaged-rules path was never once run as a process. It is also the path that
   // depends on `import.meta.url` pointing at the bundled `dist/cli.js`, which no in-process test

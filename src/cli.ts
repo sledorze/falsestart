@@ -230,7 +230,15 @@ const program = Effect.gen(function* () {
       const all = report.success.scanned.flatMap((file) =>
         file.findings.map((finding) => fingerprint(file.path, finding)),
       )
-      yield* writeBaseline(options.baselinePath, all)
+      // Wrapped like every other fallible step here. Left bare, a write failure propagated to
+      // `runMain`, which exits 1 with no output at all — silence, and the code that means "your
+      // code has violations" rather than "this could not run".
+      const wrote = yield* Effect.result(writeBaseline(options.baselinePath, all))
+      if (wrote._tag === 'Failure') {
+        yield* write(`falsestart: ${wrote.failure.reason}\n`, stdio.stderr())
+        return yield* new Exit({ code: ScanExit.Broken })
+      }
+
       yield* write(`falsestart: wrote ${all.length} accepted finding(s) to ${options.baselinePath}\n`, stdio.stdout())
       return
     }
