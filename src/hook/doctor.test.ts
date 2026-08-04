@@ -8,6 +8,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, Layer } from 'effect'
+import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -28,7 +29,7 @@ layer(platform)('the doctor', (it) => {
 
       expect(diagnosis.healthy).toBeTruthy()
       expect(report).toContain('falsestart 0.0.0-test')
-      expect(report).toContain('20 loaded')
+      expect(report).toContain(`${SHIPPED_RULE_IDS.length} loaded`)
       // The end-to-end proof, not a restatement of the config.
       expect(report).toContain('was blocked')
     }),

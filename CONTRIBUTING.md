@@ -16,7 +16,10 @@ each exists because a rule once failed it:
 - **Worked examples.** `src/corpus.test.ts` needs an entry with both `catches` and `allows`. A rule
   with only positive examples looks correct right up until it fires on code nobody meant to forbid.
 - **Blast radius.** It must not fire on the conforming fixture, and the extension test asserts it
-  reaches every TypeScript extension and no JavaScript one.
+  reaches every TypeScript extension — plus every JavaScript one, unless the rule matches syntax
+  valid JavaScript cannot contain, in which case add it to `TYPESCRIPT_ONLY` and give it a
+  JavaScript counter-example. A third test asserts the rule's globs are built from the one
+  extension list in `scope.ts` rather than retyped.
 - **Real remedies.** Every API a message names is checked against the installed package, because
   four messages once recommended APIs that did not exist.
 

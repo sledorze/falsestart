@@ -50,15 +50,15 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 ```
 falsestart <the installed version>
 
-rules    …/rules/clean-code — 4 loaded
+rules    …/rules/clean-code — 6 loaded
 config   no config file in /repo — 0 override(s)
 tools    Edit, NotebookEdit, Write — any other tool call is ignored
 scope
-           4 rule(s) apply to src/a.ts
-           4 rule(s) apply to src/nested/deep/a.ts
-           4 rule(s) apply to src/a.mts
+           6 rule(s) apply to src/a.ts
+           6 rule(s) apply to src/nested/deep/a.ts
+           6 rule(s) apply to src/a.mts
            0 rule(s) apply to src/a.test.ts
-           0 rule(s) apply to src/a.js
+           2 rule(s) apply to src/a.js
 
 check    the sample `const widget = payload as any` at src/nested/example.ts was blocked
 ```
@@ -102,7 +102,7 @@ It is off by default because the honest signal is noisy. Measured against the sh
 | Written file      | `clean-code` | `effect` | `all`  |
 | ----------------- | ------------ | -------- | ------ |
 | TypeScript source | silent       | silent   | silent |
-| JavaScript source | warns        | silent   | silent |
+| JavaScript source | silent       | silent   | silent |
 | Markdown or JSON  | warns        | warns    | warns  |
 | TypeScript test   | warns        | silent   | silent |
 | JavaScript test   | warns        | silent   | silent |
@@ -110,11 +110,14 @@ It is off by default because the honest signal is noisy. Measured against the sh
 Every documentation and config write warns under all three, which is most writes in most repos —
 and a warning you see on most writes is one you stop reading.
 
-The rest of the table is the two presets disagreeing, and it disagrees usefully. `clean-code` is
-four rules that all key on TypeScript syntax and all ignore tests, so under it a JavaScript file or
-a test file genuinely has nothing that can fire — and it says so. `effect` reaches both: fifteen of
-its rules match JavaScript, and three exist specifically to judge tests. A row that reads "warns"
-is not a defect to silence; it is the preset telling you what it does not cover.
+Test files are the row where the presets disagree, and they disagree usefully. All six `clean-code`
+rules ignore tests, so under it a test file genuinely has nothing that can fire — and it says so.
+`effect` carries three rules that exist specifically to judge tests. A row that reads "warns" is not
+a defect to silence; it is the preset telling you what it does not cover.
+
+The JavaScript row changed when `no-empty-catch` and `no-hardcoded-credential` were added: they are
+the first `clean-code` rules that reach JavaScript, so that preset stopped being inert there. It is
+worth noticing that the signal moved on its own — this table is measured, not maintained by hand.
 
 Rules can come from three places:
 
@@ -171,7 +174,8 @@ rule file should not hold a repository hostage.
 
 The shipped corpus lives in [`rules/`](../rules) and is split by what it assumes:
 
-- `rules/clean-code/` — generic TypeScript. No framework assumptions.
+- `rules/clean-code/` — generic hygiene, no framework assumptions. Four rules key on TypeScript
+  syntax; `no-empty-catch` and `no-hardcoded-credential` reach JavaScript as well.
 - `rules/effect/` — assumes an Effect codebase. `no-await` in particular forbids a construct most
   TypeScript projects use freely, so adopt this directory only if that is what you want.
 

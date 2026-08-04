@@ -108,6 +108,8 @@ falsestart does, having caught its own config doing exactly this.
 | `no-as-any`                     | clean-code | `as any` erases the type rather than establishing it. Narrow with a type…                       |
 | `no-as-never`                   | clean-code | `as never` silences an exhaustiveness error without resolving it. Handle…                       |
 | `no-double-cast`                | clean-code | Casting through `unknown` defeats every check the compiler would have ma…                       |
+| `no-empty-catch`                | clean-code | An empty catch discards the error and the fact that anything went wrong…                        |
+| `no-hardcoded-credential`       | clean-code | This string literal has the shape of a real credential. Read it from con…                       |
 | `no-type-assertion`             | clean-code | A type assertion tells the compiler to stop checking rather than establi…                       |
 | `no-await`                      | effect     | await drops out of the Effect world: no typed error channel and no inter…                       |
 | `no-json-global`                | effect     | JSON.parse returns any and throws on malformed input, and JSON.stringify is partial in ways it… |
@@ -126,7 +128,7 @@ falsestart does, having caught its own config doing exactly this.
 | `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
 | `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
 
-Fifteen of the twenty rules are scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — every TypeScript
+Seventeen of the twenty-two rules are scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — every TypeScript
 and JavaScript extension, with `*.test.*`, `*.spec.*` and `*.bench.*` variants exempt (the three
 test-only rules invert that). They match runtime constructs — `try`, `await`, `process.env`,
 `fetch`, `new Promise`, `JSON.parse` — which JavaScript has just as much as TypeScript does, and
@@ -144,7 +146,7 @@ guarded when nothing there can fire. A test asserts both directions.
 One gap this leaves, named rather than implied: JavaScript's own way of asserting a type is a JSDoc
 cast (`/** @type {any} */ (value)`), and no shipped rule catches it.
 
-All 20 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
+All 22 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and
 `no-manual-effect-run-in-tests` apply **only** to test files — the inverse of every other rule.
 

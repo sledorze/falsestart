@@ -53,7 +53,7 @@ Invoke it by path, not as a bare `falsestart`: `node_modules/.bin` is not on `PA
 command, so a bare name exits 127 and the hook silently does nothing while still showing as
 registered. `npx falsestart --preset clean-code` also works.
 
-**Pick the preset deliberately.** `clean-code` is four TypeScript rules and assumes nothing else.
+**Pick the preset deliberately.** `clean-code` is six rules and assumes nothing else.
 `effect` is sixteen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
 `new Promise`, `.then`, `JSON.parse`, `fetch` and `process.env`. An eight-line function that
 awaits a `fetch`, `JSON.parse`s the body inside `try`/`catch` and throws an `Error` trips **six**
@@ -66,7 +66,7 @@ no-await, no-json-global, no-raw-error, no-raw-fetch, no-try-catch
 That is intended in an Effect repo and wrong everywhere else. `--rules
 <dir>` points at your own directory, and `--rules pkg:@acme/falsestart-rules` at another package's.
 
-Fifteen of the twenty rules match JavaScript as well as TypeScript — `try`, `await`, `process.env`,
+Seventeen of the twenty-two rules match JavaScript as well as TypeScript — `try`, `await`, `process.env`,
 `fetch` and the rest are the same construct in both. The five that key on TypeScript syntax
 (`no-as-any`, `no-as-never`, `no-double-cast`, `no-type-assertion`, `prefer-smart-constructor`)
 stay `**/*.{ts,tsx,mts,cts}`, because valid JavaScript has nothing for them to find.
