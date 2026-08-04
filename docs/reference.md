@@ -107,14 +107,23 @@ cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`
 | `no-vi-mocking`                 | effect     | "Module mocking replaces a dependency behind its consumer's back, so the…                       |
 | `prefer-smart-constructor`      | effect     | An object literal with a declared type asserts the shape is valid withou…                       |
 
-Every shipped rule is scoped to `**/*.{ts,tsx,mts,cts}` — all four TypeScript extensions, with
-`*.test.*`, `*.spec.*` and `*.bench.*` variants exempt (the three test-only rules invert that).
+Fifteen of the twenty rules are scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` — every TypeScript
+and JavaScript extension, with `*.test.*`, `*.spec.*` and `*.bench.*` variants exempt (the three
+test-only rules invert that). They match runtime constructs — `try`, `await`, `process.env`,
+`fetch`, `new Promise`, `JSON.parse` — which JavaScript has just as much as TypeScript does, and
+each is tested against real JavaScript rather than assumed to work there.
 
-`.js`, `.jsx`, `.mjs` and `.cjs` are **not** matched, deliberately. The four assertion rules match
-syntax that does not exist in JavaScript, and a `.js` file in a TypeScript repo is usually a build
-script or generated output. A repo that wants them adds a `files` override for the rules it cares
-about; that is one line, and easier to reach for than to undo being silently guarded. A test asserts
-both halves of this.
+Five stay TypeScript-only: `no-as-any`, `no-as-never`, `no-double-cast`, `no-type-assertion` and
+`prefer-smart-constructor`. Not because they cannot fire on a `.js` file — every rule declares
+`language: tsx`, the parser is picked by that rather than by the extension, and all five do fire on
+TypeScript syntax at a `.js` path. It is that **valid JavaScript cannot contain what they match**:
+there is no `as` expression and no `const $NAME: $TYPE = {…}` annotation to find. Scoping them to
+`.js` would claim coverage that a JavaScript file can never trip, and would silence
+[`--warn-unscoped`](./using-the-hook.md) for a `clean-code`-only JavaScript repo — telling it it is
+guarded when nothing there can fire. A test asserts both directions.
+
+One gap this leaves, named rather than implied: JavaScript's own way of asserting a type is a JSDoc
+cast (`/** @type {any} */ (value)`), and no shipped rule catches it.
 
 All 20 rules are `error` severity, so every rule blocks. Rules in `clean-code` assume nothing beyond
 TypeScript; those in `effect` assume an Effect codebase. `no-vi-mocking`, `no-test-lifecycle-hooks` and

@@ -14,8 +14,9 @@ falsestart has no opinion about are ignored without even loading the rule tree.
 `--warn-unscoped` answers the same question for the paths the repo actually writes: a judged write
 no rule is scoped to reports itself instead of passing in silence, non-blocking, and it cannot
 pre-empt a block since a rule that could block is a rule that applies. Off by default because the
-signal is noisy — measured on the shipped presets it fires on every `.md`, `.json`, `.yml` and
-`.js` write, plus test files under `clean-code` only, whose four rules all ignore them.
+signal is noisy — measured on the shipped presets it fires on every `.md`, `.json` and `.yml`
+write under all three. JavaScript and test files are the preset-dependent rows: `clean-code`'s four
+rules key on TypeScript syntax and ignore tests, so both warn under it, while `effect` covers both.
 
 Behaviour: an `error`-severity match blocks with the rule's message; softer severities do not
 block; a path outside a rule's `files`/`ignores` never runs it; other tools are ignored. A rule

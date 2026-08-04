@@ -30,8 +30,8 @@ constraints:
   METHOD:
     regex: '(Unsafe|OrThrow)$'
 files:
-  - '**/*.{ts,tsx,mts,cts}'
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
 ignores:
-  - '**/*.test.{ts,tsx,mts,cts}'
-  - '**/*.spec.{ts,tsx,mts,cts}'
-  - '**/*.bench.{ts,tsx,mts,cts}'
+  - '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'

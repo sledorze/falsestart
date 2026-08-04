@@ -5,8 +5,8 @@ message: 'A hand-rolled Promise has no typed error channel and cannot be interru
 rule:
   pattern: new Promise($$$ARGS)
 files:
-  - '**/*.{ts,tsx,mts,cts}'
+  - '**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
 ignores:
-  - '**/*.test.{ts,tsx,mts,cts}'
-  - '**/*.spec.{ts,tsx,mts,cts}'
-  - '**/*.bench.{ts,tsx,mts,cts}'
+  - '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
+  - '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'
