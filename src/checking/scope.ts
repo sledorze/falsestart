@@ -90,6 +90,32 @@ export interface FileScope {
  */
 const toPosixPath = (filePath: string): string => filePath.replaceAll('\\', '/')
 
+/**
+ * Collapses the spellings of a path that mean the same place — `./src/a.ts`, `src//a.ts`,
+ * `src/./a.ts` all become `src/a.ts`.
+ *
+ * A glob is matched against the literal string, so `./src/a.ts` matches **nothing** — not even
+ * `**\/*.ts`. That failure is total and completely silent: a rule set reports zero findings on a
+ * file it would otherwise block, which is indistinguishable from a clean file.
+ *
+ * It went unnoticed because the only caller receives Claude Code's `file_path`, which is always
+ * absolute and already clean. Any caller that passes paths through — a git hook handing over the
+ * files it is about to commit — hits it immediately: lefthook's documented `root:` setting, for
+ * scoping a hook to one package of a monorepo, emits exactly `./src/a.ts`, and `find . | xargs`
+ * produces the same prefix.
+ *
+ * `..` is deliberately NOT resolved. Doing so would need the path to be anchored to a real
+ * directory to be meaningful, and a scoping decision must not depend on the filesystem — that is
+ * how a rule starts behaving differently depending on where the process was started.
+ */
+const normalise = (path: string): string => {
+  const absolute = path.startsWith('/')
+  const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
+  const joined = segments.join('/')
+
+  return absolute ? `/${joined}` : joined
+}
+
 const matchesAny = (globs: readonly string[], filePath: string): boolean =>
   picomatch.isMatch(filePath, [...globs], { dot: true })
 
@@ -106,12 +132,12 @@ const matchesAny = (globs: readonly string[], filePath: string): boolean =>
  * inside the project would be worse than leaving it alone.
  */
 export const toScopingPath = (filePath: string, root: string | undefined): string => {
-  const path = toPosixPath(filePath)
+  const path = normalise(toPosixPath(filePath))
   if (root === undefined) {
     return path
   }
 
-  const base = toPosixPath(root).replace(/\/+$/, '')
+  const base = normalise(toPosixPath(root)).replace(/\/+$/, '')
   // The separator is required: without it `/repo` would swallow `/repo-other`.
   const prefix = `${base}/`
 

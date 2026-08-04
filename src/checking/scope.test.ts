@@ -117,4 +117,41 @@ describe('scoping path', () => {
   it('leaves an already-relative path untouched', () => {
     expect(toScopingPath('src/a.ts', '/repo')).toBe('src/a.ts')
   })
+
+  // A glob is matched against the literal string, so `./src/a.ts` matched NOTHING — not even
+  // `**/*.ts`. Zero findings on a file that should be blocked is indistinguishable from a clean
+  // file, so the failure is total and silent.
+  //
+  // Latent while the only caller passed Claude Code's always-absolute `file_path`. Any caller that
+  // forwards paths hits it at once: lefthook's `root:` setting, the documented way to scope a hook
+  // to one package of a monorepo, emits exactly `./src/a.ts`, as does `find . | xargs`.
+  it.each([
+    ['./src/a.ts', 'a leading ./'],
+    ['src//a.ts', 'a doubled separator'],
+    ['src/./a.ts', 'an interior ./'],
+    ['./src/.//a.ts', 'all three at once'],
+  ])('scopes %s (%s) exactly as the plain path does', (spelling) => {
+    expect(toScopingPath(spelling, '/repo')).toBe(toScopingPath('src/a.ts', '/repo'))
+  })
+
+  it('finds the same violations however the path is spelled', () => {
+    // The assertion that matters is not the string but the DECISION: a rule must reach the file
+    // under every spelling of its path, since the spelling is chosen by whoever invoked us.
+    const rule = { files: ['**/*.{ts,tsx,mts,cts}'] }
+
+    for (const spelling of ['src/a.ts', './src/a.ts', 'src//a.ts', '/repo/src/a.ts', '/repo//src/a.ts']) {
+      expect(appliesTo(rule, toScopingPath(spelling, '/repo'))).toBeTruthy()
+    }
+  })
+
+  it('normalises the root as well as the path', () => {
+    expect(toScopingPath('/repo/src/a.ts', '/repo/./')).toBe('src/a.ts')
+    expect(toScopingPath('/repo//src/a.ts', '/repo')).toBe('src/a.ts')
+  })
+
+  it('leaves `..` alone rather than resolving it against a directory it cannot see', () => {
+    // Resolving it would make a scoping decision depend on where the process was started, which is
+    // how a rule begins behaving differently in CI than it does locally.
+    expect(toScopingPath('../a.ts', '/repo')).toBe('../a.ts')
+  })
 })
