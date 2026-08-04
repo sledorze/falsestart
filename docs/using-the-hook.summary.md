@@ -4,9 +4,10 @@ falsestart runs as a Claude Code `PreToolUse` hook: register it in `.claude/sett
 `Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
 `node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
 Settings must be strict JSON. `--doctor` answers "is this guarding anything?" — it prints the
-resolved rules, config and per-path rule counts, then sends a real violation through the decision
-path. Read its scope block, not just its last line: a nested probe path is what exposes the
-`src/**.ts` glob typo that guards top-level files and nothing else. `--rules` is searched recursively and defaults
+version that answered, the resolved rules, config and per-path rule counts, then sends a real
+violation through the decision path. Read its scope block, not just its last line: a nested probe
+path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read
+its version line too — a hook wired at a path holding an older copy describes that copy, plausibly. `--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 

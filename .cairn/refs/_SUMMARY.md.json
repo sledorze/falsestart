@@ -1,19 +1,19 @@
 {
   "refs": [
     {
-      "hash": "1c2c873f3afc67426ca8352a6ad2c723e3286725ba5315566ce626be0716ea8c",
+      "hash": "d7e870f5fdd17d04c35b5adc1095e4b6c73174d4f0ec8d9e4f3e1827a39937d0",
       "target": "./README.md"
     },
     {
-      "hash": "03e847dbc0119cd00ecaa88d6a2f9449191d051ce8ea9012675911b074a5c5f2",
+      "hash": "3c10e72ddf26a36793b8de1930991a836211b77a8931f59d685965ec9f2d7ca3",
       "target": "./README.summary.md"
     },
     {
-      "hash": "599d65c45af5ec162c00adbb478e6e7dc9926a33eef8b9d837e5f4fe21c28565",
+      "hash": "855d11b18e3ff486f5d1b63a9aea40f7da5a617138ff766d3ff2ea2f71eed31c",
       "target": "./AGENTS.md"
     },
     {
-      "hash": "7cb64ebdfadcb945c0b93a384c3da1acca1cd8c36452af8e2ba2af3700025d3a",
+      "hash": "5ed91eb23f20b353360698ffd33ed723ed6dc37f49bfdb3a68acd31edb164a60",
       "target": "./AGENTS.summary.md"
     },
     {

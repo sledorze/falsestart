@@ -91,14 +91,21 @@ Releases are automated via [Changesets](https://github.com/changesets/changesets
 files opens a "Version Packages" PR (bumped `package.json`, generated `CHANGELOG.md`);
 merging that PR publishes to npm, pushes the git tag, and creates a GitHub Release.
 
-**Two switches away**: `private` has been removed from `package.json`, so the package is
-publishable, and the artifact is verified — `npm pack`, install into a clean project, `--version`,
-`--doctor`, a blocked write and a library import all work. What remains is deliberately manual and
-belongs to the maintainer: set the `RELEASES_ENABLED` repository variable to `'true'` and add an
-`NPM_TOKEN` secret. Underscores, not hyphens — GitHub rejects a hyphenated variable name with HTTP
-422, and the gate originally named one that could never exist, so the release job could never have
-run at all. Enabling the variable without the token would put a failing job on `main`, so do
-them in that order.
+**Both switches are on and the pipeline has run.** `RELEASES_ENABLED` is set and `NPM_TOKEN`
+exists; `0.1.0` is on npm, published by `release.yml` from `refs/heads/main` — provable without
+repository access, since the tarball carries SLSA provenance naming that workflow and run. This
+paragraph said "two switches away" for a while after that stopped being true, which is the same
+staleness the documentation convention above exists to catch, in the file a contributor agent
+reads first.
+
+The variable name is `RELEASES_ENABLED` with underscores, not hyphens: GitHub rejects a hyphenated
+variable name with HTTP 422, and the gate originally named one that could never exist, so the
+release job could never have run at all. Worth keeping in mind if it is ever renamed.
+
+The practical consequence, now that releases are live: **`README.md` and `docs/` are inside the
+published `files` array, so a documentation fix is a user-facing change.** Without a changeset
+there is no version bump, `changeset publish` no-ops, and the registry keeps serving the old prose
+indefinitely — the corrected text sits on `main` where the person who needed it will never see it.
 
 If your PR is a user-facing change (not docs-only, not internal tooling with no effect
 on the published package), run `pnpm changeset` and commit the generated file alongside

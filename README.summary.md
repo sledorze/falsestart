@@ -4,6 +4,12 @@ Blocks risky code patterns the instant an AI writes them, as a Claude Code `PreT
 tool call arrives on stdin, falsestart answers with a decision, and code breaking a rule never
 reaches the file.
 
+Install with `pnpm add -D @sledorze/falsestart` — the whole install for the hook, whose binary
+inlines what it needs and never loads yours. The library entry point works straight after it too;
+what does not is importing `effect` from your own code, because pnpm's isolated `node_modules`
+holds nothing your own `package.json` did not ask for. That is not about `effect` being a peer —
+`picomatch`, an ordinary dependency, is absent the same way — so declare what you import.
+
 Register it in `.claude/settings.json` (strict JSON) with an `Edit|Write|NotebookEdit` matcher and
 the CLI invoked by path — `node "$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js"`.
 A bare `falsestart` exits 127 while the hook still shows as registered. Choose the preset

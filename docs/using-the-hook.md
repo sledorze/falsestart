@@ -48,7 +48,7 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 ```
 
 ```
-falsestart 0.0.1
+falsestart <the installed version>
 
 rules    …/rules/clean-code — 4 loaded
 config   no config file in /repo — 0 override(s)
@@ -62,6 +62,13 @@ scope
 
 check    the sample `const widget = payload as any` at src/nested/example.ts was blocked
 ```
+
+The first line is the version that actually answered, and it is worth reading rather than skipping:
+a hook wired at a path still holding an older copy reports on that copy's rules, and every line
+below it will look plausible while describing a package you did not think you were running. Check
+it against the version your lockfile resolved. It is elided above on purpose — a real version
+printed here would be a number that goes stale at the next release, which is the failure this
+paragraph is about.
 
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not
