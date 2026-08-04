@@ -131,13 +131,60 @@ Exit codes:
   0  Decision made (JSON on stdout to block) or nothing to say.
   1  falsestart could not do its job. Reported, and the write proceeds.`
 
+const SCAN_USAGE = `falsestart scan — judge files that are already on disk
+
+For a git hook or CI, where the write-time hook cannot reach: a Bash heredoc,
+a shell redirect, git checkout/merge/revert, an editor, another agent, and
+every file that predates the hook being installed.
+
+Usage:
+  falsestart scan [options] <path>...
+  <producer> | falsestart scan [options] -0
+
+Paths come from you. Your hook runner already computes the list:
+  lefthook:  run: falsestart scan --preset all {push_files}
+  husky:     git diff --cached --name-only --diff-filter=ACM -z |
+               falsestart scan --preset all -0
+
+Options:
+  <path>...            Files to judge.
+  -0                   Read NUL-delimited paths from stdin. Pair with git -z:
+                       git quotes non-ASCII paths, and a quoted path opens as
+                       ENOENT and is silently skipped by the gate.
+  -                    Read newline-delimited paths from stdin.
+  --baseline <file>    Findings already accepted. A missing file means none are;
+                       an unreadable one is an error, not an empty baseline.
+  --update-baseline    Write every current finding to --baseline and exit 0
+                       without failing. A maintenance step, not a gate.
+  --preset <name>      all, clean-code, effect.
+  --rules <dir>        Your own rule directory, or pkg:<name>.
+  --config <file>      Per-repo scope overrides.
+
+Exit codes:
+  0  No findings.
+  1  Findings. The commit or push should stop.
+  2  falsestart could not run — broken rules, unreadable path, bad flag.
+
+  1 and 2 are distinct on purpose: a gate that cannot tell "your code has
+  violations" from "the linter is broken" is one people learn to bypass.
+
+Every run ends with: scanned N file(s), M in scope, K finding(s)
+Read M. A run that examined nothing otherwise looks exactly like a clean one.
+
+Judging whole files makes this STRICTER than the hook, which only sees the
+text a change introduces. Use --update-baseline once to accept what is
+already there.`
+
 // `PRESETS.includes(value)` needs the tuple widened to `readonly string[]`, and widening by
 // assertion is exactly what `no-type-assertion` objects to. A comparison needs no widening.
 const isPreset = (value: string): value is Preset => PRESETS.some((preset) => preset === value)
 
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {
-    return { _tag: 'Help', text: USAGE }
+    // `scan` has its own flags and its own exit codes, and printing the hook's usage for it
+    // documented neither. A reader asking a command for its usage and being handed a different
+    // command's is worse than terse help.
+    return { _tag: 'Help', text: args[0] === 'scan' ? SCAN_USAGE : USAGE }
   }
 
   // `args[0]` and nowhere else. "Positionals are allowed once `scan` is seen" would admit

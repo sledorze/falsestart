@@ -27,7 +27,8 @@ branch's first push. Exit codes are its own contract — 0 clean, 1 findings, 2 
 fails CLOSED where the hook fails open, because a gate that cannot run must stop rather than pass
 everything. It judges whole files where the hook judges introduced text, so it is strictly stricter:
 64% of real TypeScript files already carry a finding, which is what `--baseline`/`--update-baseline`
-absorb. Every run prints `scanned N, M in scope, K finding(s)`; `M = 0` is the signal that a run
+absorb — one entry per occurrence, so accepting two identical lines does not accept a third, and a
+baseline that exists but cannot be read exits 2 rather than silently accepting nothing. Every run prints `scanned N, M in scope, K finding(s)`; `M = 0` is the signal that a run
 enforced nothing, which otherwise looks identical to success.
 
 Behaviour: an `error`-severity match blocks with the rule's message; softer severities do not

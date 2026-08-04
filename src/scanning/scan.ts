@@ -67,8 +67,16 @@ export interface ScanReport {
 }
 
 export interface ScanOptions {
-  /** Findings already accepted, keyed by `fingerprint`. */
-  readonly baseline?: ReadonlySet<string> | undefined
+  /**
+   * How many findings of each `fingerprint` are already accepted.
+   *
+   * A COUNT rather than a set. Membership alone meant that once one
+   * `const x = value as any` in a file was accepted, a second, third and hundredth identical line
+   * were accepted too — copy-pasting an already-baselined pattern was invisible to the gate
+   * forever. The written file has always listed one entry per occurrence; only the reader
+   * collapsed them.
+   */
+  readonly baseline?: ReadonlyMap<string, number> | undefined
   readonly paths: readonly string[]
   readonly projectDirectory: string
   readonly rules: readonly Rule[]
@@ -157,8 +165,21 @@ export const scan = (options: ScanOptions): Effect.Effect<ScanReport, ScanError,
     const scanned = results.flatMap((result) => (result.file === undefined ? [] : [result.file]))
     const missing = results.flatMap((result) => (result.missing === undefined ? [] : [result.missing]))
 
+    // Consumed as a budget: each accepted occurrence absorbs exactly one finding, so an extra
+    // copy of an already-accepted violation is still reported. Order within a file is stable
+    // because `checkFile` returns findings in source order.
+    const remaining = new Map(baseline)
     const fresh = scanned.flatMap((file) =>
-      file.findings.filter((finding) => baseline === undefined || !baseline.has(fingerprint(file.path, finding))),
+      file.findings.filter((finding) => {
+        const key = fingerprint(file.path, finding)
+        const accepted = remaining.get(key) ?? 0
+
+        if (accepted === 0) {
+          return true
+        }
+        remaining.set(key, accepted - 1)
+        return false
+      }),
     )
 
     return {

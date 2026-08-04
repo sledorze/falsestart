@@ -193,6 +193,15 @@ After that the baseline absorbs those findings and only new ones fail. It holds 
 than line numbers, so a finding that moves when something is inserted above it is still the same
 finding, and reformatting does not churn the file.
 
+It records **one entry per occurrence** and absorbs exactly that many. Accepting two identical
+`as any` lines in a file does not accept a third — otherwise copy-pasting more of an
+already-accepted pattern would be invisible to the gate forever.
+
+A `--baseline` file that does not exist yet means "nothing accepted", so you can wire the flag in
+before creating it. A file that exists but cannot be read — a typo'd path, a directory, malformed
+JSON — is an error and exits 2. Treating that as an empty baseline would make a broken baseline
+indistinguishable from a real and growing set of new violations.
+
 ### Read the summary line
 
 Every run ends with `scanned N file(s), M in scope, K finding(s)`. `M` is the one to read. A bare
