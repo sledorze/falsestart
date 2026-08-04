@@ -94,18 +94,20 @@ layer(platform)('reading a baseline', (it) => {
 })
 
 layer(platform)('writing a baseline', (it) => {
-  it.effect('sorts, so re-running produces the same bytes', () => {
-    // A file that reorders between runs makes every diff unreadable and every review a guess.
-    expect(baselineText(['b', 'a'])).toBe(baselineText(['a', 'b']))
+  it.effect('sorts, so re-running produces the same bytes', () =>
+    Effect.gen(function* () {
+      // A file that reorders between runs makes every diff unreadable and every review a guess.
+      expect(yield* baselineText(['b', 'a'])).toBe(yield* baselineText(['a', 'b']))
+    }),
+  )
 
-    return Effect.void
-  })
+  it.effect('keeps one entry per occurrence', () =>
+    Effect.gen(function* () {
+      const text = yield* baselineText(['a', 'a'])
 
-  it.effect('keeps one entry per occurrence', () => {
-    expect(baselineText(['a', 'a'])).toContain('"a",\n  "a"')
-
-    return Effect.void
-  })
+      expect(yield* readBaselineText(text, 'b.json')).toEqual(new Map([['a', 2]]))
+    }),
+  )
 
   it.effect('round-trips through the reader', () =>
     withDirectory((root) =>

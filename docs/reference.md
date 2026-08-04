@@ -22,12 +22,13 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 Judges files already on disk, for a git hook or CI. A different contract from the hook in both
 directions — paths in, a report out, and exit codes a shell can read.
 
-| Flag                | Meaning                                                                     |
-| ------------------- | --------------------------------------------------------------------------- |
-| `paths…`            | Files to judge. Supplied by the caller; falsestart never discovers them.    |
-| `-` / `-0`          | Read paths from stdin, newline- or NUL-delimited. Use `-0` with `git … -z`. |
-| `--baseline <file>` | Findings already accepted. Absent file means an empty baseline.             |
-| `--update-baseline` | Write every current finding to `--baseline` and exit without failing.       |
+| Flag                | Meaning                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `paths…`            | Files to judge. Supplied by the caller; falsestart never discovers them.                                |
+| `-` / `-0`          | Read paths from stdin, newline- or NUL-delimited. Use `-0` with `git … -z`.                             |
+| `--baseline <file>` | Findings already accepted. Absent file means an empty baseline.                                         |
+| `--update-baseline` | Write every current finding to `--baseline` and exit without failing.                                   |
+| `--exclude <glob>`  | Leave these paths alone. Repeatable, and ADDED to any `exclude` in the config rather than replacing it. |
 
 `--preset`, `--rules` and `--config` work as they do for the hook. `--warn-unscoped` is refused: the
 scan report always states how many files were in scope.
@@ -205,6 +206,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `appliesTo`                 | function    | checking |
 | `extensionGlobGroup`        | function    | checking |
 | `grammarFor`                | function    | checking |
+| `matchesAny`                | function    | checking |
 | `applyScopeOverrides`       | function    | config   |
 | `assessRule`                | function    | testing  |
 | `checkFile`                 | function    | checking |
@@ -230,6 +232,8 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `scan`                      | function    | scanning |
 | `render`                    | function    | scanning |
 | `partitionPaths`            | function    | scanning |
+| `readBaselineText`          | function    | scanning |
+| `baselineText`              | function    | scanning |
 | `parseIgnoredPaths`         | function    | scanning |
 | `writeBaseline`             | function    | scanning |
 | `readBaseline`              | function    | scanning |

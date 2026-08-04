@@ -82,9 +82,20 @@ export const readBaseline = (
     return yield* readBaselineText(read.success, baselinePath)
   })
 
-/** The bytes to write for a set of accepted fingerprints. Sorted, so a re-run diffs to nothing. */
-export const baselineText = (fingerprints: readonly string[]): string =>
-  `${JSON.stringify([...fingerprints].toSorted(), undefined, 2)}\n`
+/**
+ * The bytes to write for a set of accepted fingerprints. Sorted, so a re-run diffs to nothing.
+ *
+ * Encoded through the same schema the reader decodes with, rather than `JSON.stringify` behind a
+ * config exemption. `no-json-global`'s own note says the only honest exception is a wire format
+ * with no decode side to keep in step — and this file has one, three functions up.
+ */
+const Fingerprints = Schema.fromJsonString(Schema.Array(Schema.String))
+
+export const baselineText = (fingerprints: readonly string[]): Effect.Effect<string> =>
+  Schema.encodeEffect(Fingerprints)([...fingerprints].toSorted()).pipe(
+    Effect.orDie,
+    Effect.map((json) => `${json}\n`),
+  )
 
 export const writeBaseline = (
   baselinePath: string,
@@ -92,7 +103,7 @@ export const writeBaseline = (
 ): Effect.Effect<void, BaselineUnreadable, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const written = yield* Effect.result(fs.writeFileString(baselinePath, baselineText(fingerprints)))
+    const written = yield* Effect.result(fs.writeFileString(baselinePath, yield* baselineText(fingerprints)))
 
     // A baseline that could not be written must not report success. Swallowing it leaves the next
     // run reporting every finding again, with nothing explaining why.
