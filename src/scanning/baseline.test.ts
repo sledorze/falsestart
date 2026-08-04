@@ -101,11 +101,26 @@ layer(platform)('writing a baseline', (it) => {
     }),
   )
 
+  it.effect('writes one fingerprint per line, because the file is read in a diff', () =>
+    Effect.gen(function* () {
+      // Asserted on the literal bytes. A round-trip check is whitespace-blind, and when this
+      // assertion was replaced with one, the format collapsed to a single compact line without a
+      // single test noticing — turning every future one-entry change into a whole-file diff.
+      expect(yield* baselineText(['b', 'a'])).toBe('[\n  "a",\n  "b"\n]\n')
+    }),
+  )
+
   it.effect('keeps one entry per occurrence', () =>
     Effect.gen(function* () {
       const text = yield* baselineText(['a', 'a'])
 
       expect(yield* readBaselineText(text, 'b.json')).toEqual(new Map([['a', 2]]))
+    }),
+  )
+
+  it.effect('writes an empty baseline as an empty array', () =>
+    Effect.gen(function* () {
+      expect(yield* baselineText([])).toBe('[]\n')
     }),
   )
 
