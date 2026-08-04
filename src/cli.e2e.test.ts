@@ -228,4 +228,61 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
       }),
     ),
   )
+
+  // `--preset` is how the documentation tells everyone to start, and it appeared nowhere in this
+  // suite — the packaged-rules path was never once run as a process. It is also the path that
+  // depends on `import.meta.url` pointing at the bundled `dist/cli.js`, which no in-process test
+  // can observe: resolve `../rules` from the wrong artifact and the guard loads nothing at all.
+  it.effect('loads the packaged rules through --preset and blocks with them', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('takes only the named subset of the packaged rules', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        // `no-await` is an Effect rule. Under `--preset clean-code` it must not be loaded, so this
+        // write is allowed — the proof that a preset selects a subdirectory rather than everything.
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--config', configPath],
+          payloadFor({ content: 'const go = async () => await x', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+      }),
+    ),
+  )
+
+  // The other half of `packageRulesDirectory`'s contract, which cannot honestly be tested in
+  // process: under vitest the loader resolves through its own module graph, so a package that does
+  // not exist on disk still resolves. Only a real node process does the filesystem walk.
+  it.effect('reports an unresolvable rules package without blocking the write', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        // Visible, and NOT blocking: a missing dependency must not stop every write in the repo.
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('could not resolve rules package')
+      }),
+    ),
+  )
 })
