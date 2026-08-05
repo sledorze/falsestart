@@ -453,6 +453,14 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
 
         expect(result.exitCode).toBe(0)
         expect(result.stderr).toBe('')
+        // The BYTES, not the parsed shape. One rule per line is what four documents and `--help`
+        // give as the reason two runs diff cleanly, and `JSON.parse` is blind to every part of
+        // that claim — the layout could collapse to one line, or lose its trailing newline, with
+        // this suite green. `listing.test.ts` pins what `ruleListText` returns; only a process can
+        // say that is what reaches stdout.
+        expect(result.stdout).toBe(
+          `[\n  {"files":["**/*.{ts,tsx}"],"id":"no-as-any","ignores":null,"language":"tsx","severity":"error"}\n]\n`,
+        )
         expect(JSON.parse(result.stdout)).toEqual([
           {
             files: ['**/*.{ts,tsx}'],
@@ -540,6 +548,43 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
       expect(result.exitCode).toBe(1)
       expect(result.stderr).toContain('--bogus')
     }),
+  )
+
+  // A reader that stops reading is the documented way to use this flag — the reference's own
+  // sample pipes it into `jq`, and `| head` and `| grep -q` are what people reach for next. Past
+  // one pipe buffer the writer then takes an EPIPE, and unhandled that exits 1, which under this
+  // command's own vocabulary means the command line was refused. `set -o pipefail` turns that into
+  // a red build on a document that was produced perfectly.
+  //
+  // Only a real pipeline shows it, which is why this spawns a shell: the in-process spawner
+  // collects stdout to completion, so it can never be the reader that leaves. The fixture is sized
+  // past the buffer on purpose — with the one-rule fixtures above the write finishes first and the
+  // test would pass without the handling it exists to check.
+  it.effect('survives a reader that closes the pipe after one line', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-e2e-pipe-' })
+
+      const globs = Array.from({ length: 12 }, (_, index) => `  - '**/segment-${index}/**/*.{ts,tsx,mts,cts}'`)
+      yield* Effect.all(
+        Array.from({ length: 150 }, (_, index) =>
+          fs.writeFileString(
+            path.join(root, `rule-${index}.yml`),
+            `id: rule-${String(index).padStart(5, '0')}\nlanguage: tsx\nrule:\n  pattern: $X as any\nfiles:\n${globs.join('\n')}\n`,
+          ),
+        ),
+      )
+      const configPath = yield* withEmptyConfig(root)
+
+      // `PIPESTATUS[0]` is what a user's `set -o pipefail` reads, and it is the only place the
+      // writer's own code survives the pipeline.
+      const script = `node ${CLI} --list-rules --rules ${root} --config ${configPath} | head -1 > /dev/null; exit "\${PIPESTATUS[0]}"`
+      const handle = yield* spawner.spawn(ChildProcess.make('bash', ['-c', script]))
+
+      expect(yield* handle.exitCode).toBe(0)
+    }).pipe(Effect.scoped, Effect.orDie),
   )
 
   // The one exception to the paragraph above, pinned because the help text and the reference now

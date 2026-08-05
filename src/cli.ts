@@ -10,7 +10,7 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, Layer, Stdio, Stream } from 'effect'
-import { packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
+import { isBrokenPipe, packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
 import {
@@ -286,7 +286,18 @@ const program = Effect.gen(function* () {
       return yield* new Exit({ code: ScanExit.Broken })
     }
 
-    return yield* write(yield* ruleListText(resolved.success), stdio.stdout())
+    const wrote = yield* Effect.result(write(yield* ruleListText(resolved.success), stdio.stdout()))
+
+    // A reader that stopped reading is not this command's failure. `| head`, `| grep -q` and the
+    // reference's own `| jq` sample all close the pipe once they have what they came for, and the
+    // write that lands after that fails with EPIPE — which, propagated, exits 1 and so claims the
+    // command line was refused. Only the broken pipe is forgiven; anything else still fails
+    // exactly as it did. `--doctor` has the same edge, and changing an existing flag is a
+    // different change.
+    if (wrote._tag === 'Failure' && !isBrokenPipe(wrote.failure)) {
+      return yield* Effect.fail(wrote.failure)
+    }
+    return
   }
 
   // `--doctor` answers a question about the installation, so it must not wait on a payload that

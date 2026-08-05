@@ -73,6 +73,16 @@ this document diffs clean. It is left out because it is per-run rather than per-
 write-time hook never consults it at all — and because, unlike the resolved rule set, it is already
 readable straight out of the committed config file. Assert it there.
 
+`exclude` is not the only one, and naming it alone would read as the complete warning. What a `scan`
+answers for is also narrowed by the caller's own `.gitignore` — falsestart asks git itself, so a path
+added there stops being judged — and by `--exclude` globs on the command line, which add to the
+config's list rather than replacing it. (`node_modules` and `.git` are always excluded and are not
+configurable either way.) Each narrows the gate without touching a rule, so none of them can appear
+here, and `.gitignore` is the likeliest to drift because adding a path to it does not feel like a
+policy change. Each is readable where it lives — the config file, the hook command line,
+`git check-ignore` — and a `scan` reports how many paths it left alone in its summary line, which is
+the cross-check that does not depend on remembering this list.
+
 | Field      | Type             | Meaning                                                                                                                                                                                                                                          |
 | ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `files`    | globs, or `null` | Effective scope. `null` means the rule declares none, so every path is in it.                                                                                                                                                                    |

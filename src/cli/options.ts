@@ -124,8 +124,9 @@ Options:
                   decide what gets judged. One rule per line, sorted by id.
                   Reads no stdin. The output is JSON and only JSON; there is
                   no --json flag. Refused with scan, --doctor, --version and
-                  --warn-unscoped. It does NOT report the config's top-level
-                  \`exclude\`, which applies to scan rather than to a rule.
+                  --warn-unscoped. It does NOT report anything that narrows
+                  a scan without touching a rule: the config's top-level
+                  \`exclude\`, --exclude globs, or your .gitignore.
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
@@ -263,8 +264,10 @@ export const parseArguments = (args: readonly string[]): Options => {
       continue
     }
 
-    // Read before the `if (scanning)` block below, so `scan --list-rules` reaches the precise
-    // refusal further down instead of the generic `unrecognised argument`.
+    // Anywhere above the unrecognised-argument guard at the bottom of this loop, and nowhere else:
+    // that guard is what would otherwise refuse `--list-rules` generically, in every mode. The
+    // `if (scanning)` block in between cannot swallow it — its only catch-all takes arguments that
+    // do NOT start with `-` — so the position beside `--doctor` is for reading, not for behaviour.
     if (argument === '--list-rules') {
       listRules = true
       continue

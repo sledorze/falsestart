@@ -305,6 +305,9 @@ however the rule tree is laid out on disk.
 
 It reports rules, and a config's top-level `exclude` is not one: `exclude` takes whole paths out of
 `scan` without touching a rule, so pin it by reading the config file, not by diffing this document.
+The same goes for `--exclude` globs on the command line and for your `.gitignore`, which falsestart
+asks git about directly — all three narrow what the gate answers for while this document stays
+identical. `scan`'s summary line is where you see how many paths were left alone.
 
 Exit `0` means the document is on stdout; exit `2` means the rule set could not be produced at all.
 Do not read an empty diff as proof the command ran; read the exit code.

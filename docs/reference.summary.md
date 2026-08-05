@@ -23,7 +23,8 @@ overrides — as JSON on stdout and exits, so a repo can assert that the rules b
 rules its CI gate checks. Five fields per rule (`files`, `id`, `ignores`, `language`, `severity`),
 one rule per line, sorted by id so two runs diff cleanly; the matcher and the prose are deliberately
 absent, so a pattern refactor cannot break an assertion, and the config's top-level `exclude` is
-absent too because it belongs to `scan` rather than to a rule. `null` files means "no scope
+absent too because it belongs to `scan` rather than to a rule — as are `--exclude` and the caller's
+`.gitignore`, which narrow what a scan answers for the same way. `null` files means "no scope
 declared", the opposite of `[]`. Exits 0 with the document or 2 if it could not be produced; a
 refused hook command line still exits 1, because exit 2 from a hook blocks the write (a refused
 `scan` still exits 2, as it always has). Reads no stdin, and

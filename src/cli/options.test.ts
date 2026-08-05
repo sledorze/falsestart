@@ -233,7 +233,12 @@ describe('the scan command', () => {
     expect(parseArguments(['scan', '--version'])._tag).toBe('Invalid')
     // `scan` judges paths and reports findings; `--list-rules` reports a rule set. Accepting both
     // means one of them was written and thrown away.
-    expect(parseArguments(['scan', '--list-rules', 'a.ts'])._tag).toBe('Invalid')
+    const combined = parseArguments(['scan', '--list-rules', 'a.ts'])
+    expect(combined._tag).toBe('Invalid')
+    // And refused by NAME, not swept up by the unrecognised-argument guard at the end of the loop.
+    // Both spellings are `Invalid`, so only the message tells them apart — and the difference is
+    // whether a reader is told which two things cannot be combined or just that a flag is unknown.
+    expect(combined._tag === 'Invalid' && combined.problem).not.toContain('unrecognised')
   })
 
   it('answers --help with the SCAN usage, not the hook usage', () => {
