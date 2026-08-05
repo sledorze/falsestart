@@ -38,10 +38,16 @@ process, 10 runs averaged:
 
 | Invocation                                          | Per tool call |
 | --------------------------------------------------- | ------------- |
-| `--version` — no stdin, no rules: the floor         | 66 ms         |
-| A tool call falsestart does not judge               | 66 ms         |
-| A judged write, 23 rules (`--preset all`)           | 88 ms         |
-| A judged write, 168 rules in 8 category directories | 113 ms        |
+| `--version` — no stdin, no rules: the floor         | 71 ms         |
+| A tool call falsestart does not judge               | 72 ms         |
+| A judged write, 23 rules (`--preset all`)           | 95 ms         |
+| A judged write, 168 rules in 8 category directories | 147 ms        |
+
+**What the 168-rule tree is matters, so it is stated rather than left to be guessed**: the 23 shipped
+rules copied round-robin into 8 category directories, 21 apiece, each id rewritten to stay unique.
+Rule count is not the only term — the same 168 documents written as one-line patterns with short
+messages measure 116 ms instead of 147, because a rule's matcher and its text are both work. A row
+whose tree was unspecified would be a number nobody else can land on.
 
 Reproduce it with the loop that produced it, from a directory with no `falsestart.config.ts`:
 
@@ -56,11 +62,11 @@ done
 echo "$(( total / 10 )) ms"
 ```
 
-Rule count is the smaller term: 145 extra rules cost about 25 ms here, against a floor near 65 ms
-that no rule set can avoid. The numbers are stamped because they are a fact about that machine on
-that day — repeated passes on this one moved them by 10% on their own — and the three-part shape
-above is what holds on yours. Each part of it is anchored to a line of code rather than to a
-stopwatch.
+Rule count is still the smaller term: 145 extra rules of that shape cost about 50 ms here, against a
+floor near 70 ms that no rule set can avoid. The numbers are stamped because they are a fact about
+that machine on that day — repeated passes on this one moved every row by 5–10% on their own — and
+the three-part shape above is what holds on yours. Each part of it is anchored to a line of code
+rather than to a stopwatch.
 
 Nothing is cached between invocations, and nothing here promises that will change. `src/judge.bench.ts`
 measures the in-process half and says the same thing where it re-reads the tree: if loading ever
