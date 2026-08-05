@@ -542,6 +542,19 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     }),
   )
 
+  // The one exception to the paragraph above, pinned because the help text and the reference now
+  // both state it and nothing else observes it — a parse test sees `Invalid`, not an exit code.
+  // `scan` earns its 2 by being a subcommand at argv[0]: an unmistakable act that cannot be a
+  // stray flag on a hook command line, which is the whole reason the hook path keeps 1.
+  it.effect('scan refuses --list-rules with its own 2, the one exception to the shared 1', () =>
+    Effect.gen(function* () {
+      const result = yield* runCliRaw(['scan', '--list-rules', 'a.ts'], '')
+
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('--list-rules')
+    }),
+  )
+
   it.effect('there is no --json flag; it is refused rather than accepted and ignored', () =>
     Effect.gen(function* () {
       // Settled deliberately: the output is JSON because that is the only thing this command is

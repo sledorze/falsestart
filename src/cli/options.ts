@@ -158,9 +158,11 @@ Exit codes:
   2  It could not be produced — unreadable rule tree, a config that would not
      load, a rules package that would not resolve.
 
-  A REFUSED command line still exits 1, not 2, whatever flags it named: exit
-  2 from a PreToolUse hook blocks the write, and an argument error must never
-  be able to do that.`
+  A REFUSED hook command line still exits 1, not 2, whatever flags it named:
+  exit 2 from a PreToolUse hook blocks the write, and an argument error must
+  never be able to do that. \`scan\` is the exception and earns it — a
+  subcommand at argv[0] cannot be a stray flag on a hook command line — so a
+  refused \`scan\` exits 2, as it always has.`
 
 const SCAN_USAGE = `falsestart scan — judge files that are already on disk
 

@@ -19,7 +19,8 @@ document: it applies to `scan` rather than to any rule, so pin it by reading you
 It answers a script rather than the hook protocol, so once it is running it uses `scan`'s exit
 codes: 0 with the document on stdout, 2 when the rule set could not be produced. A refused command
 line still exits 1, the shared code — exit 2 from a `PreToolUse` hook blocks the write, and an
-argument error must never be able to do that.
+argument error must never be able to do that. A refused `falsestart scan` keeps exiting 2, as
+before: it is a subcommand at argv[0] and cannot be a stray flag on a hook command line.
 
 Also exported for use from your own tests: `describeRules(rules)` returns the same entries,
 `ruleListText(rules)` returns the same bytes, and `RuleDescriptionSchema` decodes a document you

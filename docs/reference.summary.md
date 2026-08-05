@@ -25,7 +25,8 @@ one rule per line, sorted by id so two runs diff cleanly; the matcher and the pr
 absent, so a pattern refactor cannot break an assertion, and the config's top-level `exclude` is
 absent too because it belongs to `scan` rather than to a rule. `null` files means "no scope
 declared", the opposite of `[]`. Exits 0 with the document or 2 if it could not be produced; a
-refused command line still exits 1, because exit 2 from a hook blocks the write. Reads no stdin, and
+refused hook command line still exits 1, because exit 2 from a hook blocks the write (a refused
+`scan` still exits 2, as it always has). Reads no stdin, and
 there is no `--json` flag.
 
 `--warn-unscoped` reports a

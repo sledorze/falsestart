@@ -6,17 +6,17 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                                                                                                                                                                             |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                                                |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                                           |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                    |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                 |
-| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                         |
-| `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`. |
-| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                           |
-| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                   |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                               |
+| Flag                 | Meaning                                                                                                                                                                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                                                     |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                                                |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                         |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                      |
+| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                              |
+| `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused hook command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`. |
+| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                                |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                        |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                                    |
 
 One invocation loads exactly one rule source, and the two ways of naming a second one differ. A
 preset and any `--rules` are refused together, so nothing is ranked. Between the two `--rules`
@@ -111,7 +111,9 @@ These are `scan`'s codes on purpose: this command answers a script, and "falsest
 should not be spelled two ways inside one binary.
 
 A command line that is **refused** — an unrecognised flag, a flag with its value forgotten, a
-refused combination — still exits `1`, the shared code, whatever flags it named. That is deliberate:
+refused combination — still exits `1`, the shared code, whatever flags it named. `scan` is the one
+exception, and refuses with `2` as it always has: a subcommand at `argv[0]` cannot be a stray flag on
+a hook command line, which is what the rest of this paragraph is about. That is deliberate:
 a refusal happens before falsestart knows which mode was asked for, the default mode is the hook,
 and exit `2` from a hook blocks the write and throws stdout away. An argument error must never be
 able to do that.
