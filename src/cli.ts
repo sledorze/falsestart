@@ -23,7 +23,7 @@ import {
   writeBaseline,
 } from './scanning/index.ts'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from './config/index.ts'
-import { loadRules } from './checking/index.ts'
+import { loadRules, ruleListText } from './checking/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
@@ -157,6 +157,17 @@ const program = Effect.gen(function* () {
     return yield* new Exit({ code: brokenCode })
   }
 
+  /**
+   * What a failure costs once the mode IS known, which the two paths above cannot ask.
+   *
+   * `brokenCode` has to answer before the mode exists: an `Invalid` parse carries none, and the
+   * default mode is the hook, where exit 2 BLOCKS the write and the runtime throws stdout away. So
+   * an argument error keeps the fail-open 1 even when `--list-rules` was written — a mis-typed hook
+   * command must not become an outage. `--list-rules` claims 2 only from here down, where the run
+   * is already producing a JSON document rather than a hook decision.
+   */
+  const failureCode = options._tag === 'ListRules' ? ScanExit.Broken : brokenCode
+
   const projectDirectory = process.cwd()
 
   const located = yield* Effect.result(
@@ -177,7 +188,7 @@ const program = Effect.gen(function* () {
   // and non-blocking, so a missing dependency cannot stop every write in the repo.
   if (located._tag === 'Failure') {
     yield* write(`falsestart: could not resolve rules package (${located.failure})\n`, stdio.stderr())
-    return yield* new Exit({ code: brokenCode })
+    return yield* new Exit({ code: failureCode })
   }
 
   if (options._tag === 'Scan') {
@@ -254,6 +265,28 @@ const program = Effect.gen(function* () {
     const outcome = render(report.success)
     yield* write(`${outcome.text}\n`, stdio.stdout())
     return yield* outcome.exitCode === ScanExit.Clean ? Effect.void : new Exit({ code: outcome.exitCode })
+  }
+
+  // Like `--doctor`, this answers a question about the installation, so it must not wait on a
+  // payload that will never arrive.
+  if (options._tag === 'ListRules') {
+    const resolved = yield* Effect.result(
+      Effect.gen(function* () {
+        const loaded = yield* loadRules(located.success)
+        const configured =
+          options.configPath === undefined
+            ? yield* loadDefaultConfig(projectDirectory)
+            : yield* loadConfigFile(options.configPath)
+        return yield* applyScopeOverrides(loaded, configured)
+      }),
+    )
+
+    if (resolved._tag === 'Failure') {
+      yield* write(`falsestart: ${resolved.failure.reasons.join('\n')}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+
+    return yield* write(yield* ruleListText(resolved.success), stdio.stdout())
   }
 
   // `--doctor` answers a question about the installation, so it must not wait on a payload that

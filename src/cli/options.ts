@@ -54,6 +54,17 @@ export type Options =
     }
   | {
       /**
+       * Same resolution as `Run`, reported as a document rather than used to judge one. Reads no
+       * stdin, for the same reason `--doctor` does not: it is a question about the installation.
+       */
+      readonly _tag: 'ListRules'
+      readonly configPath: string | undefined
+      readonly preset: Preset | undefined
+      readonly rulesPackage: string | undefined
+      readonly rulesDirectory: string
+    }
+  | {
+      /**
        * Judge files already on disk. A different contract in and out: paths in, a report out, and
        * exit codes a shell can read rather than the hook protocol's.
        */
@@ -107,6 +118,14 @@ Options:
                   decision path. Reads no stdin. Exits 1 when a step did not
                   resolve or the sample could not be judged. Use this to
                   check a hook is actually guarding something.
+  --list-rules    Print the resolved rule set as JSON on stdout and exit —
+                  after --preset/pkg: resolution and after config scope
+                  overrides, so the globs are the ones that will really
+                  decide what gets judged. One rule per line, sorted by id.
+                  Reads no stdin. The output is JSON and only JSON; there is
+                  no --json flag. Refused with scan, --doctor, --version and
+                  --warn-unscoped. It does NOT report the config's top-level
+                  \`exclude\`, which applies to scan rather than to a rule.
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
@@ -130,7 +149,18 @@ Config format (falsestart.config.ts):
 
 Exit codes:
   0  Decision made (JSON on stdout to block) or nothing to say.
-  1  falsestart could not do its job. Reported, and the write proceeds.`
+  1  falsestart could not do its job, or the command line was refused.
+     Reported, and the write proceeds.
+
+  --list-rules answers a script rather than the hook protocol, so once it is
+  running it uses \`scan\`'s codes:
+  0  The rule set is on stdout.
+  2  It could not be produced — unreadable rule tree, a config that would not
+     load, a rules package that would not resolve.
+
+  A REFUSED command line still exits 1, not 2, whatever flags it named: exit
+  2 from a PreToolUse hook blocks the write, and an argument error must never
+  be able to do that.`
 
 const SCAN_USAGE = `falsestart scan — judge files that are already on disk
 
@@ -203,6 +233,7 @@ export const parseArguments = (args: readonly string[]): Options => {
   let rulesPackage: string | undefined
   let sawRules = false
   let doctor = false
+  let listRules = false
   let version = false
   let warnUnscoped = false
 
@@ -227,6 +258,13 @@ export const parseArguments = (args: readonly string[]): Options => {
     // forgotten, and `--bogus --version` exit 0 on an unrecognised flag.
     if (argument === '--doctor') {
       doctor = true
+      continue
+    }
+
+    // Read before the `if (scanning)` block below, so `scan --list-rules` reaches the precise
+    // refusal further down instead of the generic `unrecognised argument`.
+    if (argument === '--list-rules') {
+      listRules = true
       continue
     }
 
@@ -327,8 +365,8 @@ export const parseArguments = (args: readonly string[]): Options => {
     }
   }
 
-  if (scanning && (doctor || version)) {
-    return { _tag: 'Invalid', problem: '`scan` cannot be combined with --doctor or --version' }
+  if (scanning && (doctor || listRules || version)) {
+    return { _tag: 'Invalid', problem: '`scan` cannot be combined with --doctor, --list-rules or --version' }
   }
 
   if (scanning && warnUnscoped) {
@@ -352,6 +390,23 @@ export const parseArguments = (args: readonly string[]): Options => {
     }
   }
 
+  // Two report modes in one process: whichever won, the other flag would have been taken and
+  // dropped. `--doctor --version` predates this and is deliberately left alone — changing an
+  // existing flag's behaviour is a separate change.
+  if (listRules && (doctor || version)) {
+    return { _tag: 'Invalid', problem: '--list-rules cannot be combined with --doctor or --version' }
+  }
+
+  // Refused for the reason `--doctor` refuses it: there is no payload to report an unscoped write
+  // for. The information is not missing — the listing states every rule's effective files and
+  // ignores, which is the same fact in a stronger form.
+  if (listRules && warnUnscoped) {
+    return {
+      _tag: 'Invalid',
+      problem: "--warn-unscoped has no effect with --list-rules; the listing states every rule's files and ignores",
+    }
+  }
+
   if (version) {
     return { _tag: 'Version' }
   }
@@ -369,6 +424,10 @@ export const parseArguments = (args: readonly string[]): Options => {
       rulesPackage,
       writeBaseline,
     }
+  }
+
+  if (listRules) {
+    return { _tag: 'ListRules', configPath, preset, rulesDirectory, rulesPackage }
   }
 
   return doctor
