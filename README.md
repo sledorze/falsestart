@@ -102,7 +102,7 @@ ignores:
   - '**/*.test.{ts,tsx}'
 ```
 
-A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on its own a reason to touch a file.
+A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on its own a reason to touch a file. Each rule is evaluated against one file's syntax tree, so a rule cannot ask a question about the rest of the repository.
 
 A starter corpus ships in [`rules/`](./rules): `clean-code/` is generic TypeScript, `effect/`
 assumes an Effect codebase. Reach them with `--preset`, or copy the ones you want into your own

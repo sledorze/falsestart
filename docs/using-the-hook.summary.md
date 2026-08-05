@@ -3,8 +3,12 @@
 falsestart runs as a Claude Code `PreToolUse` hook: register it in `.claude/settings.json` with a
 `Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
 `node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
-Settings must be strict JSON. `--doctor` answers "is this guarding anything?" — it prints the
-version that answered, the resolved rules, config and per-path rule counts, then sends a real
+Settings must be strict JSON. Guarding shell commands is a second `PreToolUse` entry beside this one
+— the intended arrangement, not a workaround, since a `matcher` makes the two select disjoint sets
+of tool calls, and on a call falsestart does not judge it writes nothing to either stream and exits
+0 before its rule tree is read. `--doctor` answers "is this guarding anything?" — it prints the
+version that answered, the resolved rules with how many of them block and how many advise, config
+and per-path rule counts, then sends a real
 violation through the decision path. Read its scope block, not just its last line: a nested probe
 path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read
 its version line too — a hook wired at a path holding an older copy describes that copy, plausibly.
@@ -42,6 +46,21 @@ block; a path outside a rule's `files`/`ignores` never runs it; other tools are 
 tree that will not load, or a rule that cannot run, produces a visible error while letting the
 write proceed — loud, but not able to hold a repository hostage.
 
+A rule declaring `warning`, `info` or `hint` is shown to the author as
+`{"systemMessage":"falsestart:\n<rule-id> (<line>:<column>): <message>"}` and decides nothing — a
+different JSON document from a denial's `hookSpecificOutput`, not the same one with another verdict,
+and the same envelope `--warn-unscoped` uses. Severity is a field of the rule document, so one rule
+has one severity everywhere it is loaded: a rule that must block in a curated tree and advise in a
+wider one exists twice, as two ids or as one document reached by two hook entries, kept in step by
+hand.
+
+Laying out a large tree: subdirectories are organisational only, ids are unique across the whole
+tree (a duplicate refuses the load), and every matching rule is reported together. `--rules` names
+one rule source per invocation and cannot be combined with `--preset`, so layering two trees means
+two hook entries — which also gives each its own config and severity policy. The cost of splitting:
+a root `_utils/` is out of scope for an entry pointing at one subdirectory, and a rule referencing a
+matcher it cannot see fails to run, reported and non-blocking on exit 1.
+
 The shipped corpus in `rules/` is split by assumption: `rules/clean-code/` is generic TypeScript,
 `rules/effect/` assumes an Effect codebase (`no-await` forbids a construct most projects use
 freely). Selection is by which rule documents are present, so "what is enforced here" is a directory
@@ -51,8 +70,9 @@ package, resolved from your project rather than a guessed node_modules path. The
 required rather than inferred, so an existing `--rules rules` keeps meaning the directory. A rules
 package is just a `rules/` directory of ast-grep documents. Where each rule applies is re-scopable per repo via `falsestart.config.{ts,mts,js,mjs,json}`
 (or `--config <file>`). A TypeScript config is type-checked against the exported `FalsestartConfig`
-and `ShippedRuleId`; use a type-only import, since a `.ts` config is type-stripped and imported
-without a filesystem location. `files` is required in an override; `ignores` is optional and, when
+and `ShippedRuleId`; import that type with `import type`, since a `.ts` config is type-stripped and imported
+from a `data:` URL with no filesystem location — it cannot resolve a package or relative value
+import, though `node:` builtins do resolve, which is enough to compute a scope by shelling out. `files` is required in an override; `ignores` is optional and, when
 omitted, the rule keeps its own. Two competing default configs are an error rather than a
 precedence rule, and an override for a rule that is not loaded is an error, not a silent no-op. An
 override REPLACES `files` rather than merging into them, so an extension left out of the
@@ -68,6 +88,9 @@ turning into a nuisance.
 as written; a file outside that root keeps its absolute path. Notebooks scope by the notebook's own
 path, so a `**/*.ts` rule does not see TypeScript in a `.ipynb` cell.
 
-A matcher shared by several rules lives in a `_utils/` directory inside the rule tree and is
-referenced by `matches:`. Those documents need only `id` and `rule`, are not rules themselves, and
-lose a name collision to a rule's own `utils:` block.
+A matcher shared by several rules lives in a `_utils/` directory at the top level of the tree
+`--rules` names — not inside a category — and is referenced by `matches:`. Those documents need only
+`id` and `rule`, are not rules themselves, and lose a name collision to a rule's own `utils:` block.
+Only the first path segment is recognised: a nested `_utils/` is loaded as a rule, fails validation
+for the fields a fragment does not carry, and takes the whole tree down with a message naming the
+missing `language` rather than the misplaced directory.

@@ -9,6 +9,12 @@ asked is the cheapest one, and a tool that writes no source is answered without 
 **being wrong is asymmetric**, since blocking good code teaches people to route around the guard,
 which protects nothing.
 
+The cost has those same three parts: a fixed floor every invocation pays (process start, the bundle,
+the `@ast-grep/napi` binding), the rule tree above it — re-read every time, because the process is
+new every time — and nothing above the floor for a call that is not judged. The doc carries a
+stamped measurement of each with the loop that produced it, and hands the reader `--version` as the
+probe for their own floor. Nothing is cached between invocations and nothing promises it will be.
+
 **Scope before content, always.** A rule acts on a file only when its path admits it. Breaking this
 is silent in both directions, so path scoping is its own concern with its own negative tests.
 
@@ -23,6 +29,18 @@ guard could not run (say so loudly, do not block). A rule that cannot run is nev
 
 **Rules are programs, so they are wrong until shown otherwise** — worked examples of both kinds,
 a blast-radius corpus no rule may flag, and a check that every API a message names is real.
+
+**What a rule cannot see.** A rule is evaluated against the syntax tree of one file's text; that
+text and the path it is destined for are the whole input, and nothing in the checking layer opens a
+file. There is no repo-wide corpus, no index of files seen before and no rule type running
+caller-supplied code at match time, so "flag this unless it is declared somewhere else in the repo"
+is not expressible and is not planned — written down rather than left to be inferred, since an
+absence cannot say whether a feature is unbuilt or unwanted. The precise line is between a rule's
+SCOPE and its MATCH: a config file is executed, so a scope can be computed at load time (a `.ts`
+config resolves `node:` builtins but not packages or relative paths; `.mjs` resolves anything),
+while the only thing a config may change about a rule is `files`/`ignores` and nothing in it reaches
+the matcher. `falsestart scan` answers the corpus-shaped question as far as whole files on disk —
+still one file at a time.
 
 **Six areas, separated by what each may know:** `checking/` (rule documents and source text),
 `config/` (a repo's overrides), `hook/` (the agent protocol), `scanning/` (the filesystem: paths in,
