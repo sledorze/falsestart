@@ -1,15 +1,15 @@
 {
   "refs": [
     {
-      "hash": "34b54756b253721b2cf1442ffacfa48e093f3edf544aa7ce4bdb524d2a73b61c",
+      "hash": "94ea313eb2ccc01d006c0bd01abbe03d101f148a9efd05b74755ba85ecdfb82f",
       "target": "./reference.md"
     },
     {
-      "hash": "915fe152e901462079a5f82100e3c8d9733ca0f792804237652742ee9b59e2c1",
+      "hash": "6d87db2e677a062773ed0f50a6739066d3db747a89b93db683384498232cd77f",
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "71fdb4e8d1d1fcaa052e970571559e6fd525028e77cc92ea361ae1a91fe7363e",
+      "hash": "7fdf017e7957b612527e6b6413a5bfb5a773064f5e9c384a7d43dbb0eb82e5cb",
       "target": "../src/checking/index.ts"
     },
     {
@@ -33,7 +33,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "00cd87e149e5f27100f514903318d17883d5630b2d28b9890137e061cda6ea55",
+      "hash": "6ce21a6b331ac0b1eff603af12ed02f80b2108a745b2f7aca352b5e66cb1f88a",
       "target": "../src/cli.ts"
     }
   ]

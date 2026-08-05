@@ -20,6 +20,11 @@ all. `--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 
+`--list-rules` prints the resolved rule set as JSON — the assertable counterpart to `--doctor`'s
+prose — so a repo can pin that the hook and the CI gate load the same rules; one rule per line
+sorted by id, exit 0 with the document and 2 when it could not be produced, and the config's
+`exclude` is deliberately not in it.
+
 `--warn-unscoped` answers the same question for the paths the repo actually writes: a judged write
 no rule is scoped to reports itself instead of passing in silence, non-blocking, and it cannot
 pre-empt a block since a rule that could block is a rule that applies. Off by default because the

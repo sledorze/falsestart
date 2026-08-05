@@ -288,6 +288,30 @@ given no paths at all, and by `scan` accidentally wired as the `PreToolUse` comm
 with non-JSON on stdout reads to the agent runtime as "allow", silently permitting every write. When
 `M` is `0` the run says so outright.
 
+### Pin the rule set, so the two gates cannot drift
+
+The hook and `scan` are two invocations, in two config files, with two chances to disagree about
+which rules are loaded. `--list-rules` makes the answer assertable:
+
+```bash
+falsestart --list-rules --preset all > rules.json
+```
+
+Commit that file and diff it in CI, or assert on it from a test. It is the resolved set — presets
+and `pkg:` specifiers already resolved, your `falsestart.config.ts` overrides already applied — so
+it changes when a rule is added, renamed, dropped, re-scoped or has its severity changed, and does
+not change when a matcher is refactored. One rule per line, sorted by id, so two runs diff cleanly
+however the rule tree is laid out on disk.
+
+It reports rules, and a config's top-level `exclude` is not one: `exclude` takes whole paths out of
+`scan` without touching a rule, so pin it by reading the config file, not by diffing this document.
+
+Exit `0` means the document is on stdout; exit `2` means the rule set could not be produced at all.
+Do not read an empty diff as proof the command ran; read the exit code.
+
+From a test, without a subprocess, `describeRules` returns the same entries from rules you loaded
+yourself, and `RuleDescriptionSchema` decodes a document you read back.
+
 ## Publishing your own rules
 
 A rules package is a directory of ast-grep documents under `rules/` and nothing more:

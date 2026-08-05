@@ -6,16 +6,17 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                                                                                                                                                     |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                        |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                   |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                            |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                         |
-| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve. |
-| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                   |
-| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                           |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                       |
+| Flag                 | Meaning                                                                                                                                                                                                                                             |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                                                |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                                           |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                    |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                 |
+| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                         |
+| `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`. |
+| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                           |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                   |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                               |
 
 One invocation loads exactly one rule source, and the two ways of naming a second one differ. A
 preset and any `--rules` are refused together, so nothing is ranked. Between the two `--rules`
@@ -53,6 +54,76 @@ linter is broken" is one that teaches people to reach for `--no-verify`.
 This also inverts the hook's policy deliberately. The hook fails **open** — a rule that cannot run
 must not hold every write in the repo hostage. A scan is a gate and fails **closed**: one that
 cannot run has to stop, or it passes everything while looking healthy.
+
+### `falsestart --list-rules`
+
+Prints the rule set falsestart resolved, as JSON on stdout, and exits without reading stdin. It
+exists so a repository can **assert** on that set — that the rules blocking writes are the same
+rules its CI gate checks — rather than parsing falsestart's internals, which works until the
+internals are reformatted.
+
+Resolved, not raw: `--preset` and `--rules pkg:` are resolved first, then the scope overrides from
+`falsestart.config.ts` are applied, so `files` and `ignores` are the globs that will actually decide
+what gets judged.
+
+**Read this before you write the assertion:** the document describes RULES, and a config's top-level
+`exclude` is not one. `exclude` applies to `scan` and moves whole paths out of the gate without
+changing any rule, so a repository that adds `exclude: ['legacy/**']` narrows what CI checks while
+this document diffs clean. It is left out because it is per-run rather than per-rule and the
+write-time hook never consults it at all — and because, unlike the resolved rule set, it is already
+readable straight out of the committed config file. Assert it there.
+
+| Field      | Type             | Meaning                                                                                                                                                                                                                                          |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `files`    | globs, or `null` | Effective scope. `null` means the rule declares none, so every path is in it.                                                                                                                                                                    |
+| `id`       | string           | Unique within the tree; duplicates are refused at load.                                                                                                                                                                                          |
+| `ignores`  | globs, or `null` | Effective exclusions. `null` means the rule declares none.                                                                                                                                                                                       |
+| `language` | string           | The grammar the rule declares. For a JavaScript-family file the extension decides which grammar is actually used, so this is what a `css`/`html` rule is parsed with, and the fallback when a pattern will not compile under the file's grammar. |
+| `severity` | string           | Resolved: a document that omits it reads as `error` here.                                                                                                                                                                                        |
+
+`null` and `[]` are different answers and both occur. An absent `files` matches every path;
+`files: []` is a legal document that matches nothing at all. Collapsing them would report the exact
+opposite of the truth for one of the two.
+
+The matcher — `rule`, `constraints`, `utils` — and the prose — `message`, `note` — are deliberately
+absent. An assertion is only worth writing if it fails when something meaningful changed: carrying
+the matcher would make every pattern refactor a failure, and carrying the message would make every
+wording fix one. Read the rule document for those.
+
+One rule per line, sorted by `id`, ascending. Not by file path: path order leaks the tree's layout
+into the output, so moving a rule between category directories would diff while changing nothing
+about behaviour. Ids are unique within a tree, so the order is total. Key order inside an entry is
+fixed by the codec that writes it. Glob arrays keep the order they were written in — this reports
+what is configured, not a canonical form of it.
+
+A tree that loads with no rules in it prints `[]` and exits `0`. That is an answer rather than a
+failure, and unlike a count the document says so unambiguously. Whether the installation is healthy
+is `--doctor`'s question.
+
+#### `--list-rules` exit codes
+
+| Code | Meaning                                                                                                                |
+| ---- | ---------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The rule set is on stdout.                                                                                             |
+| `2`  | It could not be produced — unreadable rule tree, a config that would not load, a rules package that would not resolve. |
+
+These are `scan`'s codes on purpose: this command answers a script, and "falsestart could not run"
+should not be spelled two ways inside one binary.
+
+A command line that is **refused** — an unrecognised flag, a flag with its value forgotten, a
+refused combination — still exits `1`, the shared code, whatever flags it named. That is deliberate:
+a refusal happens before falsestart knows which mode was asked for, the default mode is the hook,
+and exit `2` from a hook blocks the write and throws stdout away. An argument error must never be
+able to do that.
+
+```bash
+falsestart --list-rules --preset clean-code | jq -r '.[].id'
+```
+
+There is no `--json` flag. The output is JSON because that is the only thing this command is for,
+and a flag that is accepted and changes nothing is what falsestart refuses elsewhere. The same
+projection is available without a subprocess as `describeRules`, and `RuleDescriptionSchema` decodes
+the document back into typed entries.
 
 ### Judged tool calls
 
@@ -228,6 +299,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `ConfigError`               | error class | config   |
 | `DEFAULT_CONFIG_CANDIDATES` | constant    | config   |
 | `MatchError`                | error class | checking |
+| `RuleDescriptionSchema`     | constant    | checking |
 | `RuleLoadError`             | error class | checking |
 | `RuleParseError`            | error class | checking |
 | `SEVERITIES`                | constant    | checking |
@@ -242,6 +314,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `checkFile`                 | function    | checking |
 | `WRITE_TOOLS`               | constant    | hook     |
 | `decide`                    | function    | hook     |
+| `describeRules`             | function    | checking |
 | `diagnose`                  | function    | hook     |
 | `findDefaultConfigs`        | function    | config   |
 | `findNarrowedScopes`        | function    | config   |
@@ -259,6 +332,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `parseConfig`               | function    | config   |
 | `parseRule`                 | function    | checking |
 | `respond`                   | function    | hook     |
+| `ruleListText`              | function    | checking |
 | `scan`                      | function    | scanning |
 | `render`                    | function    | scanning |
 | `partitionPaths`            | function    | scanning |
@@ -283,7 +357,7 @@ Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, 
 `Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
 `ScanError`, `ScanExit`, `DEFAULT_EXCLUSIONS` and `BaselineUnreadable` are exported alongside them.
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
-`RuleExpectation`, `CaseResult`, `Identified`.
+`RuleExpectation`, `CaseResult`, `Identified`, `RuleDescription`.
 
 `Options` and `Preset` are **not** exported: `src/index.ts` re-exports the `checking`, `config`,
 `hook` and `testing` entry points, and argument parsing is the CLI's own business.
