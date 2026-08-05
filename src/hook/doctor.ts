@@ -101,7 +101,16 @@ export const diagnose = (
       lines.push(`rules    ${rulesDirectory}`, `         COULD NOT LOAD — ${loaded.failure.reasons.join('; ')}`)
       return { healthy: false, lines }
     }
-    lines.push(`rules    ${rulesDirectory} — ${loaded.success.length} loaded`)
+    // How many of them can actually stop a write, which is the question "N loaded" stops one word
+    // short of. Both counts print even when one is zero: the reader who needs to learn that advisory
+    // rules exist is precisely the one whose set has none, so a clause that appeared only when an
+    // advisory rule was already there would be invisible to them. `?? 'error'` is the same
+    // defaulting the engine applies, written out here rather than imported so this line reads as
+    // what it reports.
+    const blocking = loaded.success.filter((rule) => (rule.severity ?? 'error') === 'error').length
+    lines.push(
+      `rules    ${rulesDirectory} — ${loaded.success.length} loaded (${blocking} block, ${loaded.success.length - blocking} advise)`,
+    )
 
     const configured = yield* Effect.result(
       configPath === undefined ? loadDefaultConfig(projectDirectory) : loadConfigFile(configPath),
