@@ -210,6 +210,73 @@ layer(platform)('hook response', (it) => {
     ),
   )
 
+  // What a `.ts` config may import is narrower than "types only" and wider than "nothing": it is
+  // imported from a `data:` URL, which has no filesystem location to resolve a specifier against,
+  // and `node:` builtins need none. That is the difference between "a rule's scope can be computed
+  // at load time" and "a `.ts` config is a static document", which four documents now state.
+  it.effect('runs a TypeScript config that computes its scope with a node: builtin', () =>
+    withRules(
+      {
+        'falsestart.config.ts': [
+          "import { execSync } from 'node:child_process'",
+          '',
+          "const elsewhere = execSync('echo nowhere').toString().trim()",
+          '',
+          'export default {',
+          "  rules: { 'no-as-any': { files: [elsewhere + '/**/*.ts'] } },",
+          '}',
+          '',
+        ].join('\n'),
+        'no-as-any.yml': noAsAny,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          // The override has to be seen TAKING EFFECT, not merely not erroring: the rule ships with
+          // no `files` at all, so a config that loaded and was then ignored would deny this write.
+          expect(response.exitCode).toBe(0)
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
+  it.effect('reports a TypeScript config that imports a package, rather than half-loading it', () =>
+    withRules(
+      {
+        'falsestart.config.ts': [
+          "import picomatch from 'picomatch'",
+          '',
+          "const isLegacy = picomatch('legacy/**')",
+          '',
+          'export default {',
+          "  rules: { 'no-as-any': { files: isLegacy('legacy/a.ts') ? ['nowhere/**'] : ['**/*.ts'] } },",
+          '}',
+          '',
+        ].join('\n'),
+        'no-as-any.yml': noAsAny,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          // `picomatch` is a real dependency of this package, so the failure is resolution and not
+          // absence — the negative that keeps the case above from reading as "imports work".
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          expect(response.exitCode).toBe(1)
+          expect(response.stderr).toContain('falsestart.config.ts')
+          expect(response.stdout).toBeUndefined()
+        }),
+    ),
+  )
+
   it.effect('refuses two competing default configs rather than picking one', () =>
     withRules(
       {
