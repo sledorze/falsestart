@@ -3,10 +3,6 @@
     {
       "hash": "e5bcead5532eb737a9096c1bbb3786c9d998f34352bb50df22eedfffc2c5615b",
       "target": "./architecture.md"
-    },
-    {
-      "hash": "915fe152e901462079a5f82100e3c8d9733ca0f792804237652742ee9b59e2c1",
-      "target": "./using-the-hook.md"
     }
   ]
 }

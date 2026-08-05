@@ -141,6 +141,51 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  // Most of an agent's traffic is tool calls falsestart has no opinion about, and the story for
+  // running a shell guard beside it rests on this costing nothing and saying nothing. The
+  // in-process test asserts exit code and stdout; a hook command that wrote to STDERR would still
+  // be a hook command putting a line in front of the user on every `Bash` call, and only a real
+  // process can see that stream at all. The rules directory holds a real rule on purpose, so this
+  // says "rules were available and still nothing happened".
+  it.effect('says nothing on either stream for a tool call it does not judge', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* runCli(rules, payloadFor({ command: 'npm install lodash' }, 'Bash'))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toBe('')
+      }),
+    ),
+  )
+
+  // "The last `--rules` wins" is the plausible sentence and it is false across the two FORMS: they
+  // write different fields, and `cli.ts` prefers the package whichever order they arrived in. That
+  // precedence lives in the wiring, which is excluded from the coverage ratchet and from mutation
+  // testing, so nothing but a process observes it — and the reference has to state what is
+  // observable rather than what is natural to write.
+  it.effect('prefers a rules package over a rules directory whichever came first', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const payload = payloadFor({ content: 'const x = v as any', file_path: '/r/a.ts' })
+        const both = (first: readonly string[], second: readonly string[]) =>
+          runCliRaw(['--rules', ...first, '--rules', ...second, '--config', configPath], payload)
+
+        // An unresolvable package is the probe: its failure is loud, specific and non-blocking, so
+        // "the package won" and "the directory won" cannot be confused with each other.
+        for (const result of [
+          yield* both([rules], ['pkg:@nope/definitely-missing']),
+          yield* both(['pkg:@nope/definitely-missing'], [rules]),
+        ]) {
+          expect(result.exitCode).toBe(1)
+          expect(result.stdout).toBe('')
+          expect(result.stderr).toContain('could not resolve rules package')
+        }
+      }),
+    ),
+  )
+
   it.effect('refuses an unrecognised flag instead of running a different rule set', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {

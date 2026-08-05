@@ -17,10 +17,12 @@
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
-import { Effect, FileSystem, Layer, Schema } from 'effect'
+import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
 import { loadRules } from './checking/loader.ts'
+import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
+import { respond } from './hook/respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -109,6 +111,63 @@ const installCommands = (readme: string): readonly string[] => {
     .filter((line) => line.length > 0 && !line.startsWith('#'))
 }
 
+/** Every fenced block with the language it declares, so a block can be selected without counting. */
+const fencedBlocks = (markdown: string): readonly { readonly body: string; readonly info: string }[] =>
+  [...markdown.matchAll(/^```(\w*)\n([\s\S]*?)^```/gm)].map((block) => ({
+    body: block[2] ?? '',
+    info: block[1] ?? '',
+  }))
+
+/**
+ * The output samples under one heading — chosen by WHERE they sit and how they are fenced, never
+ * by what the lines inside them look like.
+ *
+ * That independence is the whole point. A selector that admitted only lines already shaped like a
+ * finding would hand an empty set to the assertion for precisely the document that had dropped the
+ * coordinates, and pass. The page fences every output sample bare and everything else with a
+ * language, so "bare fence under this heading" says nothing about the format being checked.
+ */
+const outputSamplesUnder = (markdown: string, heading: string): readonly string[] => {
+  // Two hashes at least: a rule sample inside the section is a YAML block whose first line is a
+  // `# path/to/rule.yml` comment, and a one-hash split ends the section there — before the output
+  // the check is about, which then reads as "no sample here" and passes.
+  const section = markdown.split(heading)[1]?.split(/^#{2,6} /m)[0] ?? ''
+
+  return fencedBlocks(section)
+    .filter((block) => block.info === '')
+    .map((block) => block.body.trim())
+}
+
+/** The finding lines an advisory envelope carries, which is what `decide`'s `describe` renders. */
+const findingLines = (systemMessage: string): readonly string[] =>
+  systemMessage.replace(/^falsestart:\n/, '').split('\n')
+
+const ADVISORY_RULE = `
+id: advises-only
+language: tsx
+severity: warning
+message: 'as any erases the type'
+rule:
+  pattern: $X as any
+`
+
+/** A rule tree on the real filesystem, the same shape `respond.test.ts` uses. */
+const withRules = <A, E>(
+  files: Readonly<Record<string, string>>,
+  use: (directory: string) => Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-documented-' })
+
+    for (const [name, contents] of Object.entries(files)) {
+      yield* fs.writeFileString(path.join(root, name), contents)
+    }
+
+    return yield* use(root)
+  }).pipe(Effect.scoped)
+
 /** `[text](../src/x.ts)` — the links the docs check already tracks the content of. */
 const citedSourceFiles = (markdown: string): readonly string[] =>
   [...markdown.matchAll(/\]\(\.\.\/(src\/[^)]+\.ts)\)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
@@ -186,6 +245,10 @@ layer(platform)('documentation covers the source', (it) => {
           file: 'docs/reference.summary.md',
           text: `${capitalised(javascript)} of ${word(total)} shipped rules`,
         },
+        // The seventh count, and the one that proves the point of the six above it: the summary's
+        // own corpus total sat at "twenty-two" against a corpus of twenty-three, two lines from a
+        // sentence that was asserted here and therefore correct.
+        { file: 'docs/reference.summary.md', text: `**Shipped rules:** ${word(total)}` },
       ]
 
       const wrong: string[] = []
@@ -254,6 +317,120 @@ layer(platform)('documentation covers the source', (it) => {
       const actual = Object.entries(WRITE_TOOLS).map(([name, fields]) => `${name}/${fields.path}/${fields.content}`)
 
       expect(documented.toSorted()).toEqual(actual.toSorted())
+    }),
+  )
+
+  // `language` is the one required field whose legal values are a closed set, and a rule naming a
+  // language falsestart cannot run is rejected at load time — so a reader who trusts a sixth entry
+  // in this row writes a rule that never loads. Nothing checked the row: cairn hashes what a doc
+  // LINKS to, and this is a claim about a constant in a file the reference links nowhere.
+  it.effect('the reference lists exactly the languages a rule may declare', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      // The row, then its Meaning cell: the field name is backticked too, and reading the whole
+      // line would compare `language` against the languages.
+      const row = reference.split('\n').find((line) => line.startsWith('| `language`')) ?? ''
+      const meaning = row.split('|')[3] ?? ''
+      const documented = [...meaning.matchAll(/`([^`]+)`/g)].flatMap((value) =>
+        value[1] === undefined ? [] : [value[1]],
+      )
+
+      // Both directions, because each fails differently: a language added to the constant and not
+      // to the row is an unusable feature, and one left in the row after being dropped is a rule
+      // the reader will write and falsestart will refuse.
+      expect(documented.toSorted()).toEqual([...SUPPORTED_LANGUAGES].toSorted())
+    }),
+  )
+
+  // Two documents now say the rule format's fields are EXACTLY this list — the architecture doc
+  // rests its corpus non-goal on it ("nowhere for a question about anywhere else to go"), which is
+  // an argument that only holds while the enumeration is complete. Same blind spot the languages
+  // row has: a claim about a schema in a file neither document links, so cairn cannot see it drift.
+  it.effect('both documents enumerate exactly the fields a rule document may carry', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      // From the parser rather than from a list kept here, which would just move the drift.
+      const fields = Object.keys(RuleSchema.fields)
+
+      // The reference states them as table rows, the architecture doc as a sentence, so each is
+      // read the way it is written and both must name every one.
+      const reference = yield* fs.readFileString('docs/reference.md')
+      const documentedRows = [...reference.matchAll(/^\| `(\w+)`\s+\| (?:yes|no)\s+\|/gm)].flatMap((row) =>
+        row[1] === undefined ? [] : [row[1]],
+      )
+
+      expect(documentedRows.toSorted()).toEqual(fields.toSorted())
+
+      // The sentence wraps, so the paragraph it opens is what has to be read — a line-bounded match
+      // would silently drop whichever fields fell past the wrap and pass on a partial list.
+      const explanation = yield* architecture
+      const sentence = explanation.split('\n').find((line) => line.includes('fields are exactly')) ?? ''
+      const paragraph = `${sentence} ${explanation.split(sentence)[1]?.split('\n\n')[0] ?? ''}`
+      const named = new Set(
+        [...paragraph.matchAll(/`(\w+)`/g)].flatMap((value) => (value[1] === undefined ? [] : [value[1]])),
+      )
+
+      expect(fields.filter((field) => !named.has(field))).toEqual([])
+    }),
+  )
+
+  // The worked example of an advisory finding is the entire fix for a reader who concluded
+  // falsestart is binary deny/allow — and an example of an OUTPUT shape is a claim about the
+  // binary that no documentation tool can reach. Asserted on both sides: checking only what
+  // `respond` emits leaves a doc sample that quietly dropped the coordinates passing.
+  it.effect('the advisory example is the envelope falsestart actually emits', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const howTo = yield* fs.readFileString('docs/using-the-hook.md')
+
+      // Every advisory envelope on the page, selected by prefix rather than by index — this change
+      // adds fences to the page, and an index would have rotted the moment it did.
+      const envelopes = fencedBlocks(howTo)
+        .map((block) => block.body.trim())
+        .filter((body) => body.startsWith('{"systemMessage"'))
+
+      expect(envelopes.length).toBeGreaterThan(0)
+      for (const envelope of envelopes) {
+        const parsed: Record<string, string> = JSON.parse(envelope)
+        // Exactly one key: advice that also carried a `permissionDecision` would be a block wearing
+        // the wrong envelope, which is the distinction the section exists to draw.
+        expect(Object.keys(parsed)).toEqual(['systemMessage'])
+        expect(parsed['systemMessage']).toMatch(/^falsestart:\n/)
+      }
+
+      const sample = outputSamplesUnder(howTo, '### Rules that advise instead of blocking')
+      // Asserted before the format check, because a heading that moved or was renamed would
+      // otherwise leave the check below iterating over nothing and reporting success.
+      expect(sample).toHaveLength(1)
+      const documented: Record<string, string> = JSON.parse(sample[0] ?? '{}')
+
+      const emitted = yield* withRules({ 'advises.yml': ADVISORY_RULE }, (rules) =>
+        respond({
+          input: JSON.stringify({
+            tool_input: { content: 'const x = value as any', file_path: '/repo/src/widget.ts' },
+            tool_name: 'Write',
+          }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        }),
+      )
+      const actual: Record<string, string> = JSON.parse(emitted.stdout ?? '{}')
+
+      expect(emitted.exitCode).toBe(0)
+      expect(Object.keys(actual)).toEqual(['systemMessage'])
+
+      // The rule id and the message are deliberately not compared: the doc's example is
+      // illustrative, and pinning its wording would fail on a perfectly correct prose edit. What
+      // must agree is the LINE FORMAT, which is what a reader learns to recognise.
+      for (const line of [
+        ...findingLines(documented['systemMessage'] ?? ''),
+        ...findingLines(actual['systemMessage'] ?? ''),
+      ]) {
+        expect(line).toMatch(/^\S+ \(\d+:\d+\): /)
+      }
     }),
   )
 

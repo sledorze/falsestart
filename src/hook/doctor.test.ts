@@ -7,11 +7,28 @@
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
-import { Effect, FileSystem, Layer } from 'effect'
+import { Effect, FileSystem, Layer, Path } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+
+/** A rule tree on the real filesystem, because the report describes what `loadRules` found there. */
+const withTree = <A, E>(
+  files: Readonly<Record<string, string>>,
+  use: (directory: string) => Effect.Effect<A, E, FileSystem.FileSystem | Path.Path>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-doctor-' })
+
+    for (const [name, contents] of Object.entries(files)) {
+      yield* fs.writeFileString(path.join(root, name), contents)
+    }
+
+    return yield* use(root)
+  }).pipe(Effect.scoped)
 
 /** A filesystem that cannot answer "what is this?" at all — not one that answers "nothing". */
 const unstattable = Layer.mergeAll(
@@ -271,6 +288,68 @@ layer(platform)('the doctor', (it) => {
 
       expect(diagnosis.lines.join('\n')).toContain('so the sample proves nothing')
     }),
+  )
+
+  // "23 loaded" answers how many rules are there, and stops one word short of what the reader came
+  // for: whether any of them can stop a write. An evaluation of this tool read the severity table in
+  // `docs/reference.md` and still concluded the model was binary deny/allow, so the fact needs a
+  // surface at the moment someone asks what they have, not only a row in a table.
+  it.effect('says how many of the loaded rules block and how many advise', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json' })
+      // Asserted as one whole line rather than as substrings of the report. `0` and the rule count
+      // both appear elsewhere in it — see the comment above the `stops covering` case, where
+      // exactly that mistake passed against a doctor that reported nothing at all.
+      const reported = diagnosis.lines.find((line) => line.startsWith('rules'))
+
+      expect(reported).toBeDefined()
+      expect(reported).toContain(`${SHIPPED_RULE_IDS.length} loaded`)
+      // The zero is the case worth asserting: every shipped rule blocks, so this is the line the
+      // reader who believes advisory rules do not exist will actually see.
+      expect(reported).toContain(`(${SHIPPED_RULE_IDS.length} block, 0 advise)`)
+    }),
+  )
+
+  it.effect('counts a rule that declares no severity among the ones that block', () =>
+    // Three rules and not two: `severity` is optional and defaults to `error`, so a tree of one
+    // declared `error` and one declared `warning` never exercises the defaulting the count has to
+    // do — and no shipped rule leaves it out, so nothing else here would. It is also the only
+    // assertion that the REPORT defaults it: `engine.test.ts` proves the engine does, and the
+    // report computes its own count from the loaded documents rather than from a finding.
+    withTree(
+      {
+        'advises.yml': 'id: advises\nlanguage: tsx\nseverity: warning\nrule:\n  pattern: $X as never\n',
+        'blocks.yml': 'id: blocks\nlanguage: tsx\nseverity: error\nrule:\n  pattern: $X as any\n',
+        'undeclared.yml': 'id: undeclared\nlanguage: tsx\nrule:\n  pattern: $X as unknown\n',
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json', rulesDirectory: rules })
+          const reported = diagnosis.lines.find((line) => line.startsWith('rules'))
+
+          expect(reported).toBeDefined()
+          expect(reported).toContain('3 loaded (2 block, 1 advise)')
+        }),
+    ),
+  )
+
+  it.effect('does not explain an advisory tree as though nothing forbade the sample', () =>
+    // The `rules` line above now tells this reader they have an advisory set. Reaching the
+    // not-blocked branch and offering "expected unless one forbids type assertions" then names the
+    // wrong cause: a `warning`-severity rule DID forbid it, matched it, and reported it — which is
+    // the one outcome that line was written without.
+    withTree({ 'soft.yml': 'id: soft\nlanguage: tsx\nseverity: warning\nrule:\n  pattern: $X as any\n' }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json', rulesDirectory: rules })
+        const reported = diagnosis.lines.find((line) => line.startsWith('check'))
+
+        expect(reported).toBeDefined()
+        expect(reported).toContain('advise')
+        expect(reported).not.toContain('expected unless one forbids type assertions')
+        // Advisory rules are a healthy installation, not a broken one.
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
   )
 
   it.effect('fails, and names the path, when an explicit config is absent', () =>

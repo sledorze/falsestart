@@ -6,16 +6,22 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                                                                                        |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Mutually exclusive with `--rules`.                                                           |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`.                                                                          |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory.                                                            |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                            |
-| `--doctor`           | Report what falsestart resolved, name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve. |
-| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                      |
-| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                              |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                          |
+| Flag                 | Meaning                                                                                                                                                                                                                     |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                        |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                   |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                            |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                         |
+| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve. |
+| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                   |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                           |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                       |
+
+One invocation loads exactly one rule source, and the two ways of naming a second one differ. A
+preset and any `--rules` are refused together, so nothing is ranked. Between the two `--rules`
+forms, the package form wins whichever was written first — `--rules pkg:@acme/rules --rules ./local`
+and the reverse both load the package — so "the last one wins" is not the rule. Layering two rule
+sets means two hook entries.
 
 ### `falsestart scan [paths…]`
 
@@ -70,11 +76,21 @@ commands would mean predicting what they do.
 
 ### Exit codes
 
-| Code                 | Meaning                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `0` + JSON on stdout | A decision. This is how a block is expressed.                      |
-| `0` + no output      | No decision; the normal permission flow applies.                   |
-| `1`                  | falsestart could not do its job. Reported, and the write proceeds. |
+| Code                       | Meaning                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| `0` + `hookSpecificOutput` | A decision. This is how a block is expressed.                      |
+| `0` + `systemMessage`      | Advice. Shown to the author; decides nothing.                      |
+| `0` + no output            | No decision; the normal permission flow applies.                   |
+| `1`                        | falsestart could not do its job. Reported, and the write proceeds. |
+
+The first two are separate rows because they are separate documents, not one document carrying a
+different verdict: advice has no `permissionDecision` field at all, and a reader that looks only for
+one sees nothing to act on — which is exactly what advice means here.
+
+Advice has two sources and the envelope does not distinguish them: a rule matching at a severity
+softer than `error`, or `--warn-unscoped` reporting that no rule was scoped to the path at all — the
+second carries no finding, because the absence is the whole report. Do not read a `systemMessage` as
+proof that some rule fired.
 
 Blocking is deliberately **not** exit 2: exit 2 does block, but the runtime discards stdout and
 reads stderr as the reason, throwing away the structured decision.
@@ -94,8 +110,11 @@ reads stderr as the reason, throwing away the structured decision.
 | `constraints` | no       | Conditions on captured metavariables.                             |
 | `utils`       | no       | Named sub-rules referenced by `matches:`.                         |
 
-Documents under a `_utils/` directory in the rule tree are fragments, not rules: they need only
-`id` and `rule`, never match alone, and lose a name collision to a rule's own `utils`.
+Documents under a `_utils/` directory at the **top level** of the loaded tree are fragments, not
+rules: they need only `id` and `rule`, never match alone, and lose a name collision to a rule's own
+`utils`. Only the first path segment is recognised, so a `_utils/` nested inside a category
+directory is loaded as an ordinary rule, fails validation for the fields it does not carry, and
+fails the whole tree with it.
 
 ## Configuration
 
@@ -113,9 +132,11 @@ rather than being ignored, since silently dropping it leaves a repository believ
 something.
 
 `files` is required in an override; `ignores` is optional and, when omitted, the rule keeps its own.
-An override naming a rule that is not loaded is an error, not a no-op. Use a **type-only** import in
-a `.ts` config — it is type-stripped and imported without a filesystem location, so a value import
-cannot resolve. `.mjs` configs may import anything, including `makeConfigUnsafe`.
+An override naming a rule that is not loaded is an error, not a no-op. Use a **type-only** import for
+the config type in a `.ts` config — it is type-stripped and imported from a `data:` URL with no
+filesystem location, so a **package or relative** value import cannot resolve; `node:` builtins need
+no location and do, which is enough to compute a rule's scope at load time. `.mjs` configs are
+imported from their real path and may import anything, including `makeConfigUnsafe`.
 
 **An override replaces a rule's `files`; it does not merge into them.** That is deliberate — a merge
 could never remove anything — but it means an override written to add one exemption has to restate

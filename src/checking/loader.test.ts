@@ -156,6 +156,26 @@ rule:
     ),
   )
 
+  // The negative that says where the top-level case stops. `_utils` is recognised by the FIRST path
+  // segment, so a `_utils/` tucked inside a category directory is not a fragment directory at all:
+  // its documents are loaded as rules, fail validation for the fields a fragment does not carry,
+  // and — loading being all-or-nothing — take the whole tree with them. Someone splitting a large
+  // tree by category hits this while doing what the docs recommend, which is why it is documented
+  // in `docs/using-the-hook.md` rather than left to be discovered.
+  //
+  // Asserted on the PATH and never on the current schema message: the wording is wrong about the
+  // author's actual mistake and is meant to change, and a test pinned to it would turn that
+  // improvement into a failure.
+  it.effect('does not treat a _utils directory below the top level as shared matchers', () =>
+    withTree({ 'cat/_utils/frag.yml': anyKeyword, 'cat/uses.yml': usesShared }, (directory) =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(loadRules(directory))
+
+        expect(error.reasons.join('\n')).toContain('cat/_utils/frag.yml')
+      }),
+    ),
+  )
+
   it.effect('does not surface util documents as rules of their own', () =>
     withTree({ '_utils/any-keyword.yml': anyKeyword, 'type/uses.yml': usesShared }, (directory) =>
       Effect.gen(function* () {

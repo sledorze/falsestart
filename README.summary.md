@@ -16,7 +16,8 @@ A bare `falsestart` exits 127 while the hook still shows as registered. Choose t
 deliberately: `clean-code` assumes no framework and reaches JavaScript as well as TypeScript, `all` includes the Effect set.
 Rules are ast-grep documents, so the same file stays readable by the upstream CLI. A rule acts on a
 file only when its own `files`/`ignores` globs admit the path — matching content is never on its own
-a reason to touch a file.
+a reason to touch a file. Each rule is evaluated against one file's syntax tree, so a rule cannot ask
+a question about the rest of the repository.
 
 Rules come from three places: `--preset all|clean-code|effect` for the shipped corpus, `--rules
 <dir>` for your own, and `--rules pkg:<name>` for another package's. Where each rule applies is

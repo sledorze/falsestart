@@ -37,6 +37,51 @@ Two details that are easy to get wrong and fail silently:
   `Bash` is deliberately absent: falsestart judges the text a write tool carries, so a heredoc
   redirect is outside what it can see.
 
+### Running your own Bash guard alongside it
+
+Guarding shell commands is a job for a second hook, and two `PreToolUse` entries is the intended
+arrangement rather than a workaround. A `matcher` decides which entries a tool call reaches, so
+falsestart's entry and a shell guard's entry select disjoint sets of calls:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js\" --preset clean-code"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/guard-shell.js\""
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Invoke both by path, for the reason above.
+
+Overlapping matchers cost nothing either. On a payload whose `tool_name` is not `Write`, `Edit` or
+`NotebookEdit`, falsestart writes nothing to stdout, nothing to stderr, and exits 0 — and it does so
+**before the rule tree is read**, so a rule file with a typo in it cannot turn an unrelated `Bash`
+call into an error notice.
+
+On falsestart's side the two never interact: it reads one payload on stdin, answers on stdout, and
+exits. On the hook path it writes no file, holds no lock and caches nothing, so its answer depends
+on its stdin, its rule tree and its config and on nothing else. What Claude Code does with two
+entries' answers is the runtime's business, and this page does not describe it.
+
 ### Check it is actually guarding something
 
 Every misconfiguration falsestart has degrades to the same place — exit 1, a line on stderr the agent
@@ -51,7 +96,7 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 falsestart <the installed version>
 changes  …/CHANGELOG.md — what this version changed, including any rule that is new
 
-rules    …/rules/clean-code — 6 loaded
+rules    …/rules/clean-code — 6 loaded (6 block, 0 advise)
 config   no config file in /repo — 0 override(s)
 tools    Edit, NotebookEdit, Write — any other tool call is ignored
 scope
@@ -78,6 +123,13 @@ It names the changelog inside the package you are actually running, so the answe
 copy every other line in the report describes. The line is absent if that file is not there, which is
 the case for every version published before it existed — `0.1.0` and `0.2.0` shipped no changelog at
 all, so on those the only way to see what an upgrade added was to pack both versions and diff them.
+
+The `rules` line counts the tree twice: how many documents loaded, and how many of those declare a
+severity that could deny — only `error` does, and everything softer is shown to the author and
+decides nothing (see **Rules that advise instead of blocking** below). It is a tally of severities
+and nothing more: a rule scoped to a path your repo does not have still counts as `block` and can
+never fire, which is what the scope block underneath is for. Both numbers print even when one is
+zero, which is the case above and with every shipped preset.
 
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not
@@ -265,6 +317,56 @@ opinion about, and does not even load the rule tree for them.
 The last two are deliberate. A guard that refuses to run should say so loudly, but a typo in a
 rule file should not hold a repository hostage.
 
+### Rules that advise instead of blocking
+
+`severity` defaults to `error`, and `error` is the only severity that denies a write. A rule
+declaring `warning`, `info` or `hint` produces a finding that is shown to the author and decides
+nothing: the write lands, and the normal permission flow applies to it.
+
+```yaml
+# rules/hygiene/no-console.yml
+id: no-console
+language: tsx
+severity: warning
+message: 'console.log survives into production, where nobody reads it.'
+rule:
+  pattern: console.log($$$)
+files:
+  - '**/*.{ts,tsx}'
+```
+
+```bash
+echo '{"tool_name":"Write","cwd":"'"$PWD"'","tool_input":{"file_path":"'"$PWD"'/src/widget.ts","content":"console.log(widget)"}}' \
+  | node node_modules/@sledorze/falsestart/dist/cli.js --rules ./rules
+```
+
+That prints one line and exits 0:
+
+```
+{"systemMessage":"falsestart:\nno-console (1:1): console.log survives into production, where nobody reads it."}
+```
+
+Advice and a denial are **different JSON documents**, not one document with a different verdict. A
+denial is `{"hookSpecificOutput":{…,"permissionDecision":"deny","permissionDecisionReason":…}}`;
+advice is a `systemMessage` with no `permissionDecision` in it at all. Both exit 0. It is the same
+envelope the `--warn-unscoped` sample under **When a write was not checked at all** shows, which is
+not a coincidence: that flag reports through this path rather than having one of its own.
+
+Each advised finding is rendered `<rule-id> (<line>:<column>): <message>` — the same line a denial's
+reason carries, so the format is worth learning once.
+
+Nothing about the invocation selects a severity: it is a field of the rule document, so one rule has
+exactly one severity everywhere it is loaded. A rule that must block in a curated tree and advise in
+a wider one therefore exists **twice**, as two documents with different ids or as one document in
+two trees reached by two hook entries. Two documents sharing an id in one tree are refused outright,
+so inside a single tree the two-ids form is the one that works. The cost of that is worth stating
+plainly: against a policy table one tool reads two ways, this is a duplicate kept in step by hand,
+and nothing checks that it still is.
+
+`--doctor` reports the split, so "does this thing have advisory rules" is answered by the
+installation rather than by this page. With any shipped preset the second number is `0` — all 23
+shipped rules are `error` — and that is a fact about the corpus, not about the tool.
+
 ## Choosing rules
 
 The shipped corpus lives in [`rules/`](../rules) and is split by what it assumes:
@@ -277,6 +379,37 @@ The shipped corpus lives in [`rules/`](../rules) and is split by what it assumes
 Point `--rules` at a directory holding only the subset you want. Which rules are _active_ is decided
 by which rule documents are present, so the answer to "what is enforced here" is a directory
 listing.
+
+### Laying out a large rule tree
+
+Subdirectories are organisational only. The tree is searched recursively and every rule found is
+loaded whatever its depth, so a category per directory costs nothing and buys a listing someone can
+read. Ids are unique across the **whole tree** rather than per subdirectory, and a duplicate refuses
+the entire load rather than being resolved by load order. Every rule that matches a write is
+reported in one answer, so the finding you see is not merely the first to fire.
+
+The one part of the layout that is not free-form is where shared matchers live: a `_utils/`
+directory is recognised only at the top of the tree `--rules` names. **Shared matchers** below has
+the rule and what a misplaced one does.
+
+`--rules` names one rule source per invocation and cannot be combined with `--preset`, so layering
+two trees means two hook entries, one per tree. That is not purely a limitation: each entry carries
+its own rules, its own config and therefore its own severity policy, which is what makes the "blocks
+here, advises there" arrangement above expressible at all.
+
+There is a cost to know before splitting a tree that way. A `_utils/` at the root is not in scope when
+an entry points at one subdirectory of it, and a rule referencing a matcher it cannot see fails to
+run — reported, non-blocking, exit 1:
+
+```
+falsestart: rule no-any-assertion could not run: Error: `rule` is not configured correctly.
+ |->Rule contains invalid matches reference.
+ |->Rule `anyKeyword` is not defined.
+```
+
+A shared matcher and a split tree therefore pull against each other; copying the fragment into each
+tree is the way out, with the drift that implies. What the tree costs per tool call is measured in
+[Why falsestart is built this way](./architecture.md).
 
 ## Re-scoping a rule to your layout
 
@@ -301,8 +434,11 @@ export default {
 } satisfies FalsestartConfig
 ```
 
-Use a **type-only** import here. A `.ts` config has its types stripped and is imported without a
-filesystem location, so it cannot resolve a value import; `import type` is erased and works.
+Use a **type-only** import for the config type. A `.ts` config has its types stripped and is
+imported from a `data:` URL with no filesystem location, so it cannot resolve a **package or
+relative** value import; `import type` is erased and works. `node:` builtins need no location and do
+resolve, which is enough to compute a rule's scope — shell out, build a list of paths, emit globs —
+without leaving the typed format.
 
 A `.mjs` config is imported from its real path and may import anything, including the smart
 constructor:
@@ -374,8 +510,8 @@ you want it to.
 
 ## Shared matchers
 
-A matcher needed by several rules goes in a `_utils/` directory inside the rule tree, where every
-rule can reference it by name:
+A matcher needed by several rules goes in a `_utils/` directory at the **top level of the tree
+`--rules` names** — not inside a category — where every rule in the tree can reference it by name:
 
 ```yaml
 # rules/_utils/any-keyword.yml
@@ -396,6 +532,20 @@ rule:
 Documents under `_utils/` are fragments, not rules: they need only `id` and `rule`, and they never
 match on their own. A rule's own `utils:` block wins a name collision — the shared set is a
 default, not an override.
+
+"Top level" is exact: the directory is recognised by the **first** path segment. A `_utils/` nested
+inside a category is not a fragment directory at all — its documents are loaded as rules, fail
+validation for the fields a fragment does not carry, and, loading being all-or-nothing, take the
+whole tree with them:
+
+```
+falsestart: could not load rules from ./rules
+type-safety/_utils/any-keyword.yml: SchemaError(Missing key
+  at ["language"])
+```
+
+The message names the wrong problem — nobody forgot `language`; the fragment is somewhere fragments
+are not looked for — so it is worth recognising by its shape.
 
 Give every rule worked examples of both kinds — code it must catch and code it must leave alone.
 `assessRule` runs them, and the second kind is the one that matters: a rule with only positive
