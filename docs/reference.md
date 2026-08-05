@@ -76,16 +76,21 @@ commands would mean predicting what they do.
 
 ### Exit codes
 
-| Code                       | Meaning                                                                       |
-| -------------------------- | ----------------------------------------------------------------------------- |
-| `0` + `hookSpecificOutput` | A decision. This is how a block is expressed.                                 |
-| `0` + `systemMessage`      | Advice from a rule softer than `error`. Shown to the author; decides nothing. |
-| `0` + no output            | No decision; the normal permission flow applies.                              |
-| `1`                        | falsestart could not do its job. Reported, and the write proceeds.            |
+| Code                       | Meaning                                                            |
+| -------------------------- | ------------------------------------------------------------------ |
+| `0` + `hookSpecificOutput` | A decision. This is how a block is expressed.                      |
+| `0` + `systemMessage`      | Advice. Shown to the author; decides nothing.                      |
+| `0` + no output            | No decision; the normal permission flow applies.                   |
+| `1`                        | falsestart could not do its job. Reported, and the write proceeds. |
 
 The first two are separate rows because they are separate documents, not one document carrying a
 different verdict: advice has no `permissionDecision` field at all, and a reader that looks only for
-one sees nothing to act on — which is exactly what a `warning` rule means.
+one sees nothing to act on — which is exactly what advice means here.
+
+Advice has two sources and the envelope does not distinguish them: a rule matching at a severity
+softer than `error`, or `--warn-unscoped` reporting that no rule was scoped to the path at all — the
+second carries no finding, because the absence is the whole report. Do not read a `systemMessage` as
+proof that some rule fired.
 
 Blocking is deliberately **not** exit 2: exit 2 does block, but the runtime discards stdout and
 reads stderr as the reason, throwing away the structured decision.

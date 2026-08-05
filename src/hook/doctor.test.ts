@@ -333,6 +333,25 @@ layer(platform)('the doctor', (it) => {
     ),
   )
 
+  it.effect('does not explain an advisory tree as though nothing forbade the sample', () =>
+    // The `rules` line above now tells this reader they have an advisory set. Reaching the
+    // not-blocked branch and offering "expected unless one forbids type assertions" then names the
+    // wrong cause: a `warning`-severity rule DID forbid it, matched it, and reported it — which is
+    // the one outcome that line was written without.
+    withTree({ 'soft.yml': 'id: soft\nlanguage: tsx\nseverity: warning\nrule:\n  pattern: $X as any\n' }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json', rulesDirectory: rules })
+        const reported = diagnosis.lines.find((line) => line.startsWith('check'))
+
+        expect(reported).toBeDefined()
+        expect(reported).toContain('advise')
+        expect(reported).not.toContain('expected unless one forbids type assertions')
+        // Advisory rules are a healthy installation, not a broken one.
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
+  )
+
   it.effect('fails, and names the path, when an explicit config is absent', () =>
     Effect.gen(function* () {
       const diagnosis = yield* run({ configPath: 'no/such/config.json' })

@@ -33,7 +33,7 @@ const ConstraintSchema = Schema.Struct({
   regex: Schema.optional(Schema.String),
 })
 
-const RuleSchema = Schema.Struct({
+export const RuleSchema = Schema.Struct({
   constraints: Schema.optional(Schema.Record(Schema.String, ConstraintSchema)),
   /** Globs scoping which files the rule applies to. Absent means "every file". */
   files: Schema.optional(Schema.Array(Schema.String)),

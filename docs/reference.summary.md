@@ -18,7 +18,8 @@ glob that omits an extension silently unguards it. It also names the changelog s
 installation it reports on, so an upgrade's new rules are readable where the upgrade is verified.
 Reads no stdin. `--warn-unscoped` reports a
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
-(`systemMessage`, which decides nothing) — separate documents, not one with a different verdict —
+(`systemMessage`, which decides nothing, and comes either from a softer-than-`error` rule or from
+`--warn-unscoped` with no rule involved at all) — separate documents, not one with a different verdict —
 exit 0 with no output defers, and exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
 

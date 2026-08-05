@@ -7,7 +7,8 @@ Settings must be strict JSON. Guarding shell commands is a second `PreToolUse` e
 — the intended arrangement, not a workaround, since a `matcher` makes the two select disjoint sets
 of tool calls, and on a call falsestart does not judge it writes nothing to either stream and exits
 0 before its rule tree is read. `--doctor` answers "is this guarding anything?" — it prints the
-version that answered, the resolved rules with how many of them block and how many advise, config
+version that answered, the resolved rules with how many of them declare a blocking severity and how
+many advise (a severity tally, not a reachability claim — the scope block answers that), config
 and per-path rule counts, then sends a real
 violation through the decision path. Read its scope block, not just its last line: a nested probe
 path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read

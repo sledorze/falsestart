@@ -19,7 +19,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
 import { loadRules } from './checking/loader.ts'
-import { SUPPORTED_LANGUAGES } from './checking/rule.ts'
+import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
 import { respond } from './hook/respond.ts'
@@ -341,6 +341,39 @@ layer(platform)('documentation covers the source', (it) => {
       // to the row is an unusable feature, and one left in the row after being dropped is a rule
       // the reader will write and falsestart will refuse.
       expect(documented.toSorted()).toEqual([...SUPPORTED_LANGUAGES].toSorted())
+    }),
+  )
+
+  // Two documents now say the rule format's fields are EXACTLY this list — the architecture doc
+  // rests its corpus non-goal on it ("nowhere for a question about anywhere else to go"), which is
+  // an argument that only holds while the enumeration is complete. Same blind spot the languages
+  // row has: a claim about a schema in a file neither document links, so cairn cannot see it drift.
+  it.effect('both documents enumerate exactly the fields a rule document may carry', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+
+      // From the parser rather than from a list kept here, which would just move the drift.
+      const fields = Object.keys(RuleSchema.fields)
+
+      // The reference states them as table rows, the architecture doc as a sentence, so each is
+      // read the way it is written and both must name every one.
+      const reference = yield* fs.readFileString('docs/reference.md')
+      const documentedRows = [...reference.matchAll(/^\| `(\w+)`\s+\| (?:yes|no)\s+\|/gm)].flatMap((row) =>
+        row[1] === undefined ? [] : [row[1]],
+      )
+
+      expect(documentedRows.toSorted()).toEqual(fields.toSorted())
+
+      // The sentence wraps, so the paragraph it opens is what has to be read — a line-bounded match
+      // would silently drop whichever fields fell past the wrap and pass on a partial list.
+      const explanation = yield* architecture
+      const sentence = explanation.split('\n').find((line) => line.includes('fields are exactly')) ?? ''
+      const paragraph = `${sentence} ${explanation.split(sentence)[1]?.split('\n\n')[0] ?? ''}`
+      const named = new Set(
+        [...paragraph.matchAll(/`(\w+)`/g)].flatMap((value) => (value[1] === undefined ? [] : [value[1]])),
+      )
+
+      expect(fields.filter((field) => !named.has(field))).toEqual([])
     }),
   )
 

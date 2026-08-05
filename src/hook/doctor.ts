@@ -197,6 +197,17 @@ export const diagnose = (
       return { healthy: true, lines }
     }
 
+    // A rule DID forbid the sample and reported it without blocking. Falling through to the line
+    // below would offer "expected unless one forbids type assertions" as the explanation, which
+    // names the wrong cause for the one rule set the `rules` line has just called advisory.
+    if (verdict._tag === 'Advise') {
+      lines.push(
+        `check    the sample \`${SAMPLE_SOURCE}\` at ${SAMPLE_PATH} was reported, not blocked —` +
+          ` the rule(s) that matched it advise`,
+      )
+      return { healthy: true, lines }
+    }
+
     // "Expected unless a rule forbids type assertions" was wrong whenever one did and the sample
     // path was simply outside its scope — the glob-typo case this feature exists to surface.
     const covering = scoped.success.filter((rule) => appliesTo(rule, SAMPLE_PATH)).length

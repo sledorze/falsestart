@@ -13,10 +13,11 @@ import type { FalsestartConfig } from './src/config/index.ts'
  * sits where someone reviews it, and a repo adopting `no-type-assertion` can exempt its own adapter
  * the same way instead of dropping the rule.
  *
- * A **type-only** import, because a `.ts` config is type-stripped and imported without a filesystem
- * location, so a value import cannot resolve — `satisfies` gives the same checking. Use `.mjs` if
- * you want `makeConfigUnsafe` instead. Both limits are documented in `docs/reference.md`; this file
- * exists partly to prove the documented path actually works.
+ * A **type-only** import, because a `.ts` config is type-stripped and imported from a `data:` URL
+ * with no filesystem location, so a PACKAGE or RELATIVE value import cannot resolve — `satisfies`
+ * gives the same checking. `node:` builtins need no location and do resolve, which is what makes a
+ * computed scope possible here. Use `.mjs` if you want `makeConfigUnsafe` instead. Both limits are
+ * documented in `docs/reference.md`; this file exists partly to prove the documented path works.
  */
 export default {
   rules: {

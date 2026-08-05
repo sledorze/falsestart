@@ -4,9 +4,11 @@
 
 Make four things falsestart already does findable, and report one of them.
 
-`--doctor` now says how many of the loaded rules can block: `rules  rules — 23 loaded (23 block,
-0 advise)`. Both counts print even when one is zero, because the reader who needs to know advisory
-rules exist is precisely the one whose rule set has none. The `N loaded` text is unchanged.
+`--doctor` now says how many of the loaded rules declare a severity that can block:
+`rules    ./rules — 23 loaded (23 block, 0 advise)`. Both counts print even when one is zero,
+because the reader who needs to know advisory rules exist is precisely the one whose rule set has
+none. The `N loaded` text is unchanged. Its `check` line no longer explains an all-advisory rule set
+as though nothing had forbidden the sample: a rule that matched and advised now says so.
 
 A rule's `severity` defaults to `error` and only `error` denies a write: a rule declaring `warning`,
 `info` or `hint` is shown to the author as `{"systemMessage": …}` with no `permissionDecision`, and

@@ -11,9 +11,12 @@ which protects nothing.
 
 The cost has those same three parts: a fixed floor every invocation pays (process start, the bundle,
 the `@ast-grep/napi` binding), the rule tree above it — re-read every time, because the process is
-new every time — and nothing above the floor for a call that is not judged. The doc carries a
-stamped measurement of each with the loop that produced it, and hands the reader `--version` as the
-probe for their own floor. Nothing is cached between invocations and nothing promises it will be.
+new every time — and nothing above the floor for a call that is not judged. Deliberately no
+millisecond table: one was written and did not survive re-measurement on a machine matching its own
+stamp, so the doc states ratios (the floor dominates a small rule set; 7× the rules is nowhere near
+7× the cost; a rule's shape is work, not only its count), hands the reader `--version` as the probe
+for their own floor, and publishes the loop and the tree construction to reproduce. Nothing is
+cached between invocations and nothing promises it will be.
 
 **Scope before content, always.** A rule acts on a file only when its path admits it. Breaking this
 is silent in both directions, so path scoping is its own concern with its own negative tests.
@@ -31,8 +34,8 @@ guard could not run (say so loudly, do not block). A rule that cannot run is nev
 a blast-radius corpus no rule may flag, and a check that every API a message names is real.
 
 **What a rule cannot see.** A rule is evaluated against the syntax tree of one file's text; that
-text and the path it is destined for are the whole input, and nothing in the checking layer opens a
-file. There is no repo-wide corpus, no index of files seen before and no rule type running
+text and the path it is destined for are the whole input, and no code on the matching path opens a
+file (the layer reads the filesystem only to load rule documents). There is no repo-wide corpus, no index of files seen before and no rule type running
 caller-supplied code at match time, so "flag this unless it is declared somewhere else in the repo"
 is not expressible and is not planned — written down rather than left to be inferred, since an
 absence cannot say whether a feature is unbuilt or unwanted. The precise line is between a rule's

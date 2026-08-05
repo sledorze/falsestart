@@ -13,7 +13,7 @@ Three consequences follow, and most of the design is downstream of them.
 
 **It judges text, not files.** The content does not exist on disk yet. Anything that worked by
 reading the file back could not block anything before the fact. So a check takes a string plus the
-path that string is destined for, and nothing in the checking layer opens a file.
+path that string is destined for, and never opens the file it is judging.
 
 That has a limit worth stating: an edit is judged by the text it _introduces_, not by the file that
 results. It is checked for what it adds, never for what it leaves behind elsewhere.
@@ -29,29 +29,46 @@ read from disk every time because the process is new every time. **A call that i
 the floor and nothing else — no rule tree read, no syntax tree built — and that is most of the
 traffic.
 
-Measure your own floor rather than trusting the numbers below: `--version` reads no stdin and loads
-no rules, so timing it gives the part of every invocation that happens before falsestart does
-anything.
+Measure your own floor: `--version` reads no stdin and loads no rules, so timing it gives the part of
+every invocation that happens before falsestart has done anything. That number is worth more than
+one of ours.
 
-Measured on aarch64 (Linux container, 15 CPUs), Node 22.16.0, falsestart 0.2.0, on 2026-08-05; cold
-process, 10 runs averaged:
+**There is deliberately no table of millisecond figures here.** One was written, and it did not
+survive re-measurement: on a machine matching its own stamp, by two people, running the recipe it
+published, the rule-tree rows came back 20% off. An absolute that cannot be reproduced where it was
+taken will not reproduce on your hardware, your Node, a loaded CI box or a laptop on battery — which
+is the same reason this repo asserts no latency in CI. What follows was measured on one machine, and
+is stated as ratios because the ratios are what held across every re-run and both measurers:
 
-| Invocation                                          | Per tool call |
-| --------------------------------------------------- | ------------- |
-| `--version` — no stdin, no rules: the floor         | 71 ms         |
-| A tool call falsestart does not judge               | 72 ms         |
-| A judged write, 23 rules (`--preset all`)           | 95 ms         |
-| A judged write, 168 rules in 8 category directories | 147 ms        |
+- A call falsestart does not judge is indistinguishable from `--version`. The floor is the whole cost.
+- With the 23 shipped rules, a judged write costs about **a third more than the floor** — so for a
+  small rule set the floor, not the rules, is most of what you pay.
+- **168 rules across 8 category directories — 7× the rule count — did not cost 7× as much**: roughly
+  two to two and a half times the floor, and under twice a `--preset all` call.
+- The same 168 documents written as one-line patterns with short messages cost **15–20% less** than
+  168 derived from the shipped corpus. A rule's shape is work, not only its count, so a rule count
+  on its own predicts little.
 
-**What the 168-rule tree is matters, so it is stated rather than left to be guessed**: the 23 shipped
-rules copied round-robin into 8 category directories, 21 apiece, each id rewritten to stay unique.
-Rule count is not the only term — the same 168 documents written as one-line patterns with short
-messages measure 116 ms instead of 147, because a rule's matcher and its text are both work. A row
-whose tree was unspecified would be a number nobody else can land on.
-
-Reproduce it with the loop that produced it, from a directory with no `falsestart.config.ts`:
+Reproduce all of it yourself, including the tree — that is the input a stranger cannot guess — from a
+directory with no `falsestart.config.ts`:
 
 ```bash
+# The tree: the 23 shipped rules copied round-robin into 8 category directories,
+# 21 apiece, each id rewritten so the whole tree still loads.
+i=0
+for category in clean effect naming structure security style tests types; do
+  mkdir -p "rules/$category"
+  for n in $(seq 0 20); do
+    source=$(ls node_modules/@sledorze/falsestart/rules/*/*.yml | sed -n "$(( i % 23 + 1 ))p")
+    sed "s/^id: /id: $category-$n-/" "$source" > "rules/$category/r$n.yml"
+    i=$(( i + 1 ))
+  done
+done
+
+# Confirm it LOADED before timing it. A tree that fails to load is the fastest
+# one you will ever measure, and it fails in well under the floor.
+node node_modules/@sledorze/falsestart/dist/cli.js --doctor --rules ./rules | grep '^rules'
+
 payload='{"tool_name":"Write","cwd":"'"$PWD"'","tool_input":{"file_path":"'"$PWD"'/src/a.ts","content":"const x = 1"}}'
 total=0
 for i in $(seq 10); do
@@ -62,11 +79,8 @@ done
 echo "$(( total / 10 )) ms"
 ```
 
-Rule count is still the smaller term: 145 extra rules of that shape cost about 50 ms here, against a
-floor near 70 ms that no rule set can avoid. The numbers are stamped because they are a fact about
-that machine on that day — repeated passes on this one moved every row by 5–10% on their own — and
-the three-part shape above is what holds on yours. Each part of it is anchored to a line of code
-rather than to a stopwatch.
+The three-part shape above is what holds on your machine, and each part of it is anchored to a line
+of code rather than to a stopwatch. That is the durable half; the stopwatch half is yours to take.
 
 Nothing is cached between invocations, and nothing here promises that will change. `src/judge.bench.ts`
 measures the in-process half and says the same thing where it re-reads the tree: if loading ever
@@ -132,9 +146,11 @@ independent checks say so, each verified by breaking it rather than by reading i
 ## What a rule cannot see
 
 A rule is an ast-grep document evaluated against the syntax tree of **one file's text**. The check
-receives that text and the path the text is destined for, and nothing else — nothing in the checking
-layer opens a file. "It judges text, not files" above says that about write time, because the
-content is not on disk yet. This is the stronger claim: that text and that path are the whole input.
+receives that text and the path the text is destined for, and nothing else: no code on the matching
+path opens a file, so there is no second file for a rule to consult. (The layer does read the
+filesystem — `loadRules` walks the rule tree — but that happens before any judging and reads only
+rule documents.) "It judges text, not files" above says this about write time, because the content
+is not on disk yet. This is the stronger claim: that text and that path are the whole input.
 
 There is no repo-wide corpus, no index of files seen before, and no rule type that runs
 caller-supplied code at match time. A rule document's fields are exactly `id`, `language`, `rule`,

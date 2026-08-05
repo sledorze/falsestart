@@ -124,10 +124,12 @@ copy every other line in the report describes. The line is absent if that file i
 the case for every version published before it existed — `0.1.0` and `0.2.0` shipped no changelog at
 all, so on those the only way to see what an upgrade added was to pack both versions and diff them.
 
-The `rules` line counts the tree twice: how many documents loaded, and how many of those can
-actually stop a write — only an `error`-severity rule denies, and everything softer is shown to the
-author and decides nothing (see **Rules that advise instead of blocking** below). Both numbers print
-even when one is zero, which is the case above and with every shipped preset.
+The `rules` line counts the tree twice: how many documents loaded, and how many of those declare a
+severity that could deny — only `error` does, and everything softer is shown to the author and
+decides nothing (see **Rules that advise instead of blocking** below). It is a tally of severities
+and nothing more: a rule scoped to a path your repo does not have still counts as `block` and can
+never fire, which is what the scope block underneath is for. Both numbers print even when one is
+zero, which is the case above and with every shipped preset.
 
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not

@@ -17,10 +17,15 @@
  *
  * ## What a TypeScript config may contain
  *
- * The stripped module is imported from a `data:` URL, which has no filesystem location and so
- * cannot resolve bare specifiers. A config may therefore use TYPE-only imports — which are erased
- * — but not value imports. That is not much of a restriction for a declarative document, and it
- * is exactly what `satisfies FalsestartConfig` needs:
+ * The stripped module is imported from a `data:` URL, which has no filesystem location to resolve a
+ * specifier against. So a config may use TYPE-only imports — which are erased — and `node:`
+ * builtins, which need no location, but not a PACKAGE or RELATIVE value import: `import picomatch
+ * from 'picomatch'` and `import './helper.ts'` both fail with `ERR_UNSUPPORTED_RESOLVE_REQUEST`.
+ *
+ * That leaves more room than "types only" suggests, and the room is the point: `execSync` resolves,
+ * so a config can compute a rule's SCOPE at load time — shell out, build a list of paths, emit
+ * globs. Pinned in `respond.test.ts` in both directions, because the narrow claim and the wide one
+ * fail differently. The type-only import is still what `satisfies FalsestartConfig` needs:
  *
  *     import type { FalsestartConfig } from '@sledorze/falsestart'
  *
