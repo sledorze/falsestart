@@ -1392,3 +1392,123 @@ layer(platform)('the Copilot emit contract', (it) => {
     ),
   )
 })
+
+/**
+ * The outcomes Copilot forces to exit 0, and the one it forces onto the other runtime's channel.
+ *
+ * Exit 1 is not available here for anything: it denies. So every non-deny answer costs 0, which
+ * makes `docs/architecture.md`'s fifth row STRONGER under Copilot — a malformed payload cannot deny
+ * even in principle — and makes `--fail open` mean what it says instead of inverting.
+ */
+layer(platform)('what a Copilot guard failure costs', (it) => {
+  // T-A7 — 1 would deny, which is `--fail open` silently becoming fail-closed with a reason the
+  // reader cannot act on. That inversion is the one thing `--fail`'s design refuses.
+  it.effect('reports a rule tree it could not load at exit 0, not 1', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('could not load rules from')
+      }),
+    ),
+  )
+
+  // T-A8 — the same failure under the other policy, in exit-2 form, still leading with the sentence
+  // that stops an agent rewriting code nothing judged.
+  it.effect('denies under --fail closed in exit-2 form, still leading with the unchecked notice', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          failure: 'closed',
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(2)
+        const reason = String(JSON.parse(response.stdout ?? '{}').permissionDecisionReason)
+        expect(reason).toContain('falsestart could not check this write')
+        expect(reason).toContain('--fail open')
+      }),
+    ),
+  )
+
+  // T-A9 — KNOWN LIMITATION, stated so it is not mistaken for coverage: this payload is malformed
+  // under both contracts, so it passes with or without the contract being threaded correctly. What
+  // it guards is "a malformed payload never denies" and nothing else. The contract wiring is
+  // guarded by the well-formed payload above.
+  it.effect('never denies a malformed Copilot payload, even under --fail closed', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          failure: 'closed',
+          input: JSON.stringify({ toolArgs: { path: '/r/a.ts' }, toolName: 'edit' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('carried no new_str/path to judge')
+      }),
+    ),
+  )
+
+  // T-A9d — the misdeclaration goes out on the channel the runtime that ACTUALLY sent it reads. The
+  // evidence of who is on the other end is stronger than the flag, and the message is useless on
+  // the wrong channel: emitted Copilot-style it would be exit 0 with nothing Claude Code shows,
+  // which is silence — and silence is precisely what makes this direction dangerous.
+  it.effect('answers a misdeclared agent on the other runtime’s channel', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: JSON.stringify({
+            tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' },
+            tool_name: 'Write',
+          }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('--agent claude-code')
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T-A12 — the hot path through the whole of `respond`, in both spellings. A broken rule tree on
+  // disk is the fixture that makes this measurable: if the tree is loaded at all, this is exit 0
+  // with a stderr notice rather than silence.
+  it.effect('costs a Copilot tool call that writes nothing exactly nothing, in either spelling', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        for (const input of [
+          JSON.stringify({ toolArgs: '{"command":"ls"}', toolName: 'bash' }),
+          JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'bash' }),
+        ]) {
+          const response = yield* respond({
+            agent: 'copilot',
+            input,
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          expect(response.exitCode).toBe(0)
+          expect(response.stdout).toBeUndefined()
+          expect(response.stderr).toBeUndefined()
+        }
+      }),
+    ),
+  )
+})
