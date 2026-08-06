@@ -88,8 +88,15 @@ const findDuplicateIds = (rules: readonly Rule[]): readonly string[] => {
  * a real temp tree it returned sibling directories in reverse — so the sort is what actually makes
  * findings come out the same way run to run.
  */
+/** Stub: slice 2's tests need the symbol to exist before the extraction happens. */
+export const readRuleDocuments = (
+  _directory: string,
+): Effect.Effect<ReadonlyMap<string, string>, RuleLoadError, FileSystem.FileSystem | Path.Path> =>
+  Effect.succeed(new Map())
+
 export const loadRules = (
   directory: string,
+  _documents?: ReadonlyMap<string, string> | undefined,
 ): Effect.Effect<readonly Rule[], RuleLoadError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem

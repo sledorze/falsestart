@@ -1,7 +1,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
-import { loadRules } from './loader.ts'
+import { loadRules, readRuleDocuments } from './loader.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -247,6 +247,95 @@ rule:
         const [loaded] = yield* loadRules(directory)
 
         expect(loaded?.utils).toBeUndefined()
+      }),
+    ),
+  )
+})
+
+/**
+ * The frozen path: the loader is handed bytes and must not touch the working tree.
+ *
+ * "Must not touch" is asserted with a `FileSystem` whose every read fails, rather than by counting
+ * calls — a loader that reads the tree and then ignores what it found would pass a call count and
+ * still be reading the thing the freeze exists to stop reading.
+ */
+const unreadable = Layer.mergeAll(
+  NodePath.layer,
+  FileSystem.layerNoop({
+    readDirectory: () => Effect.fail(new Error('the working tree must not be read') as never),
+    readFileString: () => Effect.fail(new Error('the working tree must not be read') as never),
+  }),
+)
+
+layer(unreadable)('rule tree loading from committed bytes', (it) => {
+  // T31
+  it.effect('never reads the working tree when it is given documents', () =>
+    Effect.gen(function* () {
+      const loaded = yield* loadRules('/no/such/place', new Map([['a.yml', rule('alpha')]]))
+
+      expect(loaded.map((entry) => entry.id)).toEqual(['alpha'])
+    }),
+  )
+
+  // T32 — validation is the loader's job on either path, not something the working tree provided.
+  it.effect('still refuses two rules sharing an id', () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        loadRules(
+          '/no/such/place',
+          new Map([
+            ['a.yml', rule('same')],
+            ['b.yml', rule('same')],
+          ]),
+        ),
+      )
+
+      expect(error.reasons.join('\n')).toContain('duplicate rule id')
+    }),
+  )
+
+  // T33 — the `_utils` split is about the KEY, not about a filesystem path.
+  it.effect('treats a frozen _utils document as a shared util rather than a rule', () =>
+    Effect.gen(function* () {
+      const loaded = yield* loadRules(
+        '/no/such/place',
+        new Map([
+          ['_utils/shared.yml', 'id: anyKeyword\nrule:\n  kind: any\n'],
+          ['a.yml', rule('alpha')],
+        ]),
+      )
+
+      expect(loaded.map((entry) => entry.id)).toEqual(['alpha'])
+      expect(loaded[0]?.utils).toEqual({ anyKeyword: { kind: 'any' } })
+    }),
+  )
+
+  // T34 — `isRuleDocument` decides on either path, or a committed README becomes a broken rule.
+  it.effect('ignores a frozen document that is not a rule document', () =>
+    Effect.gen(function* () {
+      const loaded = yield* loadRules(
+        '/no/such/place',
+        new Map([
+          ['README.md', '# how these rules work\n'],
+          ['a.yml', rule('alpha')],
+        ]),
+      )
+
+      expect(loaded.map((entry) => entry.id)).toEqual(['alpha'])
+    }),
+  )
+})
+
+layer(platform)('reading a rule tree from disk', (it) => {
+  // T35 — the extraction must not change the key shape, or every frozen tree fails to load for a
+  // reason that looks nothing like the cause.
+  it.effect('returns the keys the recursive walk produces, sorted', () =>
+    withTree({ '_utils/shared.yml': 'id: u\nrule:\n  kind: any\n', 'b/c.yml': rule('c'), 'a.yml': rule('a') }, (directory) =>
+      Effect.gen(function* () {
+        const documents = yield* readRuleDocuments(directory)
+
+        expect([...documents.keys()]).toEqual(['_utils/shared.yml', 'a.yml', 'b/c.yml'])
+        expect(documents.get('a.yml')).toBe(rule('a'))
       }),
     ),
   )
