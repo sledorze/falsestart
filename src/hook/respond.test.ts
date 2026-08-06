@@ -1619,3 +1619,195 @@ layer(platform)('Copilot advice', (it) => {
     ),
   )
 })
+
+/**
+ * Registered at an event falsestart does not implement (#63).
+ *
+ * The emission is the whole point here, not the verdict: `decide` reporting is worth nothing if
+ * `respond` still writes a `PreToolUse` document to stdout, and worth less than nothing if the
+ * refusal reaches Copilot as exit 1 — every other non-zero exit denies there, so a refusal that
+ * exited 1 would deny every tool call in the repository over a REGISTRATION mistake.
+ *
+ * So the channel is the declared contract's own `problem` channel, which is exit 1 + stderr under
+ * Claude Code ("non-blocking error, stderr shown to the user, execution continues" — the same row
+ * `PostToolUse` uses) and exit 0 + stderr under Copilot. Neither can deny, in any policy.
+ */
+const AT_ANOTHER_EVENT = JSON.stringify({
+  hook_event_name: 'PostToolUse',
+  tool_input: { content: 'const x = value as any', file_path: '/repo/src/widget.ts' },
+  tool_name: 'Write',
+})
+
+layer(platform)('registered at an event falsestart does not implement', (it) => {
+  it.effect('refuses on Claude Code’s channel instead of emitting a PreToolUse document', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        // The bug, asserted as an absence: this used to be a document naming `PreToolUse` and
+        // carrying `permissionDecision`, which `PostToolUse` does not define and the runtime
+        // silently ignores. Asserting the channel is EMPTY forbids every shape of it.
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('this hook was invoked for `PostToolUse`')
+        expect(response.stderr).toContain('falsestart scan')
+      }),
+    ),
+  )
+
+  // The sharp edge. Copilot denies on any non-zero exit other than 2, so the one thing this
+  // refusal must never be under `--agent copilot` is exit 1 — a registration mistake would then
+  // block `bash`, `view` and `grep` for the whole session.
+  it.effect('never exits 1 under --agent copilot, in either policy', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        for (const failure of ['open', 'closed'] as const) {
+          const response = yield* respond({
+            agent: 'copilot',
+            failure,
+            input: JSON.stringify({
+              hook_event_name: 'PostToolUse',
+              tool_input: { new_str: 'const x = value as any', old_str: '', path: '/repo/src/widget.ts' },
+              tool_name: 'edit',
+            }),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          expect(response.exitCode).toBe(0)
+          expect(response.stdout).toBeUndefined()
+          expect(response.stderr).toContain('copilot: this hook was invoked for `PostToolUse`')
+        }
+      }),
+    ),
+  )
+
+  // `--fail closed` is a policy about a guard that could not check a write it was going to judge.
+  // This is not one: falsestart was not asked to judge anything, and a denial here would be the
+  // ignored-document bug again in a louder costume — at PostToolUse Claude Code cannot block.
+  it.effect('never denies under --fail closed either', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // Answered before the rules source, the freeze's four git spawns and the rule-tree load, for the
+  // reason the misdeclared-`--agent` notice is: nothing in the session is being judged, so naming
+  // a broken tree or an unresolvable package would answer a question nobody is in a position to
+  // ask. The broken tree is what measures it — if it is still loaded, it is what gets named.
+  it.effect('answers without loading anything to answer it', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        let spawned = 0
+        const loaded = yield* respond({
+          freeze: () => {
+            spawned += 1
+            return Effect.succeed({ config: frozenWith({}), rules: frozenWith({}) })
+          },
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(spawned).toBe(0)
+        expect(loaded.stderr).toContain('this hook was invoked for `PostToolUse`')
+        expect(loaded.stderr).not.toContain('could not load rules from')
+
+        // The other guard failure answered above this one, and the sharpest of the pair: under
+        // `--fail closed` an unresolvable rules package used to DENY this payload — a denial, at an
+        // event where the runtime cannot block, in a document naming the wrong event.
+        const unresolved = yield* respond({
+          failure: 'closed',
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          unresolvedRules: UNRESOLVED,
+        })
+
+        expect(unresolved.stdout).toBeUndefined()
+        expect(unresolved.stderr).toContain('this hook was invoked for `PostToolUse`')
+        expect(unresolved.stderr).not.toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  // The regression an adversarial review found, pinned where it happened: on the CHANNEL. With the
+  // event refusal winning, `--agent copilot` in front of a Claude Code payload at another event
+  // answered at exit 0 on Copilot's channel, which Claude Code writes to the debug log and nowhere
+  // else — while the release before it said `Set --agent claude-code` at exit 1, in the transcript.
+  // A fix that turns a visible diagnostic into silence is a regression whatever its exit code says.
+  it.effect('keeps the misdeclared-agent notice, which is the only one that can be read here', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('--agent claude-code')
+        expect(response.stderr).not.toContain('this hook was invoked for')
+      }),
+    ),
+  )
+
+  // A tool call falsestart would have deferred at PreToolUse costs the same at any other event:
+  // silence. It is registration noise otherwise — most of a session's traffic writes nothing, and
+  // a notice on every `Bash` call is one the reader learns to skip.
+  it.effect('stays silent about a tool call it would never have judged anyway', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: JSON.stringify({ hook_event_name: 'PostToolUse', tool_input: { command: 'ls' }, tool_name: 'Bash' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toBeUndefined()
+      }),
+    ),
+  )
+
+  // The two negatives, through the whole of `respond` rather than only through `decide`: a payload
+  // naming `PreToolUse` and a payload naming no event at all both still deny, in the exact shape
+  // they always have.
+  it.effect('denies exactly as it always has at PreToolUse, named or absent', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        for (const input of [
+          writeOf('const x = value as any'),
+          JSON.stringify({
+            tool_input: { content: 'const x = value as any', file_path: '/repo/src/widget.ts' },
+            tool_name: 'Write',
+          }),
+        ]) {
+          const response = yield* respond({ input, projectDirectory: rules, rulesDirectory: rules })
+
+          expect(response.exitCode).toBe(0)
+          expect(response.stderr).toBeUndefined()
+          const payload = JSON.parse(response.stdout ?? '{}')
+          expect(payload.hookSpecificOutput.hookEventName).toBe('PreToolUse')
+          expect(payload.hookSpecificOutput.permissionDecision).toBe('deny')
+        }
+      }),
+    ),
+  )
+})

@@ -179,6 +179,29 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  // #63 — registered at `PostToolUse`, the binary used to write a document naming `PreToolUse` and
+  // carrying `permissionDecision`, which that event does not define. Only a process shows what
+  // actually reached the runtime: exit 1 with the refusal on stderr, and stdout EMPTY. A document
+  // on stdout here is the bug, whatever it says.
+  it.effect('refuses a registration at another event instead of writing a PreToolUse document', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* runCli(
+          rules,
+          JSON.stringify({
+            hook_event_name: 'PostToolUse',
+            tool_input: { content: 'const x = v as any', file_path: '/r/a.ts' },
+            tool_name: 'Write',
+          }),
+        )
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('this hook was invoked for `PostToolUse`')
+      }),
+    ),
+  )
+
   // "The last `--rules` wins" is the plausible sentence and it is false across the two FORMS: they
   // write different fields, and `cli.ts` prefers the package whichever order they arrived in. That
   // precedence lives in the wiring, which is excluded from the coverage ratchet and from mutation
@@ -1492,6 +1515,29 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot co
         expect(result.stdout).toContain('"permissionDecision":"deny"')
         expect(result.stdout).not.toContain('hookSpecificOutput')
         expect(result.stderr).toContain('as any')
+      }),
+    ),
+  )
+
+  // #63 under the contract where an exit code is dangerous. Copilot denies on any non-zero exit
+  // other than 2, so the refusal has to reach the operating system as 0 — and only a process can
+  // say what reached the operating system.
+  it.effect('refuses a registration at another event without a code Copilot reads as a deny', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* copilotRun(
+          rules,
+          ['--agent', 'copilot', '--fail', 'closed'],
+          JSON.stringify({
+            hook_event_name: 'PostToolUse',
+            tool_input: { new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' },
+            tool_name: 'edit',
+          }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('copilot: this hook was invoked for `PostToolUse`')
       }),
     ),
   )

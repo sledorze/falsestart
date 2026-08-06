@@ -29,8 +29,15 @@ more than falsestart:
 }
 ```
 
-Two details that are easy to get wrong and fail silently:
+Three details that are easy to get wrong and fail silently:
 
+- **Register it under `PreToolUse`, and nowhere else.** That is the only hook event falsestart
+  implements. Registered at `PostToolUse` it refuses on stderr, naming the event it was invoked for,
+  and judges nothing — it used to answer with a document naming the wrong event, which the runtime
+  ignored in silence. `PostToolUse` will not be implemented either: once the tool has run neither
+  runtime can block, so a deny and a warning become the same message. Register `falsestart scan` as
+  your `PostToolUse` command if after-the-write reporting is what you want, and see
+  [The hook event falsestart implements](./reference.md#the-hook-event-falsestart-implements).
 - **Invoke by path, not as a bare `falsestart`.** `node_modules/.bin` is not on `PATH` for a hook
   command, so a bare name exits 127. Claude Code treats that as a non-blocking error, the write
   proceeds, and `/hooks` still shows the hook registered. `npx falsestart …` works too.

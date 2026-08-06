@@ -2,6 +2,20 @@
 
 The lists: command line, rule document format, configuration, shipped rules, library exports.
 
+**The hook event.** `PreToolUse` is the only one falsestart implements. Both runtimes name the event
+in the payload (Claude Code always, Copilot in the VS Code compatible spelling), and any other name
+is refused rather than judged: exit 1 + stderr under Claude Code, exit 0 + stderr under Copilot,
+never a denial in either `--fail` policy, answered before the rules source, the freeze or the rule
+tree are touched. Exit 0 under Copilot is the DECLARED contract's price list, not an inference from
+the event name — GitHub's fail-closed rule is `preToolUse`-specific, but a shim could send any event
+name to a hook registered there. A misdeclared `--agent` outranks the refusal, because a tool name is
+proof of who is on the other end and an event name is not. It used to judge a `PostToolUse` payload and emit a document naming `PreToolUse`
+with a `permissionDecision` that event does not define, which the runtime ignores in silence.
+`PostToolUse` will not be implemented: neither runtime can block after the tool has run, so deny and
+advise collapse and `severity` stops meaning anything — that is `falsestart scan`. A payload with no
+event name is judged exactly as before (absence is not a claim, and Copilot's camelCase payload has
+no event field), and a tool call falsestart would have deferred stays silent at every event.
+
 **Judged tool calls, per contract.** Claude Code (the default), envelope `tool_name`/`tool_input`:
 `Write` (`file_path`/`content`), `Edit` (`file_path`/`new_string`), `NotebookEdit`
 (`notebook_path`/`new_source`) — the complete set of built-ins carrying file content. GitHub Copilot

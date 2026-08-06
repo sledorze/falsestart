@@ -1,11 +1,11 @@
 {
   "refs": [
     {
-      "hash": "21808f9c93e10a96535a85acc953a68caa3685cf85d4652458e256d8bbbdacfc",
+      "hash": "8044b52eeef4b17c0a3d02a16b5cff7d3f9c4494c2f1a85ebf5807c1c4f2e2b5",
       "target": "./reference.md"
     },
     {
-      "hash": "26342d5c28924275b0273144fc3f3e86170205831a084a69b64f417b9a087441",
+      "hash": "11fbb49ff452c80ac48994f76399dd0533b6aabb151f82ab80350e862c991fae",
       "target": "./using-the-hook.md"
     },
     {
