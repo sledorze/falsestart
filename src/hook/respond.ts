@@ -336,6 +336,19 @@ export const respond = (
 
     const target = judgedTarget(parsed.success, contract)
 
+    // Answered HERE, ahead of every guard failure, and that is the one place in this function where
+    // the payload outranks the installation. A misdeclared `--agent` means nothing in the session is
+    // being judged at all, so naming the rules package or the broken tree instead would answer a
+    // question nobody is in a position to ask — and producing that notice cost the freeze's four git
+    // spawns and a full rule-tree load, on every `edit` and `create` of a misconfigured session.
+    //
+    // It is emitted on the channel of the runtime that ACTUALLY sent the payload, and it never
+    // denies: this is not a judged write in either contract, so `--fail closed` has no more to say
+    // about it than it does about a malformed payload.
+    if (target._tag === 'Misdeclared') {
+      return emitterFor(target.runtime).problem(target.problem)
+    }
+
     // Answered here and nowhere earlier. Everything above this line runs on every tool call; a
     // rules source that could not be resolved is still a guard failure, but it is not a reason to
     // say anything about a `Bash` call. Ahead of `options.freeze()` too: a run that cannot load a
@@ -423,17 +436,9 @@ export const respond = (
         // the freeze: a committed tree that will not load would go back to exit 1 on that payload.
         //
         // The discriminator is STRUCTURAL and never the text of the problem: `decide` can only reach
-        // `Report` from a malformed target, a misdeclared one, or a rule that could not run, and
-        // `judgedTarget` has already said which.
-        //
-        // A misdeclared `--agent` goes out on the channel of the runtime that ACTUALLY sent the
-        // payload, not the one the flag named. Membership of the tool name in a declared table is
-        // stronger evidence about who is on the other end than the flag is, and the notice is worth
-        // nothing on a channel that runtime does not read — which is exactly what "declared copilot,
-        // ran under Claude Code" would otherwise be: exit 0, no output, unguarded indefinitely.
-        if (target._tag === 'Misdeclared') {
-          return emitterFor(target.runtime).problem(decision.problem)
-        }
+        // `Report` from a malformed target or from a rule that could not run, and `judgedTarget` has
+        // already said which. A misdeclared one never gets here — it is answered above, before any
+        // guard failure, because nothing in the session is being judged.
         return target._tag === 'Malformed'
           ? emit.problem(decision.problem)
           : guardFailure(emit, options.failure, decision.problem)
