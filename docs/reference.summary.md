@@ -8,8 +8,10 @@ The lists: command line, rule document format, configuration, shipped rules, lib
 CLI under `--agent copilot`, envelope `toolName`/`toolArgs` or `tool_name`/`tool_input` depending on
 the casing of the event name in the hook config, with `toolArgs` possibly a JSON-encoded string:
 `create` (`path`/`content`), `edit` (`path`/`new_str`) — **inferred names, not documented by
-GitHub**. Anything else is allowed in silence under either contract. `Bash` is deliberately absent,
-so a shell redirect writes a file falsestart never sees.
+GitHub**. A tool in NEITHER table is allowed in silence; a tool in the OTHER contract's table is
+reported as a misdeclared `--agent` and, being a judged candidate, can be denied by a guard failure
+like any other judged write. `Bash` is deliberately absent, so a shell redirect writes a file
+falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
 `--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--agent <name>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
@@ -70,7 +72,9 @@ exit 0 with no output defers, and exit 1 reports a
 problem without blocking. Blocking is deliberately not exit 2 there, which discards stdout. Under
 `copilot` there is **no exit 1 at all** — every non-zero exit other than 2 denies the tool call — so a
 deny is exit 2 with top-level `permissionDecision` keys on stdout and the reason on stderr, advice
-and reported problems are exit 0 with stderr only, and a refused command line exits 0 too.
+and reported problems are exit 0 with stderr only, and a refused command line exits 0 too — as long as `--agent` was written as two arguments, since
+`--agent=copilot` is refused as an unrecognised argument at exit 1. `--doctor` is not on the hook
+path and still exits 1 when unhealthy.
 
 **`scan [paths…]`:** judges files on disk for a git hook or CI. Paths from the caller, `-`/`-0` for
 stdin, `--baseline`/`--update-baseline` to absorb pre-existing findings, `--warn-unscoped` refused.

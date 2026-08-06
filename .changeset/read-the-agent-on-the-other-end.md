@@ -19,8 +19,9 @@ and falsestart's fail-open report is exit 1. `--agent copilot` is the whole setu
 ```
 
 **Can a previously-passing setup change behaviour? Almost nowhere.** `--agent` defaults to
-`claude-code`; every parse path, emit path and exit code without the flag is what it was. Three
-report texts change unconditionally, all of them diagnostics rather than decisions:
+`claude-code`. Every parse path and every emit path without the flag is what it was, and no payload
+naming a Claude Code tool changes verdict. Four things do change unconditionally — three of them
+report texts, one of them a verdict on a payload Claude Code does not send:
 
 - `--doctor` prints an `agent` line on every run. Stated because the previous release's changeset
   made the opposite promise about `--doctor`; the reason is that the person asking "why did my deny
@@ -31,6 +32,12 @@ report texts change unconditionally, all of them diagnostics rather than decisio
   `Write carried no content/file_path to judge (tool_input carried: content)`. Under Copilot that
   clause is what makes a wrong field-name inference diagnosable rather than mysterious; it is
   unconditional because the diagnostic is worth the same on both contracts.
+- **A payload naming `create` or `edit` in the `tool_name`/`tool_input` envelope is no longer
+  deferred in silence** under the default agent. It is reported as a misdeclared `--agent` — and,
+  being a judged candidate now, it also reaches every guard failure ahead of that report, so a
+  broken rule tree under `--fail closed`, or a freeze that cannot be honoured, will DENY it where it
+  previously said nothing. Claude Code ships no tool by either name, so this needs a payload from
+  something else speaking that envelope; if you have one, that is the point of the notice.
 
 **What `--agent copilot` changes.** falsestart reads `toolName`/`toolArgs` **and** the VS Code
 compatible `tool_name`/`tool_input` — the casing of the event name in your Copilot hook config
@@ -57,11 +64,17 @@ closed table is reported rather than deferred, on the channel the runtime that r
 was given". Without that, `--agent copilot` in front of Claude Code would be exit 0 and silence —
 unguarded indefinitely, looking healthy the whole time.
 
-**One trade, stated.** A refused hook command line naming any `--agent` value other than
-`claude-code` exits **0** rather than 1, including a misspelled one: under Copilot exit 1 denies, so
-refusing `--agent copilto --bogus` at exit 1 would be a repository-wide outage rather than a message.
-`falsestart --agent copilot --bogus; echo $?` therefore prints 0. The message is still on stderr, and
-`--doctor` is the answer, as it already is for `--list-rules`.
+**One trade, stated.** A refused hook command line naming any `--agent` VALUE other than
+`claude-code` exits **0** rather than 1, including a misspelled or missing value: under Copilot exit
+1 denies, so refusing `--agent copilto --bogus` at exit 1 would be a repository-wide outage rather
+than a message. `falsestart --agent copilot --bogus; echo $?` therefore prints 0. The message is
+still on stderr, and `--doctor` is the answer, as it already is for `--list-rules`.
+
+**One gap in that trade, also stated.** The exit-0 refusal recognises `--agent` written as two
+arguments. `--agent=copilot` is not a form this parser accepts for any flag, so it is refused as an
+unrecognised argument at exit **1** — which is the outage the trade exists to avoid. Write
+`--agent copilot`. `--doctor` is likewise not on the hook path and still exits 1 when the
+installation is unhealthy.
 
 New exports `AGENTS` and `AGENT_CONTRACTS`, and types `AgentId`, `AgentContract`, `Envelope`. New
 optional `RespondOptions.agent`, `DiagnoseOptions.agent`, `DecideOptions.agent`, and an optional

@@ -368,10 +368,17 @@ the document back into typed entries.
 
 ### Judged tool calls
 
-falsestart inspects the content a tool call is about to write. A tool name outside its contract's
-table produces no output and exit 0, indistinguishable from a clean write, so a future write tool
-would be unguarded without any signal. Both tables are asserted against the code by a test rather
-than maintained here by hand.
+falsestart inspects the content a tool call is about to write. A tool name in NEITHER table produces
+no output and exit 0, indistinguishable from a clean write, so a future write tool would be unguarded
+without any signal. Both tables are asserted against the code by a test rather than maintained here
+by hand.
+
+A tool name in the OTHER contract's table is not silent: it is reported as a misdeclared `--agent`
+(see [Which agent is on the other end](#which-agent-is-on-the-other-end)), which also means it is
+a judged candidate — so it reaches the guard failures in
+[When falsestart itself cannot run](#when-falsestart-itself-cannot-run) and can be denied by one,
+exactly as a `Write` would be. Claude Code ships no tool called `create` or `edit`, so this needs a
+payload from something else speaking that envelope.
 
 `Bash` is deliberately absent from both, and so are Copilot's `bash`, `view`, `grep`, `glob`, `task`,
 `powershell`, `web_fetch` and `ask_user`. falsestart judges the text a write tool carries, so a
@@ -445,8 +452,14 @@ reads stderr as the reason, throwing away the structured decision.
 **There is no `1` row, and that is forced rather than chosen.** Copilot denies the tool call on every
 non-zero exit other than 2, as `Denied by preToolUse hook (hook errored)`. So an exit 1 would not
 mean "reported, and the write proceeds" — it would block the write with a reason nobody can act on,
-and would silently convert `--fail open` into fail-closed. Every outcome that exits `1` under Claude
-Code therefore exits `0` here, including a refused command line.
+and would silently convert `--fail open` into fail-closed. Every outcome that exits `1` on the HOOK
+PATH therefore exits `0` here, including a refused command line. `--doctor` is not on that path: it
+reads no stdin, is run by a person in a terminal, and still exits `1` when the installation is
+unhealthy.
+
+**One gap in the refusal, stated.** The exit-0 refusal recognises `--agent` written as two arguments.
+`--agent=copilot` is not a form this parser accepts for any flag, and it is refused as an
+unrecognised argument at exit `1` — which under Copilot denies. Write `--agent copilot`.
 
 The deny document's keys are **top-level** — `permissionDecision` and `permissionDecisionReason` —
 not nested under `hookSpecificOutput`, which Copilot ignores
