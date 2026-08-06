@@ -22,6 +22,8 @@ import { loadRules } from './checking/loader.ts'
 import { RuleDescriptionSchema } from './checking/listing.ts'
 import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
+import { FREEZE_MODES } from './freezing/index.ts'
+import { parseArguments } from './cli/options.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
 import { respond } from './hook/respond.ts'
 
@@ -565,6 +567,55 @@ layer(platform)('documentation covers the source', (it) => {
       const withoutEntryPoint = [...areas].filter((area) => !files.includes(`src/${area}/index.ts`))
 
       expect(withoutEntryPoint).toEqual([])
+    }),
+  )
+  /**
+   * T72 — the help text and the parser drift by nothing but forgetfulness, and no doc link and no
+   * content hash can see it: `--help` names three modes, the parser accepts whatever it accepts, and
+   * a fourth mode added to one and not the other is invisible from both sides.
+   */
+  it.effect('the freeze modes --help names are exactly the ones the parser accepts', () =>
+    Effect.gen(function* () {
+      const help = parseArguments(['--help'])
+      const named = (help._tag === 'Help' ? help.text : '').match(/--freeze <mode>\s+Where rules and config are read from: ([^.]+)\./)
+
+      expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FREEZE_MODES].toSorted())
+    }),
+  )
+
+  /**
+   * T73 — `SECURITY.md` carries no summary and no link cairn could hash, so nothing else in this
+   * repository can see what it claims. The framing sentence was already right; the escapes it names
+   * were not, and an earlier draft pinned only the sentence that needed no pinning.
+   */
+  it.effect('SECURITY.md names the boundary and every way through it', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const security = yield* fs.readFileString('SECURITY.md')
+
+      for (const claim of [
+        'cannot defend against an agent that can rewrite the things which say where its rules come from',
+        'can commit a weakened rule',
+        'refs/remotes/*',
+        'a write tool cannot replace it',
+        '.claude/settings.json',
+      ]) {
+        expect(security).toContain(claim)
+      }
+    }),
+  )
+
+  /**
+   * T74 — the two sentences that read as harmless and are false. The second is the one a real
+   * worktree falsifies with a single `Write`.
+   */
+  it.effect('SECURITY.md claims neither of the two things that are not true', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const security = yield* fs.readFileString('SECURITY.md')
+
+      expect(security).not.toContain('takes a commit rather than an uncommitted edit')
+      expect(security).not.toContain('an uncommitted change cannot change what is enforced')
     }),
   )
 })
