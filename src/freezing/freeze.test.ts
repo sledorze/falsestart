@@ -439,6 +439,25 @@ describe('classifying what git said', () => {
     }),
   )
 
+  // Not in the design's catalogue, and the hole it closes is real: `respond` looks the explicit
+  // config up in the frozen map, so an absent entry would send it to the file on disk — and creating
+  // the file the command line names is a write an agent can make.
+  describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
+    effect('refuses a --config path the ref does not hold', () =>
+      Effect.gen(function* () {
+        const outcome = yield* freeze(
+          inputFor({
+            config: { _tag: 'Explicit', name: 'scope.json', origin: '/p/scope.json', relative: 'scope.json' },
+            mode,
+            probe: () => answer(bytes(commit(), missing('HEAD:scope.json'))),
+          }),
+        )
+
+        expect(outcome.config).toEqual({ _tag: 'Broken', reason: '/p/scope.json is not committed at HEAD' })
+      }),
+    )
+  })
+
   // T28 — a config outside the repository cannot be claimed frozen by the repository's ref.
   describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
     effect('refuses to claim a config outside the repository is frozen', () =>
