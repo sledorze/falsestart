@@ -510,6 +510,49 @@ describe('the Copilot payload contract', () => {
     }),
   )
 
+  // The forward gap, closed. A camelCase Copilot payload under the default contract cannot be
+  // recognised as a misdeclaration — nothing in that contract reads `toolName`, so there is no tool
+  // name to look up — but the ENVELOPE is still recognisable, and naming it turns issue #50's
+  // opening message from a dead end into the remedy. One branch on a path that was already
+  // Malformed; the message a payload speaking no known envelope gets is untouched.
+  effect('names the contract whose envelope arrived when this one carried none', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const camelCase = yield* decide(rules, { toolArgs: { path: '/repo/src/a.ts' }, toolName: 'edit' })
+      expect(problemOf(camelCase)).toBe(
+        'hook payload carried no tool_name (it carried toolName, which belongs to the copilot contract — did you mean --agent copilot?)',
+      )
+
+      // No known envelope at all keeps the message it has always had, in either contract.
+      expect(problemOf(yield* decide(rules, { nothing: 1 }))).toBe('hook payload carried no tool_name')
+      expect(problemOf(yield* decide(rules, { nothing: 1 }, { agent: 'copilot' }))).toBe(
+        'copilot: hook payload carried no toolName',
+      )
+    }),
+  )
+
+  // R9 — an empty argument object rendered as a dangling `carried: )`. The keys that arrived are
+  // the whole point of the clause, and "none of them" is a thing worth saying in words.
+  effect('says so in words when the arguments carried no keys at all', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), { tool_input: {}, tool_name: 'Write' })
+
+      expect(problemOf(decision)).toBe('Write carried no content/file_path to judge (tool_input carried nothing)')
+    }),
+  )
+
+  // R9 — every other Copilot diagnostic names the contract; this one did not, so a reader seeing it
+  // could not tell which contract had rejected their payload.
+  effect('prefixes the not-an-object complaint with the contract too', () =>
+    Effect.gen(function* () {
+      expect(problemOf(yield* decide(yield* rulesOf(noAsAny), 'nope', { agent: 'copilot' }))).toBe(
+        'copilot: hook payload was not an object',
+      )
+      expect(problemOf(yield* decide(yield* rulesOf(noAsAny), 'nope'))).toBe('hook payload was not an object')
+    }),
+  )
+
   // T-A4a
   effect('judges a Copilot create by the content it would write', () =>
     Effect.gen(function* () {
