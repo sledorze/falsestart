@@ -894,7 +894,7 @@ layer(platform)('editing a rule while the freeze is on', (it) => {
         // A rule document whose own CONTENT breaks a rule: both things are true at once, and the
         // decision must win while the explanation still arrives.
         const response = yield* respond({
-          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          freeze: frozenRules({ 'block-any.yml': BLOCKING.replace("'**/*.ts'", "'**/*.{ts,yml}'") }),
           input: writeTo(path.join(rules, 'new.yml'), 'const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,

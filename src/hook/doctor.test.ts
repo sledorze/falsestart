@@ -416,7 +416,7 @@ layer(platform)('the doctor under a freeze', (it) => {
       Effect.gen(function* () {
         const report = (
           yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed }) },
+            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed.replace('no-as-any', 'gone') }) },
             projectDirectory: rules,
             rulesDirectory: rules,
           })

@@ -11,12 +11,12 @@
  * Notably a block is NOT exit 2. Exit 2 does block, but the runtime discards stdout and reads
  * stderr as the reason, which throws away the structured decision.
  */
-import { Effect, Path, Schema } from 'effect'
-import type { FileSystem } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
-import { loadRules } from '../checking/index.ts'
+import { isRuleDocument, loadRules } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
-import { decide, judgesPayload } from './decide.ts'
+import { containedPath } from '../freezing/index.ts'
+import { decide, judgedTarget, judgesPayload } from './decide.ts'
 
 export interface HookResponse {
   readonly exitCode: number
@@ -66,6 +66,10 @@ const FREEZE_ESCAPE = 're-run the hook with --freeze=off to use the working tree
 
 const withEscape = (reason: string): string => `${reason}\n${FREEZE_ESCAPE}`
 
+/** Both, when there are both. The freeze note never replaces what a rule had to say. */
+const join = (text: string, extra: string | undefined): string =>
+  extra === undefined ? text : `${text}\n${extra}`
+
 /** The reasons a source that git established as freezable could not be read. */
 const frozenFailures = (outcome: FreezeOutcome | undefined): readonly string[] =>
   outcome === undefined
@@ -85,6 +89,64 @@ const documentsOf = (source: Frozen | undefined): ReadonlyMap<string, string> | 
  */
 const refuse = (frozen: boolean, message: string): HookResponse =>
   frozen ? denial(withEscape(message)) : problem(message)
+
+/**
+ * Why a rule an author just edited did not change anything, said at the moment the confusion happens.
+ *
+ * Default-on freezing has one real cost, and this is it: a rule author edits a rule and nothing
+ * happens. A diagnostic nobody runs mid-iteration does not answer that, so the answer is attached to
+ * the write itself.
+ *
+ * Scoped by two STRUCTURAL tests and never by content: segment containment of the destination
+ * directory inside the rules directory, and `isRuleDocument` on the name. Both matter. `startsWith`
+ * would claim a sibling `rulesx/`, and containment alone would tell the author of `<rules>/.git` —
+ * the payload of the one attack this design is built around — that their write "does not take effect
+ * until it is committed", when it took effect the instant it landed.
+ *
+ * It does NOT cover an author who WIDENS a rule and expects a new block somewhere else; that write
+ * stays silent, and only `--doctor` answers it. Reporting divergence on every judged write was
+ * considered and rejected for the reason `decide.ts` gives about `--warn-unscoped`: a signal that
+ * fires on most writes gets trained away, and a trained-away signal is worse than none because it
+ * still looks like coverage.
+ */
+const frozenRuleNote = (options: {
+  readonly ref: string
+  readonly rulesDirectory: string
+  readonly written: string | undefined
+}): Effect.Effect<string | undefined, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { ref, rulesDirectory, written } = options
+
+    if (written === undefined) {
+      return undefined
+    }
+
+    const real = (candidate: string) => fs.realPath(candidate).pipe(Effect.orElseSucceed(() => undefined))
+
+    // Both sides are resolved, so a symlinked rules directory is judged by where it really is. The
+    // destination's DIRECTORY, because the document being written need not exist yet — and neither
+    // need the rules directory, which under a freeze may have been deleted entirely.
+    const rulesReal = yield* real(rulesDirectory)
+    if (rulesReal === undefined) {
+      return undefined
+    }
+    const destination = yield* real(path.dirname(written))
+    if (destination === undefined) {
+      return undefined
+    }
+
+    const relative = containedPath(rulesReal, destination)
+    if (relative === undefined) {
+      return undefined
+    }
+
+    return isRuleDocument(path.join(relative, path.basename(written)))
+      ? `rules are read from ${ref}, so this document does not take effect until it is committed.\n` +
+          '`falsestart --doctor` lists what is not in effect; `--freeze=off` reads the working tree.'
+      : undefined
+  })
 
 /**
  * Decides what to emit for one hook invocation.
@@ -187,18 +249,30 @@ export const respond = (
 
     const decision = yield* decide(scoped.success, parsed.success, { warnUnscoped })
 
+    const target = judgedTarget(parsed.success)
+    const note =
+      outcome?.rules._tag === 'Frozen'
+        ? yield* frozenRuleNote({
+            ref: outcome.rules.ref,
+            rulesDirectory,
+            written: target._tag === 'Write' ? target.path : undefined,
+          })
+        : undefined
+
     switch (decision._tag) {
       case 'Advise': {
-        return advice(decision.note)
+        return advice(join(decision.note, note))
       }
       case 'Deny': {
-        return denial(decision.reason)
+        // The decision wins and the explanation still arrives: a rule document whose own content
+        // breaks a rule is both things at once.
+        return denial(join(decision.reason, note))
       }
       case 'Report': {
         return problem(decision.problem)
       }
       default: {
-        return silent()
+        return note === undefined ? silent() : advice(note)
       }
     }
   })

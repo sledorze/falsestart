@@ -107,6 +107,57 @@ const describe = (finding: Finding): string =>
   `${finding.ruleId} (${finding.line}:${finding.column}): ${finding.message}`
 
 /**
+ * What a payload is asking to write, if anything.
+ *
+ * Split out of `decide` rather than duplicated because `respond` needs the DESTINATION too — a
+ * judged write into a frozen rules directory is told why nothing happened — and two readings of the
+ * same payload would eventually disagree about which tool carries its path where. `NotebookEdit`
+ * calls it `notebook_path`, and reading `file_path` there leaves a rule effectively unscoped rather
+ * than correctly scoped.
+ */
+export type JudgedTarget =
+  /** Not a tool that writes source. Nothing this tool knows how to judge. */
+  | { readonly _tag: 'Deferred' }
+  | { readonly _tag: 'Malformed'; readonly problem: string }
+  | {
+      readonly _tag: 'Write'
+      readonly content: string
+      /** The agent's working directory, when it named one. Rules are scoped relative to it. */
+      readonly cwd: string | undefined
+      readonly path: string
+    }
+
+export const judgedTarget = (payload: unknown): JudgedTarget => {
+  if (!isRecord(payload)) {
+    return { _tag: 'Malformed', problem: 'hook payload was not an object' }
+  }
+
+  const toolName = payload['tool_name']
+  if (typeof toolName !== 'string') {
+    return { _tag: 'Malformed', problem: 'hook payload carried no tool_name' }
+  }
+
+  const fields = WRITE_TOOLS[toolName]
+  if (fields === undefined) {
+    return { _tag: 'Deferred' }
+  }
+
+  const toolInput = payload['tool_input']
+  if (!isRecord(toolInput)) {
+    return { _tag: 'Malformed', problem: `${toolName} carried no tool_input` }
+  }
+
+  const content = toolInput[fields.content]
+  const path = toolInput[fields.path]
+  if (typeof content !== 'string' || typeof path !== 'string') {
+    return { _tag: 'Malformed', problem: `${toolName} carried no ${fields.content}/${fields.path} to judge` }
+  }
+
+  const cwd = payload['cwd']
+  return { _tag: 'Write', content, cwd: typeof cwd === 'string' ? cwd : undefined, path }
+}
+
+/**
  * Judges the tool call described by `payload`.
  *
  * Never fails: every way this can go wrong is itself one of the three outcomes, because a guard
@@ -118,38 +169,17 @@ export const decide = (
   options: DecideOptions = {},
 ): Effect.Effect<Decision> =>
   Effect.gen(function* () {
-    if (!isRecord(payload)) {
-      return { _tag: 'Report', problem: 'hook payload was not an object' } as const
+    const target = judgedTarget(payload)
+    if (target._tag === 'Malformed') {
+      return { _tag: 'Report', problem: target.problem } as const
     }
-
-    const { tool_input: toolInput, tool_name: toolName } = payload
-    if (typeof toolName !== 'string') {
-      return { _tag: 'Report', problem: 'hook payload carried no tool_name' } as const
-    }
-
-    const fields = WRITE_TOOLS[toolName]
-    if (fields === undefined) {
-      // Not a tool that writes source. Nothing this tool knows how to judge.
+    if (target._tag === 'Deferred') {
       return defer()
     }
-
-    if (!isRecord(toolInput)) {
-      return { _tag: 'Report', problem: `${toolName} carried no tool_input` } as const
-    }
-
-    const content = toolInput[fields.content]
-    const path = toolInput[fields.path]
-    if (typeof content !== 'string' || typeof path !== 'string') {
-      return {
-        _tag: 'Report',
-        problem: `${toolName} carried no ${fields.content}/${fields.path} to judge`,
-      } as const
-    }
-
     // The payload reports an absolute path; rules are written relative to the project. Scoping on
     // the raw absolute path makes every repo-relative glob silently never match.
-    const cwd = payload['cwd']
-    const scopingPath = toScopingPath(path, typeof cwd === 'string' ? cwd : undefined)
+    const { content, cwd, path } = target
+    const scopingPath = toScopingPath(path, cwd)
 
     // Deliberately before the check rather than after it. A path no rule admits produces no
     // findings, so the two are equivalent in outcome — but reading it here says the condition is
