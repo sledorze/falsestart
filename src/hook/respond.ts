@@ -423,8 +423,17 @@ export const respond = (
         // the freeze: a committed tree that will not load would go back to exit 1 on that payload.
         //
         // The discriminator is STRUCTURAL and never the text of the problem: `decide` can only reach
-        // `Report` from a malformed target or from a rule that could not run, and `judgedTarget` has
-        // already said which.
+        // `Report` from a malformed target, a misdeclared one, or a rule that could not run, and
+        // `judgedTarget` has already said which.
+        //
+        // A misdeclared `--agent` goes out on the channel of the runtime that ACTUALLY sent the
+        // payload, not the one the flag named. Membership of the tool name in a declared table is
+        // stronger evidence about who is on the other end than the flag is, and the notice is worth
+        // nothing on a channel that runtime does not read — which is exactly what "declared copilot,
+        // ran under Claude Code" would otherwise be: exit 0, no output, unguarded indefinitely.
+        if (target._tag === 'Misdeclared') {
+          return emitterFor(target.runtime).problem(decision.problem)
+        }
         return target._tag === 'Malformed'
           ? emit.problem(decision.problem)
           : guardFailure(emit, options.failure, decision.problem)
