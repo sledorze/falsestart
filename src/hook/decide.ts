@@ -29,7 +29,7 @@
  * not stop the write, because advice that blocks is indistinguishable from an error. Dropping it
  * entirely would be worse — a `warning` rule would then do nothing whatsoever.
  */
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import type { Finding, Rule } from '../checking/index.ts'
 import { appliesTo, checkFile, toScopingPath } from '../checking/index.ts'
 
@@ -43,6 +43,7 @@ export type Decision =
 const defer = (): Decision => ({ _tag: 'Defer' })
 
 export interface DecideOptions {
+  readonly agent?: AgentId | undefined
   /**
    * Say so when a judged write lands on a path no rule is scoped to.
    *
@@ -116,8 +117,11 @@ export interface AgentContract {
    * Code Copilot extension format". Reading both is not sniffing the AGENT — the agent, and with it
    * the whole output contract, is declared. Only the spelling of one envelope is read, and the
    * runtime that sent it documents both as its own.
+   *
+   * Non-empty by type, because the FIRST one is what a payload carrying none of them is told to
+   * carry — a contract with no envelope could not say anything useful there.
    */
-  readonly envelopes: readonly Envelope[]
+  readonly envelopes: readonly [Envelope, ...(readonly Envelope[])]
   /**
    * Whether this runtime may deliver its tool arguments as a JSON-ENCODED STRING rather than an
    * object. Copilot does (github/copilot-cli#3349). Claude Code does not, and must not be given the
@@ -282,6 +286,13 @@ export type JudgedTarget =
   /** Not a tool that writes source. Nothing this tool knows how to judge. */
   | { readonly _tag: 'Deferred' }
   | { readonly _tag: 'Malformed'; readonly problem: string }
+  /**
+   * The payload names a tool from a contract other than the one declared, which is proof the flag
+   * is wrong rather than a tool falsestart has no opinion about. `runtime` is the contract the name
+   * really belongs to, so the notice can be emitted on the channel that runtime reads — a message
+   * about a misdeclared `--agent` is useless on the channel of the agent that is not there.
+   */
+  | { readonly _tag: 'Misdeclared'; readonly problem: string; readonly runtime: AgentId }
   | {
       readonly _tag: 'Write'
       readonly content: string
@@ -290,30 +301,85 @@ export type JudgedTarget =
       readonly path: string
     }
 
-export const judgedTarget = (payload: unknown): JudgedTarget => {
+/**
+ * A JSON-encoded argument object, kept in a result rather than thrown.
+ *
+ * `Schema.UnknownFromJsonString` rather than `JSON.parse` for the reason `no-json-global` gives, and
+ * because a guard that throws inside a hook is a guard whose behaviour the agent runtime decides.
+ */
+const decodeArguments = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)
+
+/**
+ * The contract is REQUIRED, not defaulted.
+ *
+ * A default here reads as harmless and is not: it makes every call site that forgets to pass one
+ * judge a Copilot payload against Claude Code's table, which resolves to `Malformed` — and
+ * `respond` routes `Malformed` to a report rather than to `--fail closed`, so a rule that could not
+ * run would stop denying under `--agent copilot`. It would also be an arm no input can reach once
+ * both call sites pass a contract, which the 100% branch threshold rejects.
+ */
+export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedTarget => {
   if (!isRecord(payload)) {
     return { _tag: 'Malformed', problem: 'hook payload was not an object' }
   }
 
-  const toolName = payload['tool_name']
-  if (typeof toolName !== 'string') {
-    return { _tag: 'Malformed', problem: 'hook payload carried no tool_name' }
+  const spoken = spokenEnvelope(payload, contract)
+  if (spoken === undefined) {
+    return {
+      _tag: 'Malformed',
+      problem: `${contract.problemPrefix}hook payload carried no ${contract.envelopes[0].name}`,
+    }
   }
 
-  const fields = WRITE_TOOLS[toolName]
+  const fields = contract.tools[spoken.tool]
   if (fields === undefined) {
-    return { _tag: 'Deferred' }
+    const elsewhere = AGENTS.find((id) => id !== contract.id && spoken.tool in AGENT_CONTRACTS[id].tools)
+    return elsewhere === undefined
+      ? { _tag: 'Deferred' }
+      : {
+          _tag: 'Misdeclared',
+          problem:
+            `this payload names the tool \`${spoken.tool}\`, which belongs to the ${elsewhere} ` +
+            `contract, but --agent ${contract.id} was given. Set --agent ${elsewhere}, or remove the flag.`,
+          runtime: elsewhere,
+        }
   }
 
-  const toolInput = payload['tool_input']
-  if (!isRecord(toolInput)) {
-    return { _tag: 'Malformed', problem: `${toolName} carried no tool_input` }
+  const raw = payload[spoken.envelope.input]
+  // Guarded on `typeof raw === 'string'`, so an ABSENT key keeps its own message rather than being
+  // reported as a string that would not parse — which is both untrue and a change to what the
+  // default path has always said.
+  let input: unknown = raw
+  if (contract.encodedInput && typeof raw === 'string') {
+    const decoded = decodeArguments(raw)
+    if (decoded._tag === 'Failure') {
+      return {
+        _tag: 'Malformed',
+        problem: `${contract.problemPrefix}${spoken.tool} carried ${spoken.envelope.input} as a string that is not JSON`,
+      }
+    }
+    input = decoded.success
   }
 
-  const content = toolInput[fields.content]
-  const path = toolInput[fields.path]
+  if (!isRecord(input)) {
+    return {
+      _tag: 'Malformed',
+      problem: `${contract.problemPrefix}${spoken.tool} carried no ${spoken.envelope.input}`,
+    }
+  }
+
+  const content = input[fields.content]
+  const path = input[fields.path]
   if (typeof content !== 'string' || typeof path !== 'string') {
-    return { _tag: 'Malformed', problem: `${toolName} carried no ${fields.content}/${fields.path} to judge` }
+    // The keys that DID arrive are named, because neither Copilot tool's argument names are
+    // documented by GitHub. Without them a wrong inference reads as a mysterious silence; with
+    // them it is one line of a diagnostic and a one-literal fix.
+    return {
+      _tag: 'Malformed',
+      problem:
+        `${contract.problemPrefix}${spoken.tool} carried no ${fields.content}/${fields.path} to judge ` +
+        `(${spoken.envelope.input} carried: ${Object.keys(input).toSorted().join(', ')})`,
+    }
   }
 
   const cwd = payload['cwd']
@@ -332,8 +398,11 @@ export const decide = (
   options: DecideOptions = {},
 ): Effect.Effect<Decision> =>
   Effect.gen(function* () {
-    const target = judgedTarget(payload)
-    if (target._tag === 'Malformed') {
+    const target = judgedTarget(payload, contractFor(options.agent))
+    // A misdeclared flag reports for the reason a malformed payload does: it is a fact about the
+    // invocation rather than about the code, so an agent told "denied" would rewrite something
+    // nothing ever judged.
+    if (target._tag === 'Malformed' || target._tag === 'Misdeclared') {
       return { _tag: 'Report', problem: target.problem } as const
     }
     if (target._tag === 'Deferred') {

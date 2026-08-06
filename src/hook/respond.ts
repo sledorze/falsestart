@@ -16,7 +16,7 @@ import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../confi
 import { isRuleDocument, loadRules } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
 import { containedPath } from '../freezing/index.ts'
-import { decide, judgedTarget, judgesPayload } from './decide.ts'
+import { CLAUDE_CODE_CONTRACT, decide, judgedTarget, judgesPayload } from './decide.ts'
 
 /**
  * What a failure of the GUARD costs, as opposed to a finding about the code.
@@ -275,7 +275,7 @@ export const respond = (
       return silent()
     }
 
-    const target = judgedTarget(parsed.success)
+    const target = judgedTarget(parsed.success, CLAUDE_CODE_CONTRACT)
 
     // Answered here and nowhere earlier. Everything above this line runs on every tool call; a
     // rules source that could not be resolved is still a guard failure, but it is not a reason to

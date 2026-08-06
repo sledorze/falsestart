@@ -580,9 +580,14 @@ describe('the Copilot payload contract', () => {
       expect(problemOf(claudeCodePayload)).toContain('claude-code contract')
       expect(problemOf(claudeCodePayload)).toContain('--agent claude-code')
 
+      // The mirror is only reachable in the spelling the two contracts SHARE. Nothing in the
+      // claude-code contract reads `toolName`, so a camelCase Copilot payload arriving here is
+      // answered `hook payload carried no tool_name` — issue #50's opening line, and the loud
+      // direction. Widening the default contract to read `toolName` would be a change to the
+      // default path in order to improve a message, which is the wrong trade.
       const copilotPayload = yield* decide(rules, {
-        toolArgs: { new_str: 'const x = 1', old_str: '', path: '/repo/src/a.ts' },
-        toolName: 'edit',
+        tool_input: { new_str: 'const x = 1', old_str: '', path: '/repo/src/a.ts' },
+        tool_name: 'edit',
       })
       expect(copilotPayload._tag).toBe('Report')
       expect(problemOf(copilotPayload)).toContain('`edit`')
