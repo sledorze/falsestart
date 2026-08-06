@@ -9,7 +9,9 @@ just at CI. Can also be used to enforce structure/architecture conventions.
 falsestart runs as a `PreToolUse` hook for Claude Code, or with `--agent copilot` for GitHub Copilot
 CLI. The tool call arrives on stdin, falsestart answers with a decision, and code that breaks a rule
 never reaches the file. Registering it for Copilot is a different file and one extra flag — see
-[Using the hook](./docs/using-the-hook.md).
+[Using the hook](./docs/using-the-hook.md). Two registrations is two chances to drift, and falsestart
+reads neither of them, so
+[check them against each other](./docs/using-the-hook.md#check-both-runtimes-enforce-the-same-thing).
 
 ## Install
 

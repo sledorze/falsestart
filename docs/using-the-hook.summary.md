@@ -31,6 +31,31 @@ policy, and an advisory finding reaches the user and the log but never the model
 provisional: the tool argument names are inferred, and `--doctor` prints them so a reader can check
 them against one real payload.
 
+Serving both runtimes means two registrations in two schemas, and falsestart reads neither — it is
+invoked BY the wiring and never inspects it, so `--doctor` cannot answer "is it registered
+everywhere I said I use an agent, and does each registration load the same rules". That half is a
+recipe rather than a flag: a ~100-line script the repository owns, built out of the exported
+`AGENTS` and `WRITE_TOOLS` plus `--list-rules`, given verbatim with the output of every case. It
+reports a declared runtime whose config holds someone else's guard and not falsestart; a registration
+naming the wrong runtime (the finding that matters most — worse than a missing one, since the whole
+Copilot session then denies); a Claude Code matcher that never reaches a write tool; two
+registrations resolving DIFFERENT rule sets, the drift a presence check reports green on; and an
+unparseable config, which throws rather than degrading to "no hooks". **Absence is not a finding —
+declaration is**: no `.github/hooks/` says nothing about Copilot, and reporting there infers intent.
+`RULE_FLAGS` is an allow-list because `--list-rules` refuses `--agent` and `--fail`, for two
+different reasons, so a registration's command line cannot be replayed verbatim; `--list-rules` also
+inherits `--freeze auto`, so it compares the rule sets actually in effect rather than the working
+tree. The trap: `--list-rules` exits 2 with empty stdout when the config names a rule the preset does
+not load — falsestart's own repository is in that state, re-scoping two `effect` rules — and the
+check dies naming it rather than passing. Five wrong answers are stated, two silent and three false
+POSITIVE: an unanchored `"Edit|Write"` reads as reaching `NotebookEdit` (what Claude Code applies is
+unverified, so the check is deliberately silent where the answer depends on it, which is also one
+reason it is not a shipped flag); a command path that does not resolve, that being `--doctor`'s
+question; a registration only in `.claude/settings.local.json` or in `~/.copilot/hooks/`, neither of
+which is read, the latter deliberately since no commit could fix a finding about it; and two entries
+in ONE file layering two rule sets, which this page itself recommends and which the check cannot tell
+from drift. Run both.
+
 `--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.

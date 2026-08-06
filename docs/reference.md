@@ -229,6 +229,11 @@ Registration is duplicated in any installation serving both runtimes anyway. Cla
 `~/.copilot/hooks/`) under `{"version":1,"hooks":{"preToolUse":[…]}}`. `--agent copilot` adds sixteen
 characters to a file that has to exist regardless.
 
+Two files is two chances for them to disagree, and falsestart reads neither: it is invoked BY the
+wiring and never inspects it. `--doctor` cannot answer the question either, for the same reason.
+[Check both runtimes enforce the same thing](./using-the-hook.md#check-both-runtimes-enforce-the-same-thing)
+is a check a repository writes for itself out of `AGENTS`, `WRITE_TOOLS` and `--list-rules`.
+
 **Two envelope spellings, and your hook config picks which.** GitHub documents two renderings of one
 payload, selected by the CASING of the event name in the hook configuration: a camelCase
 `preToolUse` gives `toolName`/`toolArgs`, a PascalCase `PreToolUse` gives `tool_name`/`tool_input`,
