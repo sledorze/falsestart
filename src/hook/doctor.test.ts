@@ -6,10 +6,11 @@
  * asserts the diagnosis both fails and names the cause.
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
+import type { FailurePolicy } from './respond.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -40,18 +41,32 @@ const unstattable = Layer.mergeAll(
 const run = (options: {
   changelogPath?: string
   configPath?: string
+  failure?: FailurePolicy
   freeze?: FreezeOutcome
   projectDirectory?: string
   rulesDirectory?: string
+  unresolvedRules?: string
 }) =>
   diagnose({
     changelogPath: options.changelogPath ?? 'CHANGELOG.md',
     configPath: options.configPath,
+    failure: options.failure,
     freeze: options.freeze,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
+    unresolvedRules: options.unresolvedRules,
     version: '0.0.0-test',
   })
+
+/**
+ * What each policy has to say about a judged write, in the words the reader will act on.
+ *
+ * A module-level annotated table, so a row reads as data rather than as a case buried in a loop.
+ */
+const POLICY_ROWS: readonly { readonly expected: string; readonly policy: FailurePolicy }[] = [
+  { expected: 'a write falsestart cannot check is DENIED', policy: 'closed' },
+  { expected: 'reported on stderr and proceeds', policy: 'open' },
+]
 
 layer(platform)('the doctor', (it) => {
   it.effect('reports a healthy installation, and proves the pipeline rather than claiming it', () =>
@@ -362,6 +377,74 @@ layer(platform)('the doctor', (it) => {
       expect(diagnosis.healthy).toBeFalsy()
       expect(diagnosis.lines.join('\n')).toContain('no/such/config.json')
     }),
+  )
+
+  // T14 — "why was that write denied with no finding" is the question this command exists to
+  // answer, and the policy is half of the answer.
+  describe.each(POLICY_ROWS)('under --fail $policy', ({ expected, policy }) => {
+    effect('names the policy a judged write will be answered under', () =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json', failure: policy })
+
+        expect(diagnosis.lines.some((line) => line.startsWith('policy'))).toBeTruthy()
+        expect(diagnosis.lines.join('\n')).toContain(expected)
+      }).pipe(Effect.provide(platform)),
+    )
+  })
+
+  // T15 — the placement, which is the whole argument. Every failure below the header returns early,
+  // and the person asking why a write was denied with no finding is precisely the one whose
+  // installation is in one of those states. A policy line only a healthy run prints is one nobody
+  // sees.
+  it.effect('names the policy even when nothing resolved', () =>
+    withTree({}, (directory) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          configPath: 'src/testing/fixtures/empty.json',
+          failure: 'closed',
+          projectDirectory: directory,
+          rulesDirectory: `${directory}/absent`,
+        })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('--fail closed')
+      }),
+    ),
+  )
+
+  // T16 — a line that appears on every healthy run is one readers stop seeing, and under the
+  // default it would announce the default, which is no news at all. `--doctor`'s output is
+  // byte-unchanged for everyone who does not use the flag.
+  it.effect('says nothing about a policy when the caller named none', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json' })
+
+      expect(diagnosis.lines.some((line) => line.startsWith('policy'))).toBeFalsy()
+    }),
+  )
+
+  // T17 — the one resolution failure that happens before `diagnose` is reachable at all, so a
+  // caller that returned early on it produced no report whatsoever, for the single question this
+  // command exists to answer.
+  it.effect('reports a rules package that could not be resolved, instead of nothing at all', () =>
+    withTree({}, (directory) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          configPath: 'src/testing/fixtures/empty.json',
+          failure: 'closed',
+          projectDirectory: directory,
+          rulesDirectory: 'pkg:@acme/nope',
+          unresolvedRules: "could not resolve rules package (Cannot find module '@acme/nope/package.json')",
+        })
+        const report = diagnosis.lines.join('\n')
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(report).toContain('COULD NOT RESOLVE')
+        // The header survived, and nothing tried to load a directory literally named `pkg:…`.
+        expect(report).toContain('--fail closed')
+        expect(report).not.toContain('COULD NOT LOAD')
+      }),
+    ),
   )
 })
 
