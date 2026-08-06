@@ -632,3 +632,502 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 })
+
+/**
+ * The freeze, against real git and a real process.
+ *
+ * These are the dogfooding pass made permanent. Every non-git case ASSERTS the directory is not a
+ * repository before relying on it, rather than assuming a temp directory yields one, and every
+ * attack case asserts POSITIVELY — with a marker only one rule set carries — because "nothing was
+ * blocked" is compatible with a dozen unrelated failures while "the rule carrying this marker fired"
+ * is not.
+ */
+const PROJECT_RULE = `
+id: no-as-any
+language: tsx
+severity: error
+message: 'PROJECT RULE'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.ts'
+`
+
+const ATTACKER_RULE = `
+id: no-as-any
+language: tsx
+severity: error
+message: 'ATTACKER RULE FIRED'
+rule:
+  pattern: zzz_marker
+files:
+  - '**/*.ts'
+`
+
+const git = (cwd: string, args: readonly string[]) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const handle = yield* spawner.spawn(ChildProcess.make('git', args, { cwd }))
+    const stdout = yield* collect(handle.stdout)
+    const exitCode = yield* handle.exitCode
+    return { exitCode, stdout }
+  }).pipe(Effect.scoped, Effect.orDie)
+
+/** A real repository with the given files committed. */
+const commitAll = (root: string) =>
+  Effect.gen(function* () {
+    yield* git(root, ['init', '-q', '.'])
+    yield* git(root, ['config', 'user.email', 'test@example.com'])
+    yield* git(root, ['config', 'user.name', 'test'])
+    yield* git(root, ['add', '-A'])
+    yield* git(root, ['commit', '-qm', 'first'])
+  })
+
+const writeAll = (root: string, files: Readonly<Record<string, string>>) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    for (const [name, contents] of Object.entries(files)) {
+      const target = path.join(root, name)
+      yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+      yield* fs.writeFileString(target, contents)
+    }
+  })
+
+/** A temp directory, plus whatever files, WITHOUT a git repository unless one is asked for. */
+const withProject = <A, E>(
+  files: Readonly<Record<string, string>>,
+  use: (
+    root: string,
+  ) => Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-freeze-' }))
+    yield* writeAll(root, files)
+    return yield* use(root)
+  }).pipe(Effect.scoped)
+
+/** Run the executable AS IF the agent were working in `cwd`, which is what decides the repository. */
+const runIn = (cwd: string, args: readonly string[], payload: string) =>
+  Effect.gen(function* () {
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+    const stdin = Stream.make(new TextEncoder().encode(payload))
+    const handle = yield* spawner.spawn(ChildProcess.make('node', [`${process.cwd()}/${CLI}`, ...args], { cwd, stdin }))
+
+    const stdout = yield* collect(handle.stdout)
+    const stderr = yield* collect(handle.stderr)
+    const exitCode = yield* handle.exitCode
+
+    return { exitCode, stderr, stdout } satisfies CliResult
+  }).pipe(Effect.scoped, Effect.orDie)
+
+/** Every directory strictly above `start`, up to the filesystem root. */
+const ancestorsOf = (start: string): readonly string[] => {
+  const found: string[] = []
+  let candidate = start
+  while (candidate !== '/') {
+    candidate = candidate.slice(0, candidate.lastIndexOf('/')) || '/'
+    found.push(candidate)
+  }
+  return found
+}
+
+const violation = (root: string, content = 'const x = v as any') =>
+  payloadFor({ content, file_path: `${root}/src/a.ts` })
+
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, end to end', (it) => {
+  // T60 — the issue's first vector.
+  it.effect('judges the committed rule when the working-tree copy has been narrowed', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  // T61 — the issue's second vector, which touches no rule file at all.
+  it.effect('ignores a scope override the repository never committed', () =>
+    withProject({ 'falsestart.config.json': '{"rules":{}}', 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, {
+          'falsestart.config.json': '{"rules":{"no-as-any":{"files":["**/never/**"]}}}',
+        })
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  // T62 — vector 3. Adding a file breaks the load, and a broken load used to be an allowed write.
+  it.effect('does not see a second config file the repository never committed', () =>
+    withProject({ 'falsestart.config.ts': 'export default { rules: {} }\n', 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, { 'falsestart.config.json': '{"rules":{}}' })
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  // T63 — vector 4, one `echo`, and the cheapest disarm there was.
+  it.effect('does not see a working-tree rule document that was corrupted', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, { 'rules/r.yml': `${PROJECT_RULE}not: [valid\n` })
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  // T64 — the gitfile hijack, end to end. Preconditions asserted: the planted file really does move
+  // the toplevel, which is what made this work.
+  it.effect('never lets a planted .git inside the rules directory choose the repository', () =>
+    withProject({ 'rules/r.yml': ATTACKER_RULE }, (evil) =>
+      withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+        Effect.gen(function* () {
+          yield* commitAll(evil)
+          yield* commitAll(root)
+          yield* writeAll(root, { 'rules/.git': `gitdir: ${evil}/.git\n` })
+
+          const moved = yield* git(`${root}/rules`, ['rev-parse', '--show-toplevel'])
+          expect(moved.stdout.trim()).toBe(`${root}/rules`)
+
+          const result = yield* runIn(root, ['--rules', './rules'], violation(root, 'const zzz_marker = v as any'))
+
+          expect(result.stdout).toContain('PROJECT RULE')
+          expect(result.stdout).not.toContain('ATTACKER RULE FIRED')
+        }),
+      ),
+    ),
+  )
+
+  // T65 — one command, no commit, working tree untouched.
+  it.effect('refuses a HEAD that does not resolve in a repository that has refs', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* git(root, ['symbolic-ref', 'HEAD', 'refs/heads/nope'])
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('HEAD does not resolve')
+      }),
+    ),
+  )
+
+  // T66 — naming a ref is a statement that it exists.
+  it.effect('refuses an explicitly named ref that does not resolve', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const result = yield* runIn(
+          root,
+          ['--rules', './rules', '--freeze-ref', 'refs/heads/nope'],
+          violation(root),
+        )
+
+        expect(result.stdout).toContain('refs/heads/nope does not resolve')
+      }),
+    ),
+  )
+
+  // T67 — the case that must not become an outage, and the precondition is asserted rather than
+  // assumed: a temp directory is only outside a repository if it really is.
+  it.effect('keeps judging in a directory that is not a repository at all', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        expect((yield* git(root, ['rev-parse', '--show-toplevel'])).exitCode).not.toBe(0)
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('PROJECT RULE')
+        expect(result.stderr).toBe('')
+      }),
+    ),
+  )
+
+  // T68 — and `require` is where that becomes a refusal, for a repository that wants it to be.
+  it.effect('refuses to judge outside a repository under --freeze require', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        expect((yield* git(root, ['rev-parse', '--show-toplevel'])).exitCode).not.toBe(0)
+
+        const result = yield* runIn(root, ['--rules', './rules', '--freeze', 'require'], violation(root))
+
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('is not inside a git work tree')
+        expect(result.stdout).toContain(root)
+      }),
+    ),
+  )
+
+  // T69 — a rule document the WORKING TREE follows and enforces. Dropping it silently would make
+  // the freeze weaker than the thing it replaces.
+  it.effect('refuses a rule document committed as a symlink rather than dropping it', () =>
+    withProject({ 'real-rule.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* fs.makeDirectory(path.join(root, 'rules'))
+        yield* fs.symlink(path.join(root, 'real-rule.yml'), path.join(root, 'rules', 'linked.yml'))
+        yield* commitAll(root)
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('rules/linked.yml')
+      }),
+    ),
+  )
+
+  // T70 — D10. The setup the documentation recommends puts rules in node_modules, where freezing is
+  // meaningless, while the project's own config is perfectly freezable. Coupling them would leave
+  // exactly that setup open to the issue's second vector.
+  it.effect('freezes the config of a --preset run even though its rules cannot be frozen', () =>
+    withProject({ 'falsestart.config.json': '{"rules":{}}' }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, {
+          'falsestart.config.json': '{"rules":{"no-as-any":{"files":["**/never/**"]}}}',
+        })
+
+        const result = yield* runIn(root, ['--preset', 'clean-code'], violation(root))
+
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  // T71 — the legibility promise, end to end.
+  it.effect('--doctor names the working-tree change that is not in effect', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+        const result = yield* runIn(root, ['--doctor', '--rules', './rules'], '')
+
+        expect(result.stdout).toContain('freeze   ref     HEAD')
+        expect(result.stdout).toContain('NOT in effect')
+        expect(result.stdout).toContain('changed  r.yml')
+      }),
+    ),
+  )
+
+  // T90 — C1 end to end, and the reason the anchor WALKS rather than merely reporting. The payload
+  // carries both markers, so the assertion is about WHOSE rules ran rather than that something
+  // blocked.
+  it.effect('walks over a planted .git in a monorepo subdirectory onto the real root', () =>
+    withProject({ 'rules/r.yml': ATTACKER_RULE }, (evil) =>
+      withProject({ 'packages/app/rules/r.yml': PROJECT_RULE }, (root) =>
+        Effect.gen(function* () {
+          yield* commitAll(evil)
+          yield* commitAll(root)
+          const app = `${root}/packages/app`
+          yield* writeAll(root, { 'packages/app/.git': `gitdir: ${evil}/.git\n` })
+
+          expect((yield* git(app, ['rev-parse', '--show-toplevel'])).stdout.trim()).toBe(app)
+
+          const result = yield* runIn(
+            app,
+            ['--rules', './rules'],
+            payloadFor({ content: 'const x = v as any\nconst zzz_marker = 1', file_path: `${app}/src/a.ts` }),
+          )
+
+          expect(result.stdout).toContain('PROJECT RULE')
+          expect(result.stdout).not.toContain('ATTACKER RULE FIRED')
+
+          const doctor = yield* runIn(app, ['--doctor', '--rules', './rules'], '')
+          expect(doctor.stdout).not.toContain('anchor')
+        }),
+      ),
+    ),
+  )
+
+  // T91 — C5a. Verified against 0.2.0 as exit 0 with no output.
+  it.effect('refuses a rules directory swapped for a symlink to somewhere else', () =>
+    withProject({ '.weak/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'"), 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* commitAll(root)
+        yield* fs.remove(path.join(root, 'rules'), { recursive: true })
+        yield* fs.symlink(path.join(root, '.weak'), path.join(root, 'rules'))
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('./rules resolves to')
+        expect(result.stdout).toContain('.weak')
+      }),
+    ),
+  )
+
+  // T92 — C5b. One `rm -rf` defeated `require`, whose entire purpose is refusing what it cannot
+  // verify, so both modes are asserted.
+  it.effect('keeps enforcing the committed rules after the rules directory is deleted', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* commitAll(root)
+        yield* fs.remove(path.join(root, 'rules'), { recursive: true })
+
+        for (const extra of [[], ['--freeze', 'require']]) {
+          const result = yield* runIn(root, ['--rules', './rules', ...extra], violation(root))
+
+          expect(result.exitCode).toBe(0)
+          expect(result.stdout).toContain('PROJECT RULE')
+        }
+      }),
+    ),
+  )
+  /**
+   * T80 — the residual, pinned OPEN rather than described in a comment.
+   *
+   * Where `.git` is a regular file and no enclosing directory has a real one — a linked worktree
+   * outside its main repository, or `--separate-git-dir` — one `Write` substitutes the entire object
+   * database while `rev-parse --show-toplevel` does not move, so containment passes cleanly. The walk
+   * cannot help: there is nothing to walk outward to.
+   *
+   * Asserted POSITIVELY, with a marker only the attacker's rule set carries, so this says whose rules
+   * ran rather than that nothing blocked. Its own regression signal is permanent and needs no special
+   * protocol: paired with T81, strengthening `auto` to refuse an unverified anchor turns THIS red on
+   * the next ordinary run, which is the deliberate act a changeset should accompany.
+   */
+  it.effect('is still repointable in a linked worktree outside its main repository, under auto', () =>
+    withProject({ 'rules/r.yml': ATTACKER_RULE }, (evil) =>
+      withProject({ 'rules/r.yml': PROJECT_RULE }, (main) =>
+        withProject({}, (elsewhere) =>
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem
+            const path = yield* Path.Path
+            yield* commitAll(evil)
+            yield* commitAll(main)
+
+            const worktree = path.join(elsewhere, 'wt')
+            yield* git(main, ['worktree', 'add', '--detach', '-q', worktree, 'HEAD'])
+
+            // Preconditions, asserted rather than assumed.
+            expect((yield* fs.stat(path.join(worktree, '.git'))).type).toBe('File')
+            expect((yield* git(worktree, ['rev-parse', '--show-toplevel'])).stdout.trim()).toBe(worktree)
+            for (const above of ancestorsOf(worktree)) {
+              expect(yield* fs.exists(`${above}/.git`)).toBeFalsy()
+            }
+
+            yield* fs.writeFileString(path.join(worktree, '.git'), `gitdir: ${evil}/.git\n`)
+            expect((yield* git(worktree, ['rev-parse', '--show-toplevel'])).stdout.trim()).toBe(worktree)
+
+            const payload = payloadFor({ content: 'const zzz_marker = 1', file_path: `${worktree}/src/a.ts` })
+            const result = yield* runIn(worktree, ['--rules', './rules'], payload)
+
+            expect(result.stdout).toContain('ATTACKER RULE FIRED')
+
+            const doctor = yield* runIn(worktree, ['--doctor', '--rules', './rules'], '')
+            expect(doctor.stdout).toContain('anchor  UNVERIFIED')
+          }),
+        ),
+      ),
+    ),
+  )
+
+  // T81 — and `require` is the mode with something to say about the one thing here that genuinely
+  // cannot be verified. This is the other half of T80's regression signal.
+  it.effect('refuses to judge in a worktree whose .git is a file, under require', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (main) =>
+      withProject({}, (elsewhere) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          yield* commitAll(main)
+          const worktree = path.join(elsewhere, 'wt')
+          yield* git(main, ['worktree', 'add', '--detach', '-q', worktree, 'HEAD'])
+          expect((yield* fs.stat(path.join(worktree, '.git'))).type).toBe('File')
+
+          const result = yield* runIn(
+            worktree,
+            ['--rules', './rules', '--freeze', 'require'],
+            payloadFor({ content: 'const x = v as any', file_path: `${worktree}/src/a.ts` }),
+          )
+
+          expect(result.stdout).toContain('"permissionDecision":"deny"')
+          expect(result.stdout).toContain('.git is not a directory')
+        }),
+      ),
+    ),
+  )
+
+  // T82 — and none of that fires on an ordinary repository, which is what keeps `require` usable and
+  // keeps the `anchor` line worth reading.
+  it.effect('says nothing about the anchor in an ordinary repository, and require judges normally', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        yield* commitAll(root)
+        expect((yield* fs.stat(`${root}/.git`)).type).toBe('Directory')
+
+        const doctor = yield* runIn(root, ['--doctor', '--rules', './rules'], '')
+        expect(doctor.stdout).not.toContain('anchor')
+
+        const result = yield* runIn(root, ['--rules', './rules', '--freeze', 'require'], violation(root))
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  /**
+   * T93 — the P3 limitation, pinned open and stated honestly.
+   *
+   * `for-each-ref` separates a repository whose HEAD was repointed from a fresh `git init`, and
+   * `update-ref -d` empties it, so the tampered repository reads as fresh and the working tree is
+   * read again. `.git/logs/HEAD` discriminates all three and `rm` defeats that too: no probe inside a
+   * git directory survives an agent that can write inside that git directory.
+   *
+   * Same permanent signal as T80: if `auto` is ever strengthened here, the first half goes red in CI.
+   */
+  it.effect('is still disarmable by emptying the refs, under auto, and refuses under require', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        const branch = (yield* git(root, ['symbolic-ref', '--short', 'HEAD'])).stdout.trim()
+        yield* writeAll(root, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+        yield* git(root, ['symbolic-ref', 'HEAD', 'refs/heads/nope'])
+        yield* git(root, ['update-ref', '-d', `refs/heads/${branch}`])
+
+        expect((yield* git(root, ['for-each-ref', '--count=1', '--format=%(refname)'])).stdout.trim()).toBe('')
+
+        const allowed = yield* runIn(root, ['--rules', './rules'], violation(root))
+        expect(allowed.exitCode).toBe(0)
+        expect(allowed.stdout).toBe('')
+
+        const refused = yield* runIn(root, ['--rules', './rules', '--freeze', 'require'], violation(root))
+        expect(refused.stdout).toContain('"permissionDecision":"deny"')
+        expect(refused.stdout).toContain('has no commit yet')
+      }),
+    ),
+  )
+})
