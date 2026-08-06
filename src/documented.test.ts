@@ -24,11 +24,18 @@ import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
-import { AGENT_CONTRACTS, AGENTS, WRITE_TOOLS } from './hook/decide.ts'
+import type { AgentId } from './hook/decide.ts'
+import { AGENT_CONTRACTS, AGENTS } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
 import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+
+/** Where each contract's tool table lives, so a whole-file scan cannot read one against the other. */
+const TOOL_TABLE_HEADINGS: Readonly<Record<AgentId, string>> = {
+  'claude-code': '#### Claude Code (the default)',
+  copilot: '#### GitHub Copilot CLI',
+}
 
 /** The `files` array, read from the manifest rather than restated where it would drift from it. */
 const packagedFiles = Effect.gen(function* () {
@@ -306,21 +313,52 @@ layer(platform)('documentation covers the source', (it) => {
     }),
   )
 
-  // Which tool calls get judged is the most consequential fact about this hook, and until now the
-  // docs never stated it — a reader could not tell whether their write tool was covered. Anything
-  // outside the map is allowed in silence, which is indistinguishable from a clean write, so a
-  // fourth write tool appearing upstream would go unguarded with no signal at all.
-  it.effect('the reference documents exactly the tool calls that are judged', () =>
+  // T-A18 — which tool calls get judged is the most consequential fact about this hook, and until
+  // this test the docs never stated it — a reader could not tell whether their write tool was
+  // covered. Anything outside the map is allowed in silence, which is indistinguishable from a
+  // clean write, so a fourth write tool appearing upstream would go unguarded with no signal at all.
+  //
+  // Anchored per contract rather than scanned whole, for the reason the `language` row is: a
+  // whole-file scan would now pick up BOTH tables and compare their union against one contract's.
+  // Looped over `AGENTS` so a third contract cannot be added without a table to describe it.
+  it.effect('the reference documents exactly the tool calls each contract judges', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const reference = yield* fs.readFileString('docs/reference.md')
 
-      const documented = [...reference.matchAll(/^\| `(\w+)`\s+\| `(\w+)`\s+\| `(\w+)`\s+\|$/gm)].map((row) =>
-        [row[1], row[2], row[3]].join('/'),
-      )
-      const actual = Object.entries(WRITE_TOOLS).map(([name, fields]) => `${name}/${fields.path}/${fields.content}`)
+      for (const id of AGENTS) {
+        const section = reference.split(TOOL_TABLE_HEADINGS[id])[1]?.split(/^#{2,6} /m)[0] ?? ''
+        const documented = [...section.matchAll(/^\| `([\w-]+)`\s+\| `(\w+)`\s+\| `(\w+)`\s+\|$/gm)].map((row) =>
+          [row[1], row[2], row[3]].join('/'),
+        )
+        const actual = Object.entries(AGENT_CONTRACTS[id].tools).map(
+          ([name, fields]) => `${name}/${fields.path}/${fields.content}`,
+        )
 
-      expect(documented.toSorted()).toEqual(actual.toSorted())
+        // Asserted first, so a renamed or moved heading fails loudly instead of comparing two empty
+        // arrays and reporting success.
+        expect(documented.length).toBeGreaterThan(0)
+        expect(documented.toSorted()).toEqual(actual.toSorted())
+      }
+    }),
+  )
+
+  // T-A19 — the envelope keys, which the table above says nothing about. A reader whose Copilot
+  // config names the event `PreToolUse` gets the snake_case payload, and a reference documenting
+  // only the camelCase one tells them falsestart cannot read what it reads perfectly well.
+  it.effect('the reference states the envelope keys the code reads, for every spelling', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      for (const id of AGENTS) {
+        const section = reference.split(TOOL_TABLE_HEADINGS[id])[1]?.split(/^#{2,6} /m)[0] ?? ''
+        const missing = AGENT_CONTRACTS[id].envelopes
+          .flatMap((envelope) => [envelope.name, envelope.input])
+          .filter((key) => !section.includes(`\`${key}\``))
+
+        expect(missing).toEqual([])
+      }
     }),
   )
 
