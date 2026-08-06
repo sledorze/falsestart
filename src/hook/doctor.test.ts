@@ -688,7 +688,10 @@ layer(platform)('the active agent contract', (it) => {
   // 1 — from the one command whose whole job is saying whether the installation is healthy.
   it.effect('reports a healthy Copilot installation as healthy', () =>
     Effect.gen(function* () {
-      const diagnosis = yield* run({ agent: 'copilot', rulesDirectory: 'rules/clean-code' })
+      // The same fixture the claude-code health check uses, deliberately: what is being measured is
+      // the contract the sample is written in, and a second rules directory would introduce a
+      // second variable — this repo's own config narrows rules the `clean-code` tree does not load.
+      const diagnosis = yield* run({ agent: 'copilot' })
 
       expect(diagnosis.healthy).toBeTruthy()
       expect(diagnosis.lines.some((line) => line.includes('was blocked'))).toBeTruthy()

@@ -544,6 +544,7 @@ const program = Effect.gen(function* () {
   // will never arrive. Reading stdin below happens only on the judging path.
   if (options._tag === 'Doctor') {
     const diagnosis = yield* diagnose({
+      agent: options.agent,
       changelogPath: CHANGELOG_PATH,
       configPath: options.configPath,
       failure: options.failure,
