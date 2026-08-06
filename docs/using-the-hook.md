@@ -219,6 +219,328 @@ rule reaches any probed path it says so and still exits **0** — "misses five `
 "misses everything", and a rule set scoped to `lib/**` or a monorepo's `packages/*/src/**` blocks
 perfectly well while probing zero here. Read the block; do not gate CI on the exit code alone.
 
+### Check both runtimes enforce the same thing
+
+`--doctor` answers "did what I registered resolve, and does it block a real write". It reads no repo
+config at all, so it cannot answer the other half: **is falsestart registered everywhere this repo
+says it uses an agent, and does each registration load the same rules.** falsestart is invoked BY the
+wiring and has never inspected it — a repository serving both runtimes registers it twice, in two
+files with two different schemas, and nothing in falsestart looks at either.
+
+That half is a check your repository owns, and there is no flag for it. There is exported material
+instead: `AGENTS` and `WRITE_TOOLS` are public, so the check reads falsestart's own agent list and
+tool table rather than restating them, and `--list-rules` resolves what each registration would
+actually load. Drop this in and run it from the repository root, in CI or in the test runner you
+already have:
+
+```js
+// scripts/check-falsestart-wiring.mjs — run it from the repository root
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+// falsestart exports its own tool table and agent list; do not restate them.
+import { AGENTS, WRITE_TOOLS } from '@sledorze/falsestart'
+
+const CLI = 'node_modules/@sledorze/falsestart/dist/cli.js'
+// The flags that decide WHICH RULES load. --agent, --fail and --warn-unscoped are refused by
+// --list-rules on purpose, and none of them changes the rule set.
+const RULE_FLAGS = new Set(['--config', '--freeze', '--freeze-ref', '--preset', '--rules'])
+
+const read = (path) => {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'))
+  } catch (cause) {
+    // Never degrade to "no hooks": an unparseable .claude/settings.json discards every hook and
+    // permission rule in it. GitHub does not document what Copilot does with an unparseable hook
+    // file, so this assumes the same. Either way it is the strongest finding, not a missing one.
+    throw new Error(`${path} is not parseable JSON — the runtime discards every hook in it: ${cause.message}`)
+  }
+}
+
+const isFalsestart = (h) => h.type === 'command' && /falsestart/.test(h.command)
+
+/** Runtimes this repository has DECLARED, by having the file that runtime reads. */
+const declared = () => {
+  const out = []
+  if (existsSync('.claude/settings.json')) {
+    const json = read('.claude/settings.json')
+    out.push({
+      runtime: 'claude-code',
+      where: '.claude/settings.json',
+      entries: (json.hooks?.PreToolUse ?? []).flatMap((e) =>
+        (e.hooks ?? []).filter(isFalsestart).map((h) => ({ command: h.command, matcher: e.matcher })),
+      ),
+    })
+  }
+  if (existsSync('.github/hooks')) {
+    const files = readdirSync('.github/hooks').filter((f) => f.endsWith('.json'))
+    if (files.length > 0)
+      out.push({
+        runtime: 'copilot',
+        where: '.github/hooks/',
+        entries: files.flatMap((f) => {
+          // Copilot selects the envelope by the CASING of the event name, so both are registrations.
+          const hooks = read(join('.github/hooks', f)).hooks ?? {}
+          return [...(hooks.preToolUse ?? []), ...(hooks.PreToolUse ?? [])]
+            .filter(isFalsestart)
+            .map((h) => ({ command: h.command, matcher: undefined }))
+        }),
+      })
+  }
+  return out
+}
+
+const tokens = (command) => command.split(/\s+/).map((t) => t.replaceAll('"', ''))
+const ruleFlagsOf = (command) => {
+  const t = tokens(command)
+  return t.flatMap((x, i) => (RULE_FLAGS.has(x) ? [x, t[i + 1]] : []))
+}
+const ruleSetOf = (command) =>
+  execFileSync('node', [CLI, '--list-rules', ...ruleFlagsOf(command)], { encoding: 'utf8' })
+
+const idsOf = (listing) => JSON.parse(listing).map((rule) => rule.id)
+
+const findings = []
+const runtimes = declared()
+
+// 1. Registration asymmetry — only for runtimes this repo DECLARED. A repo with no
+//    .github/hooks/ has not said it uses Copilot, and absence is not a fault.
+for (const r of runtimes)
+  if (r.entries.length === 0)
+    findings.push(`${r.runtime} is configured in ${r.where} but falsestart is not registered there`)
+
+// 2. The contract flag. Getting this wrong under Copilot denies EVERY tool call in the session.
+for (const r of runtimes)
+  for (const e of r.entries) {
+    const t = tokens(e.command)
+    const agent = t.includes('--agent') ? t[t.indexOf('--agent') + 1] : 'claude-code'
+    if (!AGENTS.includes(agent) || agent !== r.runtime)
+      findings.push(`${r.where} registers falsestart with --agent ${agent}, but that file is read by ${r.runtime}`)
+  }
+
+// 3. Claude Code's matcher decides what ever reaches falsestart. Copilot's format has no matcher.
+//    Unanchored, so this is silent wherever the answer depends on regex anchoring nobody documents.
+for (const r of runtimes.filter((x) => x.runtime === 'claude-code'))
+  for (const e of r.entries) {
+    const missed = Object.keys(WRITE_TOOLS).filter((tool) => !new RegExp(e.matcher ?? '').test(tool))
+    if (missed.length > 0)
+      findings.push(`${r.where} matcher ${JSON.stringify(e.matcher)} never reaches ${missed.join(', ')}`)
+  }
+
+// 4. The drift a presence check misses: registered in both, enforcing different rules.
+const sets = runtimes.flatMap((r) => r.entries.map((e) => [r.where, ruleSetOf(e.command)]))
+if (new Set(sets.map(([, s]) => s)).size > 1)
+  findings.push(
+    'the registrations resolve DIFFERENT rule sets:\n' +
+      sets.map(([where, listing]) => `    ${where}: ${idsOf(listing).join(', ')}`).join('\n'),
+  )
+
+const names = runtimes.map((r) => r.runtime).join(', ')
+console.log(runtimes.length === 0 ? 'no agent runtime configured' : `declared: ${names}`)
+for (const f of findings) console.error('  ✗ ' + f)
+process.exit(findings.length === 0 ? 0 : 1)
+```
+
+**The finding that matters most is not the missing one.** A Copilot registration that forgot
+`--agent copilot` is worse than a Copilot registration that does not exist: falsestart answers in
+Claude Code's vocabulary and Copilot denies every tool call in the session, `Bash`, `view` and `grep`
+included. It is also decidable from the text with no inference at all — that file is read by Copilot,
+so the entry in it has to declare `copilot`:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code, copilot
+  ✗ .github/hooks/ registers falsestart with --agent claude-code, but that file is read by copilot
+exit=1
+```
+
+**Absence is not a finding. Declaration is.** A repository with no `.github/hooks/` has not said
+anything about Copilot, and reporting there is inferring intent — the same inference `--doctor`
+refuses when it exits 0 on a rule set that reaches none of its probe paths. What is a fact rather
+than an inference is a `.github/hooks/` that exists and holds somebody else's guard:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code, copilot
+  ✗ copilot is configured in .github/hooks/ but falsestart is not registered there
+exit=1
+```
+
+Even that signal is defeasible: a repository may run a secrets guard under Copilot and deliberately
+not want falsestart there. It deletes the clause. That resolution is available because the check is
+a file the repository owns, and it is the reason this is a recipe rather than a flag.
+
+**The matcher decides what ever reaches falsestart**, so a Claude Code entry that omits a write tool
+is a real gap, and `WRITE_TOOLS` is the list to compare it against:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code
+  ✗ .claude/settings.json matcher "Write" never reaches Edit, NotebookEdit
+exit=1
+```
+
+**The drift a presence check cannot see is two registrations that both exist.** Registered in both
+files, `--preset clean-code` in one and `--preset all` in the other: a presence check reports green
+while Copilot sessions enforce seventeen rules Claude Code sessions do not, silently and
+indefinitely. `--list-rules` is what makes that answerable, and it is the same primitive
+[Pin the rule set, so the two gates cannot drift](#pin-the-rule-set-so-the-two-gates-cannot-drift)
+uses for the hook-versus-`scan` version of the problem. Two registrations is that problem one level
+up.
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code, copilot
+  ✗ the registrations resolve DIFFERENT rule sets:
+    .claude/settings.json: no-as-any, no-as-never, no-double-cast, no-empty-catch, no-hardcoded-credential, no-type-assertion
+    .github/hooks/: no-as-any, no-as-never, no-await, no-double-cast, no-effect-assertion, no-empty-catch, no-hardcoded-credential, no-json-global, no-manual-effect-run-in-tests, no-new-promise, no-process-env, no-process-exit, no-raw-coercion, no-raw-error, no-raw-fetch, no-test-lifecycle-hooks, no-then-catch, no-throwing-decode, no-try-catch, no-type-assertion, no-unsafe-api, no-vi-mocking, prefer-smart-constructor
+exit=1
+```
+
+**An unparseable config is the strongest finding available, never a missing one.** An unparseable
+`.claude/settings.json` discards every hook and permission rule in it, so a check that degraded to
+"no hooks found" there would report the total collapse of the guard as a clean bill of health. What
+Copilot does with an unparseable hook file is not documented by GitHub, and the check assumes the
+worst rather than guessing in the safe direction — its message says so. It throws either way, naming
+the file, and the process dies at exit 1 rather than printing a verdict:
+
+```
+Error: .github/hooks/broken.json is not parseable JSON — the runtime discards every hook in it: Expected property name or '}' in JSON at position 35 (line 4 column 5)
+```
+
+A repository that declares one runtime, or none, passes. Both of these are the intended answer, not
+a check that failed to find anything:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code
+exit=0
+```
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+no agent runtime configured
+exit=0
+```
+
+**`RULE_FLAGS` is an allow-list, not the command line.** `--list-rules` refuses both flags a
+registration carries that it does not, and for two different reasons, so a registration's command
+line cannot be passed through verbatim:
+
+```
+$ falsestart --list-rules --preset clean-code --agent copilot
+falsestart: --agent has no effect with `scan` or --list-rules; neither reads a hook payload nor emits a hook decision
+exit=1
+$ falsestart --list-rules --preset clean-code --fail closed
+falsestart: --fail has no effect with `scan` or --list-rules; both already exit 2 when they cannot run
+exit=1
+```
+
+Those refusals are right; a flag accepted and dropped is exactly what they exist to prevent. The cost
+lands here, as a list kept in step with falsestart's flags by hand. It fails loudly when it drifts —
+a flag that reaches `--list-rules` and should not is a refusal at exit 1 naming the flag, not a
+quietly wrong rule set.
+
+**It lists the rules that are committed, not the ones on your disk.** `--list-rules` inherits
+`--freeze auto`, so it resolves from the ref like every other invocation. In a repository with one
+committed rule and one uncommitted:
+
+```
+$ falsestart --list-rules --rules ./rules | grep -c '"id"'
+1
+$ falsestart --list-rules --rules ./rules --freeze off | grep -c '"id"'
+2
+```
+
+For a CI drift check that is the wanted behaviour: it compares the rule sets that are actually in
+effect. Add `--freeze off` to what `ruleFlagsOf` emits if you are iterating locally and want the
+working tree answered for instead.
+
+**One trap before you run it.** `--list-rules` exits 2 with an empty stdout when the config names a
+rule the loaded preset does not have — which is an ordinary state for a repository whose
+registration says `--preset clean-code` while `falsestart.config.ts` re-scopes rules only `effect`
+carries. falsestart's own repository is in exactly that state, re-scoping `no-json-global` and
+`no-process-env`. Run against a copy of that config, with Node's stack frames elided at the two `…`:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+falsestart: no rule named no-json-global is loaded, so its scope override would do nothing
+no rule named no-process-env is loaded, so its scope override would do nothing
+…
+Error: Command failed: node node_modules/@sledorze/falsestart/dist/cli.js --list-rules --preset clean-code
+falsestart: no rule named no-json-global is loaded, so its scope override would do nothing
+no rule named no-process-env is loaded, so its scope override would do nothing
+…
+exit=1
+```
+
+The check does not swallow that, and should not: it is a real misconfiguration, the same one
+`--doctor` reports as an unresolved rule, and the registration it was about to compare would enforce
+nothing. Fix the registration or the config; do not widen `RULE_FLAGS` around it.
+
+#### What it does not catch
+
+Five things it gets wrong, each of them run rather than reasoned about. Two are silences and three
+are the worse kind — a finding on a repository that is wired correctly:
+
+| Situation                                                   | What happens             | Why                                                                        |
+| ----------------------------------------------------------- | ------------------------ | -------------------------------------------------------------------------- |
+| Claude Code matcher `"Edit\|Write"`, no `NotebookEdit`      | silent                   | the regex is unanchored, so `NotebookEdit` reads as reached                |
+| a registered command path that does not resolve             | silent                   | that is `--doctor`'s question, not this one                                |
+| falsestart registered only in `.claude/settings.local.json` | reports "not registered" | only `settings.json` is read                                               |
+| falsestart registered under Copilot in `~/.copilot/hooks/`  | reports "not registered" | out of scope on purpose — see below                                        |
+| two falsestart entries in one file, layering two rule sets  | reports rule-set drift   | it compares entries, not files, and cannot tell layering from disagreement |
+
+The last three are false positives, and they are the reason to read the output rather than gate on
+the exit code alone. `~/.copilot/hooks/` is left out deliberately rather than forgotten: it is not
+in the repository, so a finding about it is one no reviewer can reproduce and no commit can fix.
+The layering row is sharper, because this page recommends the arrangement that triggers it — a
+second hook entry is how you reach two rule trees, or block under one and advise under another, and
+two entries carrying different presets on purpose are indistinguishable from two registrations that
+drifted apart. Reported:
+
+```
+$ node scripts/check-falsestart-wiring.mjs; echo "exit=$?"
+declared: claude-code
+  ✗ .claude/settings.json matcher "NotebookEdit" never reaches Edit, Write
+  ✗ the registrations resolve DIFFERENT rule sets:
+    .claude/settings.json: no-as-any, no-as-never, no-double-cast, no-empty-catch, no-hardcoded-credential, no-type-assertion
+    .claude/settings.json: no-as-any, no-as-never, no-await, no-double-cast, no-effect-assertion, no-empty-catch, no-hardcoded-credential, no-json-global, no-manual-effect-run-in-tests, no-new-promise, no-process-env, no-process-exit, no-raw-coercion, no-raw-error, no-raw-fetch, no-test-lifecycle-hooks, no-then-catch, no-throwing-decode, no-try-catch, no-type-assertion, no-unsafe-api, no-vi-mocking, prefer-smart-constructor
+exit=1
+```
+
+Both lines are wrong there, and the second names the same file twice with no way to tell the entries
+apart. A repository that layers deliberately compares per file rather than per entry, or drops the
+rule-set clause; that is the edit a check you own admits and a shipped flag does not.
+
+The matcher row is a deliberate silence rather than an oversight. `"Edit|Write"` with no
+`NotebookEdit` in it is reported as reaching `NotebookEdit`, because unanchored it does:
+
+```
+$ node -e "console.log(new RegExp('Edit|Write').test('NotebookEdit'))"
+true
+$ node -e "console.log(new RegExp('^(Edit|Write)$').test('NotebookEdit'))"
+false
+```
+
+Which of those Claude Code applies to a `matcher` is not something this project has verified, so the
+check fires only where every reading agrees — `"Write"` misses `Edit` under both. The alternative is
+a check that asserts an anchoring nobody confirmed, and puts a finding nobody can act on in front of
+a correctly wired repository. It is also one of the reasons this is a recipe: a `--verify-wiring`
+flag doing the same thing would be a published falsestart asserting a fact about somebody else's
+regex engine, fixable only by a release.
+
+**Run this and `--doctor`; they answer different questions.** `--doctor` invoked through the command
+line the hook registers answers whether that command resolves and blocks at all — a bare `falsestart`
+exits 127 there, which no amount of reading config can see — and its first line names the version
+that actually answered. This answers "is it registered where I said I use it, and does each
+registration load the same rules", which `--doctor` cannot see at all, because it reads no repository
+config. Neither subsumes the other, and neither tells you whether the two registrations run the same
+falsestart binary out of the same `node_modules`.
+
+In a test runner, drop the last four lines and assert on `findings` directly —
+`expect(findings, findings.join('\n')).toEqual([])` puts every finding in the failure message.
+
 ### When a write was not checked at all
 
 `--doctor` answers the question for a fixed set of sample paths. `--warn-unscoped` answers it for

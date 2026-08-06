@@ -76,7 +76,9 @@ payload says nothing about how the runtime reads the ANSWER and guessing that wr
 an allow. Command line only, refused with `scan` and `--list-rules` in either value. A payload naming
 a tool from the other contract's closed table is reported as a misdeclared flag, on the channel the
 runtime that really sent it reads. `copilot` is PROVISIONAL: its tool argument names are inferred,
-and whether stderr is readable at exit 0 is undocumented.
+and whether stderr is readable at exit 0 is undocumented. Serving both runtimes means registering in
+two files — `.claude/settings.json` and `.github/hooks/*.json` — and falsestart reads neither, so
+checking the two against each other is a recipe in the how-to rather than a flag.
 
 `--warn-unscoped` reports a
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Under claude-code, exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
