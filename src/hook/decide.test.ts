@@ -2,6 +2,7 @@ import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { Rule } from '../checking/rule.ts'
 import { parseRule } from '../checking/rule.ts'
+import type { Decision } from './decide.ts'
 import { decide, judgesPayload } from './decide.ts'
 
 const rulesOf = (...sources: readonly string[]) => Effect.all(sources.map((source) => parseRule(source, 'test.yml')))
@@ -395,4 +396,197 @@ describe('the Copilot payload contract', () => {
     expect(judgesPayload({ toolName: 'edit' })).toBeTruthy()
     expect(judgesPayload({ tool_name: 'Bash' })).toBeFalsy()
   })
+
+  const problemOf = (decision: Decision): string => (decision._tag === 'Report' ? decision.problem : '')
+
+  // T-A2
+  effect('judges a Copilot edit by the text it would introduce, in the camelCase envelope', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: {
+            new_str: 'const x = value as any',
+            old_str: 'const x = value',
+            path: '/repo/src/widget.ts',
+          },
+          toolName: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A2b — the same write in the VS Code compatible envelope, which a repo migrating a
+  // `.claude/settings.json` registration gets by naming the event `PreToolUse`.
+  effect('judges the same edit in the VS Code compatible envelope', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          tool_input: {
+            new_str: 'const x = value as any',
+            old_str: 'const x = value',
+            path: '/repo/src/widget.ts',
+          },
+          tool_name: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A3a — observed on a real invocation (github/copilot-cli#3349), so it is the shape to expect
+  // rather than an edge case.
+  effect('decodes toolArgs delivered as a JSON-encoded string', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: '{"new_str":"const x = value as any","old_str":"","path":"/repo/src/widget.ts"}',
+          toolName: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A3b — the negative that keeps the decode inside the contract that documents it. Claude Code
+  // never sends a string here, so reinterpreting one would accept a shape its contract does not
+  // have. Cannot be seen failing by withholding code; guarded by dropping the `encodedInput`
+  // conjunct and watching it turn into a Deny.
+  effect('never reinterprets a string tool_input under the default contract', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        tool_input: '{"content":"const x = value as any","file_path":"/repo/src/widget.ts"}',
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Report')
+    }),
+  )
+
+  // T-A3c
+  effect('says which way toolArgs was unreadable', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const notJson = yield* decide(rules, { toolArgs: 'not json', toolName: 'edit' }, { agent: 'copilot' })
+      expect(notJson._tag).toBe('Report')
+      expect(problemOf(notJson)).toContain('as a string that is not JSON')
+
+      const notAnObject = yield* decide(rules, { toolArgs: 7, toolName: 'edit' }, { agent: 'copilot' })
+      expect(notAnObject._tag).toBe('Report')
+      expect(problemOf(notAnObject)).toContain('carried no toolArgs')
+    }),
+  )
+
+  // T-A3d — an ABSENT input key keeps its own message, which is what pins "byte-identical without
+  // the flag" for the diagnostic text and not just for the exit codes. "carried tool_input as a
+  // string that is not JSON" would be both a default-path change and untrue.
+  effect('keeps the absent-input message each contract already had', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const claudeCode = yield* decide(rules, { tool_name: 'Write' })
+      expect(problemOf(claudeCode)).toBe('Write carried no tool_input')
+
+      const copilot = yield* decide(rules, { toolName: 'edit' }, { agent: 'copilot' })
+      expect(problemOf(copilot)).toBe('copilot: edit carried no toolArgs')
+
+      // Neither spelling present at all: the first one this contract documents is the one named,
+      // because that is the one a hook author writing a fresh config will have reached for.
+      const neither = yield* decide(rules, {}, { agent: 'copilot' })
+      expect(problemOf(neither)).toBe('copilot: hook payload carried no toolName')
+    }),
+  )
+
+  // T-A4a
+  effect('judges a Copilot create by the content it would write', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: { content: 'const x = value as any', path: '/repo/src/widget.ts' },
+          toolName: 'create',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A4b — GitHub documents no tool ARGUMENT names anywhere, so `content` is an inference and
+  // `file_text` is the competing candidate. Naming what arrived is what makes a wrong inference
+  // diagnosable in ten seconds instead of mysterious.
+  effect('names both what it expected and what arrived when a field mapping does not match', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: { file_text: 'const x = value as any', path: '/repo/src/a.ts' },
+          toolName: 'create',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(problemOf(decision)).toContain('copilot: create carried no content/path to judge')
+      expect(problemOf(decision)).toContain('file_text')
+    }),
+  )
+
+  // T-A5 — nothing below `judgedTarget` learns an agent exists, and the freedom is worth pinning:
+  // `cwd` is spelled `cwd` in both Copilot formats, so every repo-relative glob keeps working.
+  effect('scopes a Copilot write by the same globs, relative to the same cwd', () =>
+    Effect.gen(function* () {
+      const scoped = yield* rulesOf(`${noAsAny}files:\n  - 'src/**/*.ts'\n`)
+      const editOf = (path: string) => ({
+        cwd: '/repo',
+        toolArgs: { new_str: 'const x = value as any', old_str: '', path },
+        toolName: 'edit',
+      })
+
+      expect((yield* decide(scoped, editOf('/repo/vendor/w.ts'), { agent: 'copilot' }))._tag).toBe('Defer')
+      expect((yield* decide(scoped, editOf('/repo/src/w.ts'), { agent: 'copilot' }))._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A5b — the direction that would otherwise be silent. `--agent copilot` in front of Claude Code
+  // emits exit 0 with nothing on either stream, so without this the installation is unguarded
+  // indefinitely and looks healthy the whole time.
+  effect('reports a payload whose tool belongs to the other contract, and says which flag to set', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const claudeCodePayload = yield* decide(
+        rules,
+        { tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' }, tool_name: 'Write' },
+        { agent: 'copilot' },
+      )
+      expect(claudeCodePayload._tag).toBe('Report')
+      expect(problemOf(claudeCodePayload)).toContain('`Write`')
+      expect(problemOf(claudeCodePayload)).toContain('claude-code contract')
+      expect(problemOf(claudeCodePayload)).toContain('--agent claude-code')
+
+      const copilotPayload = yield* decide(rules, {
+        toolArgs: { new_str: 'const x = 1', old_str: '', path: '/repo/src/a.ts' },
+        toolName: 'edit',
+      })
+      expect(copilotPayload._tag).toBe('Report')
+      expect(problemOf(copilotPayload)).toContain('`edit`')
+      expect(problemOf(copilotPayload)).toContain('--agent copilot')
+    }),
+  )
 })
