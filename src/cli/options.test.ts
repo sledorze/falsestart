@@ -6,6 +6,7 @@ describe('command line', () => {
   it('takes the rule directory from --rules', () => {
     expect(parseArguments(['--rules', 'my-rules'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -19,6 +20,7 @@ describe('command line', () => {
   it('falls back to a conventional directory when given nothing', () => {
     expect(parseArguments([])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -32,6 +34,7 @@ describe('command line', () => {
   it('recognises --warn-unscoped', () => {
     expect(parseArguments(['--warn-unscoped'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -76,6 +79,7 @@ describe('command line', () => {
   it('recognises --doctor, keeping the resolution it would have run with', () => {
     expect(parseArguments(['--doctor', '--rules', 'my-rules'])).toEqual({
       _tag: 'Doctor',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -287,6 +291,7 @@ describe('the scan command', () => {
   it('takes the last --rules when it is repeated', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -300,6 +305,7 @@ describe('the scan command', () => {
   it('takes a config path from --config', () => {
     expect(parseArguments(['--config', 'my.json'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: 'my.json',
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -319,6 +325,7 @@ describe('the scan command', () => {
   it('accepts both flags together', () => {
     expect(parseArguments(['--rules', 'r', '--config', 'c.json'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: 'c.json',
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -331,6 +338,7 @@ describe('the scan command', () => {
   it('takes a shipped rule set from --preset', () => {
     expect(parseArguments(['--preset', 'effect'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -363,6 +371,7 @@ describe('the scan command', () => {
   it('takes a rules package from a pkg: prefixed --rules', () => {
     expect(parseArguments(['--rules', 'pkg:@acme/falsestart-rules'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
