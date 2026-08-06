@@ -89,6 +89,22 @@ export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; re
 }
 
 /**
+ * The one hook event falsestart implements, and the key both runtimes name the event in.
+ *
+ * `hook_event_name` is documented by Claude Code on every payload, and by Copilot on the VS Code
+ * compatible spelling its PascalCase hook config selects — so ONE key covers both, and reading it
+ * is not sniffing the agent for the reason `AGENTS` gives: it says which event arrived, never how
+ * the runtime will read the answer. Copilot's camelCase spelling carries no event field at all,
+ * which is why absence can never be a refusal (see `judgedTarget`).
+ *
+ * `IMPLEMENTED_EVENT` is also what `respond` writes into Claude Code's deny document, so the event
+ * falsestart claims to implement and the event it names in its answer cannot drift apart — the
+ * hardcoded literal there was half of #63.
+ */
+export const EVENT_KEY = 'hook_event_name'
+export const IMPLEMENTED_EVENT = 'PreToolUse'
+
+/**
  * The agent runtimes falsestart speaks to. DECLARED on the command line, never sniffed.
  *
  * A payload tells you the shape that came in and says nothing whatsoever about how the runtime will
@@ -293,6 +309,11 @@ export type JudgedTarget =
    * about a misdeclared `--agent` is useless on the channel of the agent that is not there.
    */
   | { readonly _tag: 'Misdeclared'; readonly problem: string; readonly runtime: AgentId }
+  /**
+   * The payload names a hook event falsestart does not implement, so there is nothing here to
+   * judge — see `judgedTarget`, which is where the argument for refusing rather than judging is.
+   */
+  | { readonly _tag: 'Unsupported'; readonly problem: string }
   | {
       readonly _tag: 'Write'
       readonly content: string
@@ -321,6 +342,32 @@ const decodeArguments = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)
 export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedTarget => {
   if (!isRecord(payload)) {
     return { _tag: 'Malformed', problem: `${contract.problemPrefix}hook payload was not an object` }
+  }
+
+  // Read FIRST, ahead of the envelope, because most of the events falsestart does not implement
+  // carry no tool call whatsoever — `SessionStart`, `Stop` and `UserPromptSubmit` have no
+  // `tool_name` to find. Answering those `hook payload carried no tool_name` names neither the
+  // cause nor the remedy; it is the dead end #50 opened with, one event further along.
+  //
+  // A string that is not `PreToolUse` is the only refusal. ABSENCE is not: Copilot's camelCase
+  // payload carries no event field, plenty of library callers construct a payload without one, and
+  // most of this repo's own fixtures omit it — a refusal there would be a guard that stopped
+  // guarding on a payload it used to judge. Neither is a non-string value, which is not a claim
+  // about an event at all.
+  //
+  // What this does NOT do is implement the event. #51's design pass is the argument: after the
+  // write neither runtime can block, so `Deny` and `Advise` collapse into one emission and the
+  // `severity` dimension of every rule stops meaning anything. `falsestart scan` already covers
+  // that ground, so the message names it rather than pretending there is a judgement to make here.
+  const event = payload[EVENT_KEY]
+  if (typeof event === 'string' && event !== IMPLEMENTED_EVENT) {
+    return {
+      _tag: 'Unsupported',
+      problem:
+        `${contract.problemPrefix}this hook was invoked for \`${event}\`, and falsestart only implements ` +
+        `\`${IMPLEMENTED_EVENT}\` — nothing was judged. A decision emitted here would name the wrong event and ` +
+        'be ignored. Register falsestart on PreToolUse, or run `falsestart scan` for after-the-write reporting.',
+    }
   }
 
   const spoken = spokenEnvelope(payload, contract)
@@ -415,8 +462,10 @@ export const decide = (
     const target = judgedTarget(payload, contractFor(options.agent))
     // A misdeclared flag reports for the reason a malformed payload does: it is a fact about the
     // invocation rather than about the code, so an agent told "denied" would rewrite something
-    // nothing ever judged.
-    if (target._tag === 'Malformed' || target._tag === 'Misdeclared') {
+    // nothing ever judged. A foreign hook event is a third fact of the same kind — about the
+    // REGISTRATION — and reusing `Report` rather than growing a fifth outcome is what keeps
+    // `respond` the only place that prices it, and `--doctor` free of a tag to un-pick.
+    if (target._tag === 'Malformed' || target._tag === 'Misdeclared' || target._tag === 'Unsupported') {
       return { _tag: 'Report', problem: target.problem } as const
     }
     if (target._tag === 'Deferred') {

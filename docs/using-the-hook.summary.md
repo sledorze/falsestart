@@ -4,7 +4,11 @@ falsestart runs as an agent's `PreToolUse` hook. For Claude Code, register it in
 `.claude/settings.json` with a
 `Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
 `node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
-Settings must be strict JSON. Guarding shell commands is a second `PreToolUse` entry beside this one
+Settings must be strict JSON. `PreToolUse` is the only event it implements: registered at
+`PostToolUse` it refuses on stderr naming the event it was invoked for and judges nothing, where it
+used to answer with a document naming the wrong event that the runtime ignored. `PostToolUse` will
+not be implemented — nothing can block after the tool has run — so `falsestart scan` is the
+`PostToolUse` command for after-the-write reporting. Guarding shell commands is a second `PreToolUse` entry beside this one
 — the intended arrangement, not a workaround, since a `matcher` makes the two select disjoint sets
 of tool calls, and on a call falsestart does not judge it writes nothing to either stream and exits
 0 before its rule tree is read. `--doctor` answers "is this guarding anything?" — it prints the

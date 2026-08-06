@@ -25,7 +25,7 @@ import { isRuleDocument, loadRules } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
 import { containedPath } from '../freezing/index.ts'
 import type { AgentId } from './decide.ts'
-import { contractFor, decide, judgedTarget, judgesPayload } from './decide.ts'
+import { contractFor, decide, IMPLEMENTED_EVENT, judgedTarget, judgesPayload } from './decide.ts'
 
 /**
  * What a failure of the GUARD costs, as opposed to a finding about the code.
@@ -78,7 +78,10 @@ const CLAUDE_CODE_EMITTER = {
     stderr: undefined,
     stdout: JSON.stringify({
       hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
+        // The constant, not a literal: this document names the event whose vocabulary
+        // `permissionDecision` belongs to, and a hardcoded name that could disagree with the event
+        // falsestart implements is exactly how #63 happened.
+        hookEventName: IMPLEMENTED_EVENT,
         permissionDecision: 'deny',
         permissionDecisionReason: reason,
       },
@@ -335,6 +338,36 @@ export const respond = (
     }
 
     const target = judgedTarget(parsed.success, contract)
+
+    // A registration at an event falsestart does not implement, answered where the misdeclared
+    // flag is and for the same reason: nothing in this session is being judged, so naming the
+    // rules package or a broken tree would answer a question nobody is in a position to ask — and
+    // producing the notice would have cost the freeze's four git spawns and a full rule-tree load.
+    //
+    // On `emit.problem`, which is the ONE channel that is right under both contracts and is right
+    // for opposite reasons. Under Claude Code it is exit 1 + stderr — "non-blocking error, stderr
+    // shown to the user, execution continues", the same row `PostToolUse` itself is stuck with,
+    // since exit 2 there feeds stderr to the model as a finding about code nothing judged. Under
+    // Copilot it is exit 0, and it has to be: every non-zero exit other than 2 denies, so a
+    // refusal that exited 1 would deny every tool call in the repository over a mistake in a hook
+    // config. Reading the price list off the payload's event name instead — "postToolUse is
+    // fail-open, so 1 is safe here" — is the inference `AGENTS` forbids: a shim could send any
+    // event name to a hook registered at `preToolUse`, and the deny would be real.
+    //
+    // Never `guardFailure`. `--fail closed` prices a guard that could not check a write it was
+    // going to judge; this payload is not one, so a denial here would be #63 again in a louder
+    // costume — a decision document, at an event whose runtime cannot act on it.
+    //
+    // It is emitted on the DECLARED contract's channel, unlike `Misdeclared` below, and the
+    // asymmetry is evidential rather than stylistic: a tool name is structural proof of who is on
+    // the other end, and `hook_event_name` is not — both runtimes send it. Where both mistakes are
+    // made at once (`--agent copilot` in front of Claude Code, registered at `PostToolUse`) this
+    // one wins and lands on a channel Claude Code shows only in debug. That is no worse than
+    // today's silence, and it resolves the moment the registration is fixed, at which point the
+    // misdeclaration is answered loudly.
+    if (target._tag === 'Unsupported') {
+      return emit.problem(target.problem)
+    }
 
     // Answered HERE, ahead of every guard failure, and that is the one place in this function where
     // the payload outranks the installation. A misdeclared `--agent` means nothing in the session is
