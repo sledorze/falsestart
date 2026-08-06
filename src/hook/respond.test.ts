@@ -708,6 +708,109 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
 })
 
 /**
+ * `--fail closed`: a write falsestart could not check is denied rather than reported.
+ *
+ * Every case here has NOTHING frozen, which is what makes it measure the policy rather than a denial
+ * that would have happened anyway. The controls are already above — `'surfaces a problem without
+ * blocking when the rules cannot be loaded'`, `'… when a rule document is malformed'` and
+ * `'reports an override naming a rule that is not loaded'` — and they must stay green unchanged.
+ */
+layer(platform)('a guard failure under --fail closed', (it) => {
+  // T5
+  it.effect('denies when the rule tree will not load and nothing is frozen', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        // Asserted before the content, for the reason T43 gives: a `toContain` against `undefined`
+        // reports an argument-type complaint rather than the fact being measured.
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('broken.yml')
+        expect(response.stderr).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T6 — the issue's opening example, with no freeze: an override naming a rule the loaded set does
+  // not contain. Under the default freeze this already denies; on the `--freeze off` path it does
+  // not, and that path is what this switch is for.
+  it.effect('denies when a working-tree override names a rule that is not loaded', () =>
+    withRules({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('no rule named typo is loaded')
+      }),
+    ),
+  )
+
+  // T7 — a different `refuse` call site from T6: the config never loads at all, so the overrides
+  // step is never reached.
+  it.effect('denies when the config itself will not load', () =>
+    withRules({ 'falsestart.config.json': '{oops', 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('falsestart.config.json')
+      }),
+    ),
+  )
+
+  // T8 — whoever reads a deny reason is about to start editing, and nothing about the code was
+  // judged. An agent that reads the loader error before it reads "the code is not what failed" has
+  // already started rewriting correct code.
+  it.effect('says the guard failed and names what failed, before it says anything else', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        const decision: unknown = JSON.parse(response.stdout ?? '{}')
+        const reason =
+          typeof decision === 'object' && decision !== null && 'hookSpecificOutput' in decision
+            ? String(JSON.stringify(decision.hookSpecificOutput))
+            : ''
+
+        expect(reason).toContain('falsestart could not check this write')
+        expect(reason).toContain('do not change it to satisfy this')
+        expect(reason).toContain('broken.yml')
+        // The lead comes FIRST, not appended. `withEscape` appends, so copying its shape is the
+        // natural first draft — and it is the draft that puts the loader error in front of an agent
+        // before the sentence telling it not to act on one.
+        expect(reason).toMatch(/"permissionDecisionReason":"falsestart could not check this write/)
+      }),
+    ),
+  )
+})
+
+/**
  * The moment the confusion happens: a judged write INTO the frozen rules directory.
  *
  * Scoped by two structural tests and never by content — segment containment of the destination
