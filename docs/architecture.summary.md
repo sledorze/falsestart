@@ -26,16 +26,23 @@ copy and the original becomes a rule that silently under-matches. One deliberate
 native binding accepts matcher shapes the real CLI rejects and then matches nearly every node, so a
 narrow check — modelled on measured CLI behaviour — rejects them.
 
-**Five failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
+**Six failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
 guard could not run (say so loudly, do not block BY DEFAULT), the rule source could not be read AS
-COMMITTED (refuse to judge; never fall back), and the hook payload is malformed (say so loudly; never the
-REASON to block, in any policy). A rule that cannot run is never reported as "found nothing", but a typo in a
+COMMITTED (refuse to judge; never fall back), the hook payload is malformed (say so loudly; never the
+REASON to block, in any policy), and the payload names a tool from a DIFFERENT contract than
+`--agent` declared (say so loudly, on the channel the runtime that really sent it reads; never the
+REASON to block either). A rule that cannot run is never reported as "found nothing", but a typo in a
 rule file must not hold a repository hostage. The fourth amends the third in the safe direction:
 under a freeze a working-tree typo never reaches the loader at all, so what refuses is a COMMITTED
 rule set that will not load — falling back there would make breaking git the cheapest disarm
 available. The third is a POLICY and `--fail closed` inverts it; the fifth is the row that policy
 does not reach, because a malformed payload is the runtime's shape rather than the repository's and
-an agent told "denied" would rewrite code that was never judged. No fifth `Decision` tag: what a
+an agent told "denied" would rewrite code that was never judged. The sixth exists because `--agent` can be wrong and one direction of
+wrong is silent: membership of the tool name in another contract's declared, closed table is proof
+the flag names the wrong runtime, and structural rather than a guess about the name. Under
+`--agent copilot` the price list shifts and the table still holds: a deny is exit `2`, and everything
+that exits `1` under Claude Code exits `0`, because Copilot denies on every other non-zero exit —
+which makes the malformed-payload row stronger there, not weaker. No fifth `Decision` tag: what a
 guard failure COSTS is a fact about the invocation, so it is a rendering policy in `hook/respond.ts`
 and `decide` stays policy-free.
 

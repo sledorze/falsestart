@@ -327,9 +327,12 @@ export const diagnose = (
     // The FIELD names, not just the tool names. Nothing inside falsestart can verify the Copilot
     // mapping — it has no real Copilot payload — so the strongest honest answer available is to
     // print what it will read and let the reader diff it against one.
+    // Rendered first and sorted after, so the ordering needs no comparator of its own: the tool name
+    // is the prefix of every rendered entry, and a hand-written comparator here has an arm no
+    // contract's table can reach.
     const judged = Object.entries(contract.tools)
-      .toSorted(([left], [right]) => (left < right ? -1 : 1))
       .map(([tool, fields]) => `${tool} (${fields.path}/${fields.content})`)
+      .toSorted()
     lines.push(`tools    ${judged.join(', ')} — any other tool call is ignored`)
 
     // A declared fact about the contract, not a name check on the agent.

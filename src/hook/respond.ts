@@ -414,7 +414,7 @@ export const respond = (
       case 'Report': {
         // A malformed payload is never the REASON to deny, in any policy: it is the agent runtime's
         // shape, not this repository's, so there is nothing here to fix and an agent told "denied"
-        // would rewrite code that was never judged. See docs/architecture.md, "Five failures that
+        // would rewrite code that was never judged. See docs/architecture.md, "Six failures that
         // must not be confused".
         //
         // The reason, not the outcome. Every guard failure above this line is answered first, so a

@@ -1,6 +1,7 @@
 # Using the hook — summary
 
-falsestart runs as a Claude Code `PreToolUse` hook: register it in `.claude/settings.json` with a
+falsestart runs as an agent's `PreToolUse` hook. For Claude Code, register it in
+`.claude/settings.json` with a
 `Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
 `node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
 Settings must be strict JSON. Guarding shell commands is a second `PreToolUse` entry beside this one
@@ -16,7 +17,17 @@ its version line too — a hook wired at a path holding an older copy describes 
 Under it, a `changes` line names the changelog inside that same copy, because a version number alone
 cannot say that a MINOR bump added an `error`-severity rule and turned a green repo red (`0.2.0` did
 it twice); the line is absent on versions published before it existed, which shipped no changelog at
-all. `--rules` is searched recursively and defaults
+all. For GitHub Copilot CLI, register it in `.github/hooks/*.json` (or `~/.copilot/hooks/`) under
+`{"version":1,"hooks":{"preToolUse":[…]}}` and add `--agent copilot`, without which falsestart
+answers in the wrong vocabulary and Copilot denies EVERY tool call in the session. The casing of the
+event name decides the payload spelling — `preToolUse` sends `toolName`/`toolArgs`, `PreToolUse`
+sends `tool_name`/`tool_input` — and falsestart reads both, so either registration works. There a
+deny is exit 2, everything that exits 1 under Claude Code exits 0, `--fail closed` is the recommended
+policy, and an advisory finding reaches the user and the log but never the model. Copilot support is
+provisional: the tool argument names are inferred, and `--doctor` prints them so a reader can check
+them against one real payload.
+
+`--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 

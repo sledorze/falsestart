@@ -120,15 +120,16 @@ rejects, and then matches essentially every node. A rule upstream considers brok
 indiscriminately here. So a narrow check rejects those shapes — modelled on behaviour measured
 against the actual CLI rather than reasoned about.
 
-## Five failures that must not be confused
+## Six failures that must not be confused
 
-| Situation                                        | Answer                                   |
-| ------------------------------------------------ | ---------------------------------------- |
-| The code breaks a rule                           | Block, with the rule's message           |
-| A rule matched at a softer severity              | Show it; do not block                    |
-| The guard could not do its job                   | Say so loudly; do not block by default   |
-| The rule source could not be read _as committed_ | Refuse to judge; do not fall back        |
-| The hook payload is malformed                    | Say so loudly; never the REASON to block |
+| Situation                                        | Answer                                                                   | Under `--agent copilot`      |
+| ------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------- |
+| The code breaks a rule                           | Block, with the rule's message                                           | Same, expressed as exit `2`  |
+| A rule matched at a softer severity              | Show it; do not block                                                    | Same, on stderr              |
+| The guard could not do its job                   | Say so loudly; do not block by default                                   | Same, at exit `0` not `1`    |
+| The rule source could not be read _as committed_ | Refuse to judge; do not fall back                                        | Same, expressed as exit `2`  |
+| The hook payload is malformed                    | Say so loudly; never the REASON to block                                 | Same, and exit 0 cannot deny |
+| The payload names a tool from another contract   | Say so loudly, on the other runtime's channel; never the REASON to block |                              |
 
 The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
 conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
@@ -162,6 +163,20 @@ payload arrives — naming the tree, which the repository owns and can fix, and 
 freeze has done this since it shipped. Answering the malformed payload earlier would buy the stronger
 sentence at the cost of the freeze: a committed rule set that will not load would go back to exit 1
 on that payload, which is the fail-open disarm the freeze exists to close.
+
+The sixth exists because the flag can be wrong, and one direction of wrong is silent. `Write`,
+`Edit` and `NotebookEdit` cannot come from Copilot, whose tool table is documented and closed, and
+`create`/`edit` cannot come from Claude Code — so a tool name in the OTHER contract's table is proof
+the flag names the wrong runtime rather than a tool falsestart has no opinion about. It is answered
+with the emitter of the runtime that really sent it, because a message about a misdeclared `--agent`
+is worth nothing on a channel the runtime that is actually there does not read. Structural, like
+every other discriminator here: membership in a declared table, never a guess about what a name
+looks like.
+
+The third row's default reads as exit `0` under Copilot rather than exit `1`, and that is forced
+rather than chosen: every non-zero exit other than 2 denies the tool call there, so `1` would invert
+`--fail open` into fail-closed with a reason nobody can act on. For the same reason the fifth row is
+STRONGER under Copilot than under Claude Code — exit 0 cannot deny even in principle.
 
 None of this adds a fifth `Decision` tag. What a guard failure COSTS is a fact about the invocation
 rather than about the code, so it is a rendering policy in `hook/respond.ts` — where the protocol's
@@ -227,15 +242,15 @@ still judges one file at a time. It is a wider view of each file, not a view of 
 Seven areas, each presenting a small entry point that the rest of the codebase and these documents
 cite. Areas are separated by _what they are allowed to know_:
 
-| Area                                    | Knows about                                                               |
-| --------------------------------------- | ------------------------------------------------------------------------- |
-| [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files. |
-| [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.            |
-| [`hook/`](../src/hook/index.ts)         | The agent protocol: a payload in, a verdict out.                          |
-| [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                   |
-| [`freezing/`](../src/freezing/index.ts) | What a git ref committed. Not processes: it parses git's plumbing output. |
-| [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                          |
-| [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
+| Area                                    | Knows about                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files.           |
+| [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.                      |
+| [`hook/`](../src/hook/index.ts)         | The agent protocolS: a payload in, a verdict out, in each runtime's own vocabulary. |
+| [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                             |
+| [`freezing/`](../src/freezing/index.ts) | What a git ref committed. Not processes: it parses git's plumbing output.           |
+| [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                                    |
+| [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                                    |
 
 `hook/` and `scanning/` are the two adapters, and they are separate because their failure modes
 are opposite. The hook answers before a write lands and fails OPEN by default, and says so as a

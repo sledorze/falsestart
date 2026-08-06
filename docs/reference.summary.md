@@ -2,13 +2,17 @@
 
 The lists: command line, rule document format, configuration, shipped rules, library exports.
 
-**Judged tool calls:** `Write` (`file_path`/`content`), `Edit` (`file_path`/`new_string`),
-`NotebookEdit` (`notebook_path`/`new_source`) — the complete set of Claude Code built-ins carrying
-file content. Anything else is allowed in silence. `Bash` is deliberately absent, so a shell
-redirect writes a file falsestart never sees.
+**Judged tool calls, per contract.** Claude Code (the default), envelope `tool_name`/`tool_input`:
+`Write` (`file_path`/`content`), `Edit` (`file_path`/`new_string`), `NotebookEdit`
+(`notebook_path`/`new_source`) — the complete set of built-ins carrying file content. GitHub Copilot
+CLI under `--agent copilot`, envelope `toolName`/`toolArgs` or `tool_name`/`tool_input` depending on
+the casing of the event name in the hook config, with `toolArgs` possibly a JSON-encoded string:
+`create` (`path`/`content`), `edit` (`path`/`new_str`) — **inferred names, not documented by
+GitHub**. Anything else is allowed in silence under either contract. `Bash` is deliberately absent,
+so a shell redirect writes a file falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
-`--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
+`--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--agent <name>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
 rule source: a preset and any `--rules` are refused together rather than ranked, and between the two
 `--rules` forms the `pkg:` one wins whichever came first — so layering two rule sets means two hook
 entries. `--doctor` reports what was
@@ -16,8 +20,9 @@ resolved, says how many loaded rules block and how many advise, probes five path
 extensions than it ships with — an override REPLACES `files` rather than merging, so a restated
 glob that omits an extension silently unguards it. It also names the changelog shipped inside the
 installation it reports on, so an upgrade's new rules are readable where the upgrade is verified.
-It names the active `--fail` policy when one was given, and reports a rules package it could not
-resolve rather than exiting with no report at all. Reads no stdin.
+It names the active `--fail` policy when one was given, names the active agent contract on EVERY
+run, lists each judged tool with the field names it will read, and reports a rules package it could
+not resolve rather than exiting with no report at all. Reads no stdin.
 
 `--list-rules` prints the resolved rule set — after preset/`pkg:` resolution and after config
 overrides — as JSON on stdout and exits, so a repo can assert that the rules blocking writes are the
@@ -50,12 +55,22 @@ denies on is a config that will not load. Refused with `scan` and `--list-rules`
 rule, and warns that repairing the broken rule document needs `--fail open` too — every judged write
 denies while the guard is broken, including that one.
 
+`--agent claude-code|copilot` names the runtime on the other end — DECLARED, never sniffed, because a
+payload says nothing about how the runtime reads the ANSWER and guessing that wrong turns a deny into
+an allow. Command line only, refused with `scan` and `--list-rules` in either value. A payload naming
+a tool from the other contract's closed table is reported as a misdeclared flag, on the channel the
+runtime that really sent it reads. `copilot` is PROVISIONAL: its tool argument names are inferred,
+and whether stderr is readable at exit 0 is undocumented.
+
 `--warn-unscoped` reports a
-judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
+judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Under claude-code, exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
 (`systemMessage`, which decides nothing, and comes either from a softer-than-`error` rule or from
 `--warn-unscoped` with no rule involved at all) — separate documents, not one with a different verdict —
 exit 0 with no output defers, and exit 1 reports a
-problem without blocking. Blocking is deliberately not exit 2, which discards stdout.
+problem without blocking. Blocking is deliberately not exit 2 there, which discards stdout. Under
+`copilot` there is **no exit 1 at all** — every non-zero exit other than 2 denies the tool call — so a
+deny is exit 2 with top-level `permissionDecision` keys on stdout and the reason on stderr, advice
+and reported problems are exit 0 with stderr only, and a refused command line exits 0 too.
 
 **`scan [paths…]`:** judges files on disk for a git hook or CI. Paths from the caller, `-`/`-0` for
 stdin, `--baseline`/`--update-baseline` to absorb pre-existing findings, `--warn-unscoped` refused.
@@ -102,4 +117,5 @@ spawns git not at all. Where no enclosing `.git` DIRECTORY exists — a linked w
 repository, `--separate-git-dir` — `--doctor` prints `anchor UNVERIFIED` and `require` refuses.
 
 **Library:** the exported functions, error classes and constants, with the area each belongs to,
-plus the exported types. `effect` is a required peer; `@effect/platform-node` is optional.
+plus the exported types. `AGENTS` and `AGENT_CONTRACTS` are exported so the contracts can be
+asserted against rather than copied. `effect` is a required peer; `@effect/platform-node` is optional.

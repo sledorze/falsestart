@@ -1,7 +1,9 @@
 # Using the hook
 
-falsestart runs as a Claude Code `PreToolUse` hook. It reads the tool call on stdin and answers
-with a decision, so a rule violation is caught as the code is written rather than at CI.
+falsestart runs as an agent's `PreToolUse` hook. It reads the tool call on stdin and answers with a
+decision, so a rule violation is caught as the code is written rather than at CI. Claude Code is the
+default; GitHub Copilot CLI needs `--agent copilot` and is registered somewhere else — see
+[GitHub Copilot CLI](#github-copilot-cli) below.
 
 ## Register it
 
@@ -36,6 +38,39 @@ Two details that are easy to get wrong and fail silently:
   scoping a rule to `**/*.ipynb` works — but the matcher decides what ever reaches falsestart.
   `Bash` is deliberately absent: falsestart judges the text a write tool carries, so a heredoc
   redirect is outside what it can see.
+
+### GitHub Copilot CLI
+
+Copilot reads its hooks from `.github/hooks/*.json` in the repository, or `~/.copilot/hooks/`. Like
+`.claude/settings.json` this is strict JSON — no comments, no trailing commas.
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "command": "node \"$PWD/node_modules/@sledorze/falsestart/dist/cli.js\" --preset clean-code --agent copilot --fail closed"
+      }
+    ]
+  }
+}
+```
+
+**`--agent copilot` is not optional here.** Without it falsestart answers in Claude Code's
+vocabulary, and Copilot denies every tool call in the session — `Bash`, `view` and `grep` included —
+because it treats any non-zero exit other than 2 as `Denied by preToolUse hook (hook errored)`.
+
+**The casing of the event name decides the payload shape.** `preToolUse` sends
+`toolName`/`toolArgs`; `PreToolUse` sends `tool_name`/`tool_input`, "to match the VS Code Copilot
+extension format". falsestart reads both, so either registration works and you do not have to know
+which you have.
+
+`--fail closed` is recommended under Copilot, and the reason is in
+[Denying what could not be checked](#denying-what-could-not-be-checked). Copilot support is
+provisional: the tool argument names falsestart reads are not documented by GitHub. Run
+`falsestart --doctor --agent copilot` to see them.
 
 ### Running your own Bash guard alongside it
 
@@ -123,10 +158,11 @@ node node_modules/@sledorze/falsestart/dist/cli.js --doctor --preset clean-code
 ```
 falsestart <the installed version>
 changes  …/CHANGELOG.md — what this version changed, including any rule that is new
+agent    claude-code — a deny is exit 0 with a JSON document on stdout; a guard failure exits 1
 
 rules    …/rules/clean-code — 6 loaded (6 block, 0 advise)
 config   no config file in /repo — 0 override(s)
-tools    Edit, NotebookEdit, Write — any other tool call is ignored
+tools    Edit (file_path/new_string), NotebookEdit (notebook_path/new_source), Write (file_path/content) — any other tool call is ignored
 scope
            6 rule(s) apply to src/a.ts
            6 rule(s) apply to src/nested/deep/a.ts
@@ -163,6 +199,11 @@ It reads no stdin and exits 1 if any step did not resolve, naming the cause — 
 is not there, a config that cannot be read, or an override for a rule the current preset does not
 load. That last one is easy to hit: narrowing `--preset all` to `--preset clean-code` while keeping a
 config that names an Effect rule turns the whole guard off.
+
+The `agent` line prints on every run, including one where nothing resolved. It is the answer to "why
+did my deny not block", which is a question only somebody who never passed `--agent` can be asking.
+Under `--agent copilot` the `tools` line also carries a `PROVISIONAL` note: those argument names are
+inferred, and the line prints them so you can diff them against one real payload.
 
 **Read the scope block, not just the last line.** A nested path is probed on purpose: `src/**.ts` and
 `src/**/*.ts` look alike and behave completely differently, and a rule set with that typo guards
@@ -238,6 +279,11 @@ If the broken rule tree is also a **committed** one, getting out is two steps an
 the next: the freeze denies first and prints `--freeze off`, and re-running with that reads the same
 broken document from the working tree, which then denies for the guard and prints `--fail open`.
 Expect the second denial; it is the switches answering different questions, not a loop.
+
+**Under `--agent copilot`, `--fail closed` is the recommended setting.** A fail-open report is exit 0
+with the reason on stderr there, and GitHub does not document whether stderr is read at exit 0 at
+all — so a report may reach nobody, while a denial is unmissable under either reading. The exit codes
+also shift: what exits `1` under Claude Code exits `0` there, and a deny is exit `2`.
 
 `falsestart --doctor --fail closed` proves it is on, in a line printed before anything is resolved so
 it is still there when nothing resolved:
@@ -466,6 +512,13 @@ two trees reached by two hook entries. Two documents sharing an id in one tree a
 so inside a single tree the two-ids form is the one that works. The cost of that is worth stating
 plainly: against a policy table one tool reads two ways, this is a duplicate kept in step by hand,
 and nothing checks that it still is.
+
+**Under `--agent copilot` an advisory finding reaches the user and the log, and never the model** —
+and possibly nothing at all. Copilot's `preToolUse` output has three keys and none of them is
+non-deciding: `"allow"` would auto-approve a write the permission flow would have prompted for, and
+`"ask"` would make advice block. So advice goes to stderr and decides nothing, and whether stderr is
+read at exit 0 is not documented. A repository whose policy leans on `warning` rules gets a quietly
+weaker product there.
 
 `--doctor` reports the split, so "does this thing have advisory rules" is answered by the
 installation rather than by this page. With any shipped preset the second number is `0` — all 23

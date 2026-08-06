@@ -1,16 +1,16 @@
 {
   "refs": [
     {
-      "hash": "5be0a23af037f9771bf3ee3ba13accbdaa2eadb78c00c9b6cd0dae6ff6ae0140",
+      "hash": "a06d221e17757b745fd91967537833e2ab329b1c1a9bcc964053c27a9714afb1",
       "target": "./architecture.md"
     },
     {
-      "hash": "92740978ac93c0b57c855a5cc2a54dbdbfd7010650b2b25c17c7fe2685357318",
+      "hash": "8d32218ab9e7c77e80c12797e61722085a003edb85d56781b4147a986afab3c3",
       "target": "./using-the-hook.md"
     },
     {
       "anchor": "when-a-write-was-not-checked-at-all",
-      "hash": "92740978ac93c0b57c855a5cc2a54dbdbfd7010650b2b25c17c7fe2685357318",
+      "hash": "8d32218ab9e7c77e80c12797e61722085a003edb85d56781b4147a986afab3c3",
       "target": "./using-the-hook.md"
     }
   ]

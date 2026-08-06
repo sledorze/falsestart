@@ -3,8 +3,9 @@
 falsestart blocks risky code patterns the instant an AI writes them — before the file
 lands, not just at CI. It can also enforce structure/architecture conventions.
 
-It runs as a Claude Code `PreToolUse` hook: the tool call arrives on stdin, and falsestart
-answers with a decision. Code that breaks a rule never reaches the file.
+It runs as a `PreToolUse` hook for Claude Code or, with `--agent copilot`, for GitHub Copilot CLI:
+the tool call arrives on stdin, and falsestart answers with a decision. Code that breaks a rule never
+reaches the file.
 
 Rules are [ast-grep](https://ast-grep.github.io) documents, so the same file stays readable by the
 upstream CLI. A rule only ever acts on files its own `files`/`ignores` globs admit — matching

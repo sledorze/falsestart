@@ -1,24 +1,24 @@
 {
   "refs": [
     {
-      "anchor": "when-falsestart-itself-cannot-run",
-      "hash": "9c018b4ca7a3aa54be7816d9419487aba7213e31f8c6359cdf7b0ffa5ffc29f5",
-      "target": "./docs/reference.md"
-    },
-    {
-      "hash": "248feb42950598a4bd53166a7dba8be009528e396b77cbdce73a6c60002c4d08",
-      "target": "./docs/overview.md"
-    },
-    {
-      "hash": "92740978ac93c0b57c855a5cc2a54dbdbfd7010650b2b25c17c7fe2685357318",
+      "hash": "8d32218ab9e7c77e80c12797e61722085a003edb85d56781b4147a986afab3c3",
       "target": "./docs/using-the-hook.md"
     },
     {
-      "hash": "5be0a23af037f9771bf3ee3ba13accbdaa2eadb78c00c9b6cd0dae6ff6ae0140",
+      "anchor": "when-falsestart-itself-cannot-run",
+      "hash": "0327060109e89b39753d8bd91f73f8be6ec242f45f1a1ebf86368422cab7c819",
+      "target": "./docs/reference.md"
+    },
+    {
+      "hash": "cb6aa077fcc6d1b1073ccc38ad9ca5825bc6ea2aaf785903100795da8a2bb868",
+      "target": "./docs/overview.md"
+    },
+    {
+      "hash": "a06d221e17757b745fd91967537833e2ab329b1c1a9bcc964053c27a9714afb1",
       "target": "./docs/architecture.md"
     },
     {
-      "hash": "9c018b4ca7a3aa54be7816d9419487aba7213e31f8c6359cdf7b0ffa5ffc29f5",
+      "hash": "0327060109e89b39753d8bd91f73f8be6ec242f45f1a1ebf86368422cab7c819",
       "target": "./docs/reference.md"
     },
     {
