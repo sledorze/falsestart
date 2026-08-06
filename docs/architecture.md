@@ -120,14 +120,15 @@ rejects, and then matches essentially every node. A rule upstream considers brok
 indiscriminately here. So a narrow check rejects those shapes — modelled on behaviour measured
 against the actual CLI rather than reasoned about.
 
-## Four failures that must not be confused
+## Five failures that must not be confused
 
-| Situation                                        | Answer                            |
-| ------------------------------------------------ | --------------------------------- |
-| The code breaks a rule                           | Block, with the rule's message    |
-| A rule matched at a softer severity              | Show it; do not block             |
-| The guard could not do its job                   | Say so loudly; do not block       |
-| The rule source could not be read _as committed_ | Refuse to judge; do not fall back |
+| Situation                                        | Answer                                    |
+| ------------------------------------------------ | ----------------------------------------- |
+| The code breaks a rule                           | Block, with the rule's message            |
+| A rule matched at a softer severity              | Show it; do not block                     |
+| The guard could not do its job                   | Say so loudly; do not block by default    |
+| The rule source could not be read _as committed_ | Refuse to judge; do not fall back         |
+| The hook payload is malformed                    | Say so loudly; never block, in any policy |
 
 The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
 conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
@@ -141,6 +142,25 @@ disarm, and is now a no-op. What refuses is a COMMITTED rule set that does not l
 git said was readable and then would not read — a repository-wide problem a commit introduced, and
 exactly what `scan` in CI already fails closed on. Falling back to the working tree there would make
 breaking git the cheapest disarm available, which is the whole reason the freeze exists.
+
+The third is a POLICY, and `--fail closed` inverts it. The argument above is about the default, and
+it is narrower than it was when it was written: under a freeze the working-tree typo it protects
+never reaches the loader, so what is left is mostly the repository with nothing to freeze — where the
+typo really is somebody's work in progress. A repository where an edit that cannot be verified must
+not land says so on the command line, and the same failure denies instead.
+
+The fifth is the row that policy does NOT reach, and it earns its place precisely because the flag
+would otherwise read as "everything denies". A malformed payload is not a fact about the repository:
+the runtime on the other end of the pipe sent an unexpected shape, there is nothing in the project to
+fix, and an agent told "denied" would rewrite code that was never judged. It would also make
+availability depend on another product's release cadence, since the fields falsestart reads are that
+product's.
+
+None of this adds a fifth `Decision` tag. What a guard failure COSTS is a fact about the invocation
+rather than about the code, so it is a rendering policy in `hook/respond.ts` — where the protocol's
+price list already lives — and `decide` stays policy-free. A fifth outcome would have moved the
+policy into the judgement, and `--doctor` would then have had to un-pick it again to keep calling a
+failed sample unhealthy.
 
 ## Rules are programs, and programs are wrong
 
@@ -211,9 +231,10 @@ cite. Areas are separated by _what they are allowed to know_:
 | [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
 
 `hook/` and `scanning/` are the two adapters, and they are separate because their failure modes
-are opposite. The hook answers before a write lands and must fail OPEN — a typo in a rule file must
-not hold every write in the repo hostage. A scan is a gate, and must fail CLOSED — one that cannot
-run has to stop, or it passes everything while looking healthy. Same rules underneath, contrary
+are opposite. The hook answers before a write lands and fails OPEN by default, and says so as a
+policy the caller can invert — a typo in a rule file must not hold every write in the repo hostage
+unless the repository asks for that. A scan is a gate, and must fail CLOSED — one that cannot run has
+to stop, or it passes everything while looking healthy. Same rules underneath, contrary
 policies above, which is exactly the kind of thing that goes wrong when one module tries to be both.
 
 Only [`cli.ts`](../src/cli.ts) knows a process exists. `freezing/` is the sharpest case of that

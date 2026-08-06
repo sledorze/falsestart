@@ -6,19 +6,20 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 
 ## Command line
 
-| Flag                 | Meaning                                                                                                                                                                                                                                                  |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                                                     |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                                                |
-| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                         |
-| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                      |
-| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                              |
-| `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused hook command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`. |
-| `--freeze <mode>`    | Where rules and config are read from: `auto` (the default), `off`, `require`. See [Freezing the rule set](#freezing-the-rule-set). Command line only — never read from `falsestart.config.*` or from the environment.                                    |
-| `--freeze-ref <ref>` | Which ref to freeze against. Defaults to `HEAD`. A ref named here that does not resolve is an error in every mode.                                                                                                                                       |
-| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                                |
-| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                        |
-| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                                    |
+| Flag                 | Meaning                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. Refused alongside `--rules` in either of its forms, rather than ranked against it.                                                                                                                                                                                                            |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`. Repeating this form keeps the last directory given.                                                                                                                                                                                                                       |
+| `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                                                                                                                                |
+| `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                                                                                                                             |
+| `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Names the active `--fail` policy when one was given, and reports a rules package it could not resolve rather than exiting silently. Reads no stdin; exits 1 if anything did not resolve. |
+| `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused hook command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`.                                                                                                        |
+| `--freeze <mode>`    | Where rules and config are read from: `auto` (the default), `off`, `require`. See [Freezing the rule set](#freezing-the-rule-set). Command line only — never read from `falsestart.config.*` or from the environment.                                                                                                                                           |
+| `--freeze-ref <ref>` | Which ref to freeze against. Defaults to `HEAD`. A ref named here that does not resolve is an error in every mode.                                                                                                                                                                                                                                              |
+| `--fail <policy>`    | What a failure of falsestart **itself** costs: `open` (the default) reports on stderr, exits `1`, and the write proceeds; `closed` denies it. See [When falsestart itself cannot run](#when-falsestart-itself-cannot-run). Command line only — never read from `falsestart.config.*` or from the environment. Refused with `scan` and `--list-rules`.           |
+| `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                                                                                                                                       |
+| `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                                                                                                                               |
+| `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                                                                                                                                           |
 
 One invocation loads exactly one rule source, and the two ways of naming a second one differ. A
 preset and any `--rules` are refused together, so nothing is ranked. Between the two `--rules`
@@ -53,9 +54,11 @@ scan report always states how many files were in scope.
 `1` and `2` are distinct on purpose. A gate that cannot tell "your code has violations" from "the
 linter is broken" is one that teaches people to reach for `--no-verify`.
 
-This also inverts the hook's policy deliberately. The hook fails **open** — a rule that cannot run
-must not hold every write in the repo hostage. A scan is a gate and fails **closed**: one that
-cannot run has to stop, or it passes everything while looking healthy.
+This also inverts the hook's policy deliberately. The hook fails **open by default** — a rule that
+cannot run must not hold every write in the repo hostage. A scan is a gate and fails **closed**: one
+that cannot run has to stop, or it passes everything while looking healthy.
+[`--fail closed`](#when-falsestart-itself-cannot-run) makes the two agree; a scan has no such flag
+because it has no other setting to choose between.
 
 ### Freezing the rule set
 
@@ -117,6 +120,61 @@ main repository, and a repository created with `git init --separate-git-dir`. Th
 freezes as usual and `--doctor` prints an `anchor UNVERIFIED` line naming the condition;
 `--freeze require` refuses to judge instead. A submodule's working tree resolves outward to its
 superproject and is reported as a submodule rather than as an unverified anchor.
+
+### When falsestart itself cannot run
+
+`--fail <policy>` decides what a failure of the **guard** costs, as opposed to a finding about the
+code. `open` is the default and is the 0.2.0 behaviour: the failure is reported on stderr, the
+process exits `1`, and the write proceeds. `closed` denies the write instead, for a repository where
+an edit that cannot be verified must not land.
+
+| Failure                                                                              | `--fail open` (default) | `--fail closed`  |
+| ------------------------------------------------------------------------------------ | ----------------------- | ---------------- |
+| The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`        | **deny**         |
+| `--rules pkg:<name>` will not resolve                                                | report, exit `1`        | **deny**         |
+| The config will not load, parse or import                                            | report, exit `1`        | **deny**         |
+| An override names a rule the loaded set does not contain                             | report, exit `1`        | **deny**         |
+| A rule cannot run at match time                                                      | report, exit `1`        | **deny**         |
+| The hook payload is malformed, or stdin is not JSON                                  | report, exit `1`        | report, exit `1` |
+| The command line was refused                                                         | report, exit `1`        | report, exit `1` |
+| A frozen source could not be read                                                    | **already denies**      | already denies   |
+| The rule tree loads and yields **zero** rules                                        | silent, exit `0`        | silent, exit `0` |
+
+**`--fail open` does not re-open a freeze refusal.** A source the ref established as freezable and
+could not be read denies in either policy — that denial is about which bytes are authoritative, not
+about the guard erroring, and its reason names `--freeze off` rather than `--fail open`.
+
+**A malformed hook payload is never denied, in any policy.** It is not a fact about your repository:
+the agent runtime sent a shape falsestart did not expect, and there is nothing in the project to fix.
+An agent told "denied" would have exactly one move — rewriting code that was never judged. It would
+also make availability depend on another product's release cadence, since the fields falsestart reads
+are that product's, and a rename there would turn every write in every opted-in repository into a
+denial.
+
+**It is a policy about failures, not a claim of coverage.** A rule set that loads and matches nothing
+is not a failure, and `--fail closed` says nothing about it. Read `--doctor`'s scope block and
+[`--warn-unscoped`](./using-the-hook.md#when-a-write-was-not-checked-at-all) for that question.
+
+**A judged write only.** A tool call falsestart does not judge — `Bash`, `Read`, anything outside the
+table in [Judged tool calls](#judged-tool-calls) — is silent in either policy.
+
+A denial says the guard failed before it says anything else, and never names a rule:
+
+```
+falsestart could not check this write, and --fail closed denies a write it could not check. Nothing about the code was judged, so do not change it to satisfy this. What failed:
+could not load rules from ./rules
+broken.yml: SchemaError(Expected string, got 7
+  at ["id"])
+re-run the hook with --fail open to allow writes falsestart cannot check. Repairing the problem above needs that too: while --fail closed is on and the guard is broken, every judged write is denied, including the one that would fix it.
+```
+
+That last sentence is the part to read twice. falsestart answers a load-time failure before it judges
+anything, so while `--fail closed` is on and the rule tree is broken, **every** judged write is
+denied — including the edit that would repair the rule document. `--freeze off` does not have this
+shape; `--fail open` is the way through.
+
+`scan` and `--list-rules` refuse this flag because they already fail closed on every path — see
+[Scan exit codes](#scan-exit-codes).
 
 ### `falsestart --list-rules`
 
@@ -233,6 +291,9 @@ commands would mean predicting what they do.
 
 `0` + `hookSpecificOutput` also carries a freeze refusal: a source the ref established as freezable
 that could not be read denies rather than reporting, and its reason names `--freeze off`.
+
+It also carries a [`--fail closed`](#when-falsestart-itself-cannot-run) refusal, whose reason opens
+by saying the guard failed and never names a rule.
 
 The first two are separate rows because they are separate documents, not one document carrying a
 different verdict: advice has no `permissionDecision` field at all, and a reader that looks only for
@@ -383,6 +444,7 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | --------------------------- | ----------- | -------- |
 | `ConfigError`               | error class | config   |
 | `DEFAULT_CONFIG_CANDIDATES` | constant    | config   |
+| `FAILURE_POLICIES`          | constant    | hook     |
 | `MatchError`                | error class | checking |
 | `RuleDescriptionSchema`     | constant    | checking |
 | `RuleLoadError`             | error class | checking |
@@ -452,7 +514,7 @@ missing entry is silent — so the list it must agree with is importable rather 
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
-`HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
+`FailurePolicy`, `HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
 `Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
 `ScanError`, `ScanExit`, `DEFAULT_EXCLUSIONS` and `BaselineUnreadable` are exported alongside them.
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,

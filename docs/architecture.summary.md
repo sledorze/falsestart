@@ -26,13 +26,18 @@ copy and the original becomes a rule that silently under-matches. One deliberate
 native binding accepts matcher shapes the real CLI rejects and then matches nearly every node, so a
 narrow check — modelled on measured CLI behaviour — rejects them.
 
-**Four failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
-guard could not run (say so loudly, do not block), and the rule source could not be read AS
-COMMITTED (refuse to judge; never fall back). A rule that cannot run is never reported as "found
-nothing", but a typo in a rule file must not hold a repository hostage. The fourth amends the third
-in the safe direction: under a freeze a working-tree typo never reaches the loader at all, so what
-refuses is a COMMITTED rule set that will not load — falling back there would make breaking git the
-cheapest disarm available.
+**Five failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
+guard could not run (say so loudly, do not block BY DEFAULT), the rule source could not be read AS
+COMMITTED (refuse to judge; never fall back), and the hook payload is malformed (say so loudly; never
+block, in any policy). A rule that cannot run is never reported as "found nothing", but a typo in a
+rule file must not hold a repository hostage. The fourth amends the third in the safe direction:
+under a freeze a working-tree typo never reaches the loader at all, so what refuses is a COMMITTED
+rule set that will not load — falling back there would make breaking git the cheapest disarm
+available. The third is a POLICY and `--fail closed` inverts it; the fifth is the row that policy
+does not reach, because a malformed payload is the runtime's shape rather than the repository's and
+an agent told "denied" would rewrite code that was never judged. No fifth `Decision` tag: what a
+guard failure COSTS is a fact about the invocation, so it is a rendering policy in `hook/respond.ts`
+and `decide` stays policy-free.
 
 **Which repository the freeze trusts** is resolved by walking outward from the project to the nearest
 `.git` that is a real DIRECTORY, and never by letting git discover one for itself. A `.git` gitfile is

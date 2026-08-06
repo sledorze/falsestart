@@ -28,6 +28,10 @@ files cannot disarm its own guard by editing a rule or adding a config the repos
 committed. `--doctor` prints what is frozen and what is not in effect; `--freeze off` reads the
 working tree while you iterate.
 
+A failure of falsestart itself is reported and the write proceeds, which `--fail closed` inverts for
+the failures the repository owns — a rule tree, rules package or config that will not load, and a
+rule that cannot run. A malformed hook payload and a refused command line are never denied.
+
 Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, docs check).
 
 Also linked from the README: [CONTRIBUTING](./CONTRIBUTING.md) (how to run the checks and the three

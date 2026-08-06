@@ -208,6 +208,37 @@ The JavaScript row changed when `no-empty-catch` and `no-hardcoded-credential` w
 the first `clean-code` rules that reach JavaScript, so that preset stopped being inert there. It is
 worth noticing that the signal moved on its own — this table is measured, not maintained by hand.
 
+### Denying what could not be checked
+
+The section above is about "no rule looked at this". This one is about the other half: a rule tried
+and could not. By default that is reported on stderr, the process exits `1`, and the write proceeds —
+so a typo in a rule document cannot hold the whole repository hostage. If your repository would
+rather have the opposite, add `--fail closed` to the hook command:
+
+```json
+{ "type": "command", "command": "npx falsestart --preset all --fail closed" }
+```
+
+What changes: a rule tree or a `pkg:` rules package that will not load, a config that will not load
+or whose override names a rule that is not loaded, and a rule that cannot run at match time all deny
+the write instead of reporting it. What does not: a malformed hook payload and a refused command line
+stay non-blocking, a tool call falsestart does not judge stays silent, and a freeze refusal denies
+either way — `--fail open` is not an off switch for `--freeze`. The full table is in
+[When falsestart itself cannot run](./reference.md#when-falsestart-itself-cannot-run).
+
+**Know the repair trap before you turn it on.** falsestart answers a load-time failure before it
+judges anything, so while `--fail closed` is on and the rule tree is broken, every judged write is
+denied — including the edit that would fix the rule document. The denial says so, and the way through
+is to re-run the hook with `--fail open`. `--freeze off` does not help here; it chooses which bytes
+are authoritative, not what a broken guard costs.
+
+`falsestart --doctor --fail closed` proves it is on, in a line printed before anything is resolved so
+it is still there when nothing resolved:
+
+```
+policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload still proceeds.
+```
+
 Rules can come from three places:
 
 | Source                  | How                                                     |
@@ -228,7 +259,8 @@ directory, and quietly reinterpreting a bare name as a package would change whic
 existing setup loads — the worst failure available to a tool whose job is enforcing a rule set.
 
 A package that will not resolve is reported and does not block, like every other misconfiguration:
-a missing dependency must not stop every write in the repo.
+a missing dependency must not stop every write in the repo — unless `--fail closed` is set, which
+denies a **judged write** on it. A tool call falsestart does not judge stays silent either way.
 
 ## Catching what bypasses the hook
 

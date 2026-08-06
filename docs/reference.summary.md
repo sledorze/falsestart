@@ -8,7 +8,7 @@ file content. Anything else is allowed in silence. `Bash` is deliberately absent
 redirect writes a file falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
-`--config <file>`, `--doctor`, `--list-rules`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
+`--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
 rule source: a preset and any `--rules` are refused together rather than ranked, and between the two
 `--rules` forms the `pkg:` one wins whichever came first — so layering two rule sets means two hook
 entries. `--doctor` reports what was
@@ -16,7 +16,8 @@ resolved, says how many loaded rules block and how many advise, probes five path
 extensions than it ships with — an override REPLACES `files` rather than merging, so a restated
 glob that omits an extension silently unguards it. It also names the changelog shipped inside the
 installation it reports on, so an upgrade's new rules are readable where the upgrade is verified.
-Reads no stdin.
+It names the active `--fail` policy when one was given, and reports a rules package it could not
+resolve rather than exiting with no report at all. Reads no stdin.
 
 `--list-rules` prints the resolved rule set — after preset/`pkg:` resolution and after config
 overrides — as JSON on stdout and exits, so a repo can assert that the rules blocking writes are the
@@ -30,6 +31,18 @@ refused hook command line still exits 1, because exit 2 from a hook blocks the w
 `scan` still exits 2, as it always has). Reads no stdin, and
 there is no `--json` flag.
 
+`--fail closed|open` decides what a failure of falsestart ITSELF costs; `open` is the default and is
+the 0.2.0 behaviour. `closed` denies on a rule tree or `pkg:` package that will not load, a config
+that will not load, an override naming a rule that is not loaded, and a rule that cannot run at match
+time. It never denies a malformed hook payload or a refused command line — neither is a fact about
+the repository, and neither is fixable from inside it — it applies to a judged write only, and it is
+a policy about failures rather than a claim that any rule covers what you write. `--fail open` does
+not re-open a freeze refusal. Command line only, for the reason `--freeze` is: one of the failures it
+denies on is a config that will not load. Refused with `scan` and `--list-rules`, which already exit
+2 when they cannot run. The denial says the guard failed before it says anything else, never names a
+rule, and warns that repairing the broken rule document needs `--fail open` too — every judged write
+denies while the guard is broken, including that one.
+
 `--warn-unscoped` reports a
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
 (`systemMessage`, which decides nothing, and comes either from a softer-than-`error` rule or from
@@ -40,7 +53,7 @@ problem without blocking. Blocking is deliberately not exit 2, which discards st
 **`scan [paths…]`:** judges files on disk for a git hook or CI. Paths from the caller, `-`/`-0` for
 stdin, `--baseline`/`--update-baseline` to absorb pre-existing findings, `--warn-unscoped` refused.
 Its own exit codes — 0 clean, 1 findings, 2 could-not-run — and it fails closed where the hook fails
-open.
+open by default.
 
 **Rule document:** `id`, `language` and `rule` required; `message`, `note`, `severity`, `files`,
 `ignores`, `constraints`, `utils` optional. Severity defaults to `error`, and only `error` denies a
