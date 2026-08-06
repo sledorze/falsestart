@@ -26,6 +26,7 @@ import {
   loadDefaultConfig,
 } from '../config/index.ts'
 import { appliesTo, fallbacks, loadRules } from '../checking/index.ts'
+import type { FreezeOutcome } from '../freezing/index.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
 export interface Diagnosis {
@@ -46,6 +47,8 @@ export interface DiagnoseOptions {
    */
   readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
+  /** Stub: slice 5's tests need the option to exist before the block is written. */
+  readonly freeze?: FreezeOutcome | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
   readonly version: string

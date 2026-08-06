@@ -2,6 +2,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import type { Frozen } from '../freezing/index.ts'
+import type { HookResponse } from './respond.ts'
 import { respond } from './respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -701,6 +702,207 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toContain('"permissionDecision":"deny"')
         expect(response.stdout).toContain('typo')
+      }),
+    ),
+  )
+})
+
+/**
+ * The moment the confusion happens: a judged write INTO the frozen rules directory.
+ *
+ * Scoped by two structural tests and never by content — segment containment of the destination
+ * directory, and `isRuleDocument` on the name. The negative cases are the point. A note saying "this
+ * does not take effect until it is committed" is actively wrong about a file that took effect
+ * immediately, and telling someone that about `<rules>/.git` would be telling them it about the one
+ * write this whole design exists to defeat.
+ */
+const noteOf = (response: HookResponse): string => {
+  const payload: unknown = JSON.parse(response.stdout ?? '{}')
+  return typeof payload === 'object' && payload !== null && 'systemMessage' in payload
+    ? String(payload.systemMessage)
+    : ''
+}
+
+const writeTo = (filePath: string, content = 'name: not a rule\n') =>
+  JSON.stringify({ hook_event_name: 'PreToolUse', tool_input: { content, file_path: filePath }, tool_name: 'Write' })
+
+const frozenRules = (documents: Readonly<Record<string, string>>) => () => ({
+  config: frozenWith({}),
+  rules: frozenWith(documents),
+})
+
+layer(platform)('editing a rule while the freeze is on', (it) => {
+  // T48
+  it.effect('says why editing a rule document changed nothing', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'new.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(noteOf(response)).toContain('does not take effect until it is committed')
+      }),
+    ),
+  )
+
+  // T49 — nothing to explain when nothing is frozen.
+  it.effect('says nothing when the rules are not frozen', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          input: writeTo(path.join(rules, 'new.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T50 — a sibling `rulesx/` shares a prefix with `rules/` and is a different directory.
+  it.effect('leaves a sibling directory whose name merely starts the same alone', () =>
+    withRules({ 'rules/block-any.yml': BLOCKING, 'rulesx/new.yml': 'id: x\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'rulesx', 'new.yml')),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T51 — the F1 payload itself. `<rules>/.git` takes effect the instant it is written, and telling
+  // its author it will not is the worst possible thing to say about it.
+  it.effect('says nothing about a .git gitfile written into the rules directory', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, '.git'), 'gitdir: /elsewhere/.git\n'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T52 — the adjacent-file negative test. A REAL rule document, correct extension, refused by its
+  // LOCATION alone. A `.md` here would be unfalsifiable: no implementation could treat one as a rule.
+  it.effect('leaves a real rule document outside the rules directory alone', () =>
+    withRules({ 'examples/sample-rule.yml': BLOCKING, 'rules/block-any.yml': BLOCKING }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'examples', 'sample-rule.yml'), BLOCKING),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T53 — containment alone is not enough; a README in the rules directory is not a rule.
+  it.effect('says nothing about a document in the rules directory that is not a rule', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'NOTES.md'), '# how these work\n'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // Not in the design's catalogue, and all three are reachable. The rules directory can be gone
+  // entirely — that is the case the lexical path derivation exists to keep frozen — the destination
+  // directory need not exist yet, and a payload can carry no path at all.
+  it.effect('says nothing when there is no rules directory on disk to compare against', () =>
+    withRules({}, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'deleted-rules', 'new.yml')),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'deleted-rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('says nothing when the destination directory does not exist yet', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'new', 'nested', 'rule.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('reports an incomplete payload as before, rather than noting anything about it', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('appends the note to a denial rather than replacing it', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        // A rule document whose own CONTENT breaks a rule: both things are true at once, and the
+        // decision must win while the explanation still arrives.
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'new.yml'), 'const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('FROZEN MESSAGE')
+        expect(response.stdout).toContain('does not take effect until it is committed')
       }),
     ),
   )
