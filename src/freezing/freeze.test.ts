@@ -64,7 +64,7 @@ const probeAnswer = (): GitAnswer => answer(bytes(commit(), ...CANDIDATES.map((n
 const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   anchor: 'verified',
   config: { _tag: 'Candidates', names: CANDIDATES, relative: '' },
-  inWorkTree: true,
+  workTree: { _tag: 'Inside' },
   isDocument: (name) => name.endsWith('.yml'),
   listTree: () => answer(''),
   mode: 'auto',
@@ -126,14 +126,33 @@ describe('classifying what git said', () => {
   )
 
   // T13 — a project that is not a repository is not a broken guard, unless you asked for it to be.
+  // `Absent` is a POSITIVE finding — no `.git` directory anywhere up to the filesystem root — and
+  // not merely "git declined to answer".
   describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
-    effect('says there was nothing to freeze outside a work tree', () =>
+    effect('says there was nothing to freeze where there is no repository at all', () =>
       Effect.gen(function* () {
-        const outcome = yield* freeze(inputFor({ inWorkTree: false, mode }))
+        const outcome = yield* freeze(inputFor({ mode, workTree: { _tag: 'Absent' } }))
 
         expect(outcome.rules._tag).toBe(mode === 'require' ? 'Broken' : 'Unfrozen')
         expect(outcome.config._tag).toBe(mode === 'require' ? 'Broken' : 'Unfrozen')
         expect(outcome.rules).toHaveProperty('reason', '/p is not inside a git work tree')
+      }),
+    )
+  })
+
+  // The other half, and the one that was missing: git declining to say which repository this is,
+  // while a repository demonstrably exists, is a freeze that could not be completed — not an
+  // absence. Reading it as an absence let one file OUTSIDE the repository disarm the guard.
+  describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
+    effect('refuses when git will not say which repository this is', () =>
+      Effect.gen(function* () {
+        const outcome = yield* freeze(
+          inputFor({ mode, workTree: { _tag: 'Unreadable', stderr: 'fatal: bad config line 1 in file /h/.gitconfig' } }),
+        )
+
+        expect(outcome.rules._tag).toBe('Broken')
+        expect(outcome.config._tag).toBe('Broken')
+        expect(outcome.rules).toHaveProperty('reason', expect.stringContaining('bad config line 1'))
       }),
     )
   })

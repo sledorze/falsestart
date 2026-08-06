@@ -102,6 +102,10 @@ export const resolveAnchor = (
     return { anchor: 'unverified', toplevel }
   })
 
+/** Stub: slice A's tests need the symbol to exist before the walk is written. */
+export const enclosingGitDirectory = (_directory: string): Effect.Effect<string | undefined, never, Path.Path> =>
+  Effect.succeed(undefined)
+
 export type RulesPath =
   /** Inside the repository, at the path the command line named. `''` means the toplevel itself. */
   | { readonly _tag: 'Contained'; readonly relative: string }

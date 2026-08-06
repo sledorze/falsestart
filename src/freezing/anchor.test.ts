@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process'
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
-import { MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
+import { enclosingGitDirectory, MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -241,6 +241,60 @@ layer(platform)('deriving the path the ref is asked about', (it) => {
         })
 
         expect(derived).toEqual({ _tag: 'Outside' })
+      }),
+    ),
+  )
+})
+
+/**
+ * Whether there is a repository here AT ALL, asked of the filesystem rather than of git.
+ *
+ * This exists because git failing to answer "which repository" is not evidence that there is no
+ * repository. A malformed `~/.gitconfig` makes `rev-parse` exit non-zero in every directory on the
+ * machine, and reading that as "nothing to freeze" hands the working tree back to whoever wrote the
+ * file. Establishing the absence POSITIVELY is what closes it, and it must not depend on matching
+ * git's own prose, which is another program's text and may be reworded.
+ */
+layer(platform)('establishing that there is no repository at all', (it) => {
+  it.effect('finds a .git directory at the path itself', () =>
+    withTree({}, (root) =>
+      Effect.gen(function* () {
+        yield* initRepository(root)
+
+        expect(yield* enclosingGitDirectory(root)).toBe(root)
+      }),
+    ),
+  )
+
+  it.effect('finds one at an ancestor', () =>
+    withTree({ 'a/b/c/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+
+        expect(yield* enclosingGitDirectory(path.join(root, 'a', 'b', 'c'))).toBe(root)
+      }),
+    ),
+  )
+
+  it.effect('answers nothing when no ancestor up to the root has one', () =>
+    withTree({ 'a/b/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+
+        expect(yield* enclosingGitDirectory(path.join(root, 'a', 'b'))).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('does not count a .git FILE as a repository', () =>
+    withTree({ 'wt/.git': 'gitdir: /elsewhere/.git\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+
+        // A gitfile is a pointer an agent writes. "There is a repository here" has to rest on the
+        // one thing a write cannot produce.
+        expect(yield* enclosingGitDirectory(path.join(root, 'wt'))).toBeUndefined()
       }),
     ),
   )

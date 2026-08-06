@@ -79,11 +79,17 @@ export interface FreezeEvidence {
   readonly toplevel: string
 }
 
+/** What `git rev-parse --show-toplevel` established about the project directory. */
+export type WorkTree =
+  | { readonly _tag: 'Inside' }
+  /** Positively established: no `.git` DIRECTORY anywhere between the project and the root. */
+  | { readonly _tag: 'Absent' }
+  | { readonly _tag: 'Unreadable'; readonly stderr: string }
+
 export interface FreezeInput {
   readonly anchor: Anchor
   readonly config: ConfigSource
-  /** Whether `git rev-parse --show-toplevel` answered for the project directory. */
-  readonly inWorkTree: boolean
+  readonly workTree: WorkTree
   readonly isDocument: (name: string) => boolean
   readonly listTree: (relative: string) => GitAnswer
   readonly mode: FreezeMode
@@ -327,7 +333,8 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
       return both(unfrozen('--freeze=off'))
     }
 
-    if (!input.inWorkTree) {
+    // Stub: `Unreadable` is treated as `Absent`, which is today's behaviour.
+    if (input.workTree._tag !== 'Inside') {
       return both(byMode(input.mode, `${input.projectDirectory} is not inside a git work tree`))
     }
 

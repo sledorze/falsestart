@@ -664,10 +664,10 @@ files:
   - '**/*.ts'
 `
 
-const git = (cwd: string, args: readonly string[]) =>
+const git = (cwd: string, args: readonly string[], env?: Readonly<Record<string, string>>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-    const handle = yield* spawner.spawn(ChildProcess.make('git', args, { cwd }))
+    const handle = yield* spawner.spawn(ChildProcess.make('git', args, { cwd, env, extendEnv: true }))
     const stdout = yield* collect(handle.stdout)
     const exitCode = yield* handle.exitCode
     return { exitCode, stdout }
@@ -709,11 +709,13 @@ const withProject = <A, E>(
   }).pipe(Effect.scoped)
 
 /** Run the executable AS IF the agent were working in `cwd`, which is what decides the repository. */
-const runIn = (cwd: string, args: readonly string[], payload: string) =>
+const runIn = (cwd: string, args: readonly string[], payload: string, env?: Readonly<Record<string, string>>) =>
   Effect.gen(function* () {
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const stdin = Stream.make(new TextEncoder().encode(payload))
-    const handle = yield* spawner.spawn(ChildProcess.make('node', [`${process.cwd()}/${CLI}`, ...args], { cwd, stdin }))
+    const handle = yield* spawner.spawn(
+      ChildProcess.make('node', [`${process.cwd()}/${CLI}`, ...args], { cwd, env, extendEnv: true, stdin }),
+    )
 
     const stdout = yield* collect(handle.stdout)
     const stderr = yield* collect(handle.stderr)
@@ -1125,6 +1127,79 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
         const refused = yield* runIn(root, ['--rules', './rules', '--freeze', 'require'], violation(root))
         expect(refused.stdout).toContain('"permissionDecision":"deny"')
         expect(refused.stdout).toContain('has no commit yet')
+      }),
+    ),
+  )
+  /**
+   * The ambient state git consults before it answers anything: a global config file falsestart does
+   * not own, and location variables anyone can set.
+   *
+   * Both used to decide which repository was authoritative, so a single write to `~/.gitconfig` —
+   * outside the repository, outside `.git`, invisible to any diff of the project — made
+   * `rev-parse` fail everywhere, and the freeze read that as "there is no repository" and used the
+   * working tree. The fix is not to interpret git's complaint but to stop the ambient state from
+   * reaching the spawn at all.
+   */
+  it.effect('ignores a hostile global git config rather than falling back to the working tree', () =>
+    withProject({ 'home/.gitconfig': 'not a config\n', 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const home = path.join(root, 'home')
+        yield* commitAll(root)
+        yield* writeAll(root, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+        // The precondition, asserted rather than assumed: that one file really does break git here,
+        // and it is what made `rev-parse` fail in every directory on the machine.
+        expect((yield* git(root, ['rev-parse', '--show-toplevel'], { HOME: home })).exitCode).not.toBe(0)
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root), { HOME: home })
+
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+
+  it.effect('ignores GIT_DIR and GIT_WORK_TREE, which would name a different repository', () =>
+    withProject({ 'rules/r.yml': ATTACKER_RULE }, (evil) =>
+      withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+        Effect.gen(function* () {
+          yield* commitAll(evil)
+          yield* commitAll(root)
+          yield* writeAll(root, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+          const result = yield* runIn(root, ['--rules', './rules'], violation(root), {
+            GIT_DIR: `${evil}/.git`,
+            GIT_WORK_TREE: evil,
+          })
+
+          expect(result.stdout).toContain('PROJECT RULE')
+          expect(result.stdout).not.toContain('ATTACKER RULE FIRED')
+        }),
+      ),
+    ),
+  )
+
+  /**
+   * And where git still declines after all that, the answer is a refusal rather than a fallback.
+   *
+   * A repository whose own `.git/config` says `bare = true` has a work tree git will not name. That
+   * is inside `.git`, which SECURITY.md already places out of scope — but it must fail CLOSED, which
+   * is the half the classification was missing.
+   */
+  it.effect('refuses when git will not name the repository but one demonstrably exists', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        yield* writeAll(root, {
+          '.git/config': '[core]\n\trepositoryformatversion = 0\n\tbare = true\n',
+          'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'"),
+        })
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).not.toContain('PROJECT RULE')
       }),
     ),
   )

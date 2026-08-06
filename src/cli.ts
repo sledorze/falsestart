@@ -223,7 +223,7 @@ const resolveFreeze = (options: {
     return yield* freeze({
       anchor: anchored.anchor,
       config,
-      inWorkTree: located !== undefined,
+      workTree: located === undefined ? { _tag: 'Absent' } : { _tag: 'Inside' },
       isDocument: isRuleDocument,
       listTree: (relative) => at(['ls-tree', '-r', '-z', ref, '--', relative === '' ? '.' : relative]),
       mode,
