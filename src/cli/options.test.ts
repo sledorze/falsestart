@@ -6,6 +6,8 @@ describe('command line', () => {
   it('takes the rule directory from --rules', () => {
     expect(parseArguments(['--rules', 'my-rules'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: 'my-rules',
@@ -17,6 +19,8 @@ describe('command line', () => {
   it('falls back to a conventional directory when given nothing', () => {
     expect(parseArguments([])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
@@ -28,6 +32,8 @@ describe('command line', () => {
   it('recognises --warn-unscoped', () => {
     expect(parseArguments(['--warn-unscoped'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
@@ -70,6 +76,8 @@ describe('command line', () => {
   it('recognises --doctor, keeping the resolution it would have run with', () => {
     expect(parseArguments(['--doctor', '--rules', 'my-rules'])).toEqual({
       _tag: 'Doctor',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: 'my-rules',
@@ -87,6 +95,8 @@ describe('command line', () => {
     // for, which is exactly the substitution this file exists to prevent.
     expect(parseArguments(['--list-rules', '--preset', 'clean-code', '--config', 'c.json'])).toEqual({
       _tag: 'ListRules',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: 'c.json',
       preset: 'clean-code',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
@@ -169,6 +179,8 @@ describe('the scan command', () => {
   it('takes paths as positional arguments', () => {
     expect(parseArguments(['scan', 'src/a.ts', 'src/b.ts'])).toMatchObject({
       _tag: 'Scan',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       pathSource: 'Argv',
       paths: ['src/a.ts', 'src/b.ts'],
     })
@@ -275,6 +287,8 @@ describe('the scan command', () => {
   it('takes the last --rules when it is repeated', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: 'second',
@@ -286,6 +300,8 @@ describe('the scan command', () => {
   it('takes a config path from --config', () => {
     expect(parseArguments(['--config', 'my.json'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: 'my.json',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
       rulesPackage: undefined,
@@ -303,6 +319,8 @@ describe('the scan command', () => {
   it('accepts both flags together', () => {
     expect(parseArguments(['--rules', 'r', '--config', 'c.json'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: 'c.json',
       rulesDirectory: 'r',
       rulesPackage: undefined,
@@ -313,6 +331,8 @@ describe('the scan command', () => {
   it('takes a shipped rule set from --preset', () => {
     expect(parseArguments(['--preset', 'effect'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: 'effect',
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
@@ -343,6 +363,8 @@ describe('the scan command', () => {
   it('takes a rules package from a pkg: prefixed --rules', () => {
     expect(parseArguments(['--rules', 'pkg:@acme/falsestart-rules'])).toEqual({
       _tag: 'Run',
+      freeze: 'auto',
+      freezeRef: 'HEAD',
       configPath: undefined,
       preset: undefined,
       rulesDirectory: DEFAULT_RULES_DIRECTORY,
