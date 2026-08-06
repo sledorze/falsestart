@@ -1233,3 +1233,162 @@ layer(platform)('editing a rule while the freeze is on', (it) => {
     ),
   )
 })
+
+/**
+ * The Copilot emit contract: a second price list for the same four outcomes.
+ *
+ * The exit codes are not a preference here, they are forced. GitHub's hooks reference says a
+ * `preToolUse` hook's exit 2 is a deny and that **any other non-zero exit denies too**, as "hook
+ * errored". So exit 1 does not mean "reported, and the write proceeds" under Copilot — it means the
+ * tool call is blocked with a reason nobody can act on. There is no exit 1 in this contract at all.
+ *
+ * Nothing here can be run against a real Copilot binary from this repository. What is asserted is
+ * the contract as GitHub documents it, and the design says so in the reference rather than implying
+ * a measurement nobody took.
+ */
+const COPILOT_EDIT = `
+id: no-as-any
+language: tsx
+message: 'as any erases the type'
+rule:
+  pattern: $X as any
+`
+
+/** Loads cleanly and cannot run — the class `--freeze off` cannot repair. */
+const NOT_A_MATCHER = 'id: broken\nlanguage: tsx\nrule:\n  nonsense: true\n'
+
+const copilotEdit = (content: string, filePath = '/repo/src/widget.ts') =>
+  JSON.stringify({ cwd: '/repo', toolArgs: { new_str: content, old_str: '', path: filePath }, toolName: 'edit' })
+
+/** Whatever the response said, on whichever stream it said it on. */
+const spoken = (response: HookResponse): string => `${response.stdout ?? ''}\n${response.stderr ?? ''}`
+
+layer(platform)('the Copilot emit contract', (it) => {
+  // T-A6 — `toEqual` on the whole document rather than `toMatchObject`: an extra key would be a
+  // second contract smuggled into the first, and a stray `hookSpecificOutput` is exactly the
+  // envelope Copilot ignores (github/copilot-cli#2013) and the likeliest reason a deny read as an
+  // allow in the first place.
+  it.effect('denies with exit 2, Copilot’s own document on stdout, and the reason on stderr', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(2)
+        const payload = JSON.parse(response.stdout ?? '{}')
+        expect(payload).toEqual({
+          permissionDecision: 'deny',
+          permissionDecisionReason: expect.stringContaining('as any erases the type'),
+        })
+        expect(response.stderr).toContain('as any erases the type')
+      }),
+    ),
+  )
+
+  // T-A9b — the guard the whole contract parameter exists for, mirroring T10. A WELL-FORMED Copilot
+  // payload and a rule that cannot run at match time: if `judgedTarget` ever judges this against the
+  // wrong contract it lands on `Malformed`, which reports instead of denying, and `--fail closed`
+  // stops applying under `--agent copilot` with nothing to show for it.
+  it.effect('denies a write it could not check, on a well-formed Copilot payload', () =>
+    withRules({ 'broken.yml': NOT_A_MATCHER }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          agent: 'copilot',
+          failure: 'closed',
+          input: JSON.stringify({
+            cwd: rules,
+            toolArgs: { new_str: 'const x = 1', old_str: '', path: path.join(rules, 'src', 'a.ts') },
+            toolName: 'edit',
+          }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(2)
+        expect(JSON.parse(response.stdout ?? '{}').permissionDecisionReason).toContain('could not run')
+      }),
+    ),
+  )
+
+  // T-A9c — the freeze's rule-edit note reaches a Copilot author too. It keys on the judged target
+  // being a Write, so a payload read against the wrong contract silently never produces one.
+  it.effect('explains why editing a rule document changed nothing', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          agent: 'copilot',
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: JSON.stringify({
+            cwd: rules,
+            toolArgs: { content: 'name: not a rule\n', path: path.join(rules, 'new.yml') },
+            toolName: 'create',
+          }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(spoken(response)).toContain('does not take effect until it is committed')
+      }),
+    ),
+  )
+
+  // T-A10 — a freeze refusal denies in exit-2 form, and still names the escape that works.
+  it.effect('denies a freeze it cannot honour in exit-2 form, naming --freeze off', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          freeze: () =>
+            Effect.succeed({
+              config: { _tag: 'Broken', reason: 'git said no' },
+              rules: { _tag: 'Broken', reason: 'git said no' },
+            }),
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(2)
+        expect(JSON.parse(response.stdout ?? '{}').permissionDecisionReason).toContain('--freeze off')
+      }),
+    ),
+  )
+
+  // T-A13 — the default path, with the flag explicitly absent. Cannot be seen failing by
+  // withholding code; guarded by inverting `emitterFor`'s ternary and watching both rows go red.
+  it.effect('answers exactly as it always has when no agent is declared', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const denied = yield* respond({
+          agent: undefined,
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(denied.exitCode).toBe(0)
+        expect(denied.stderr).toBeUndefined()
+        expect(JSON.parse(denied.stdout ?? '{}').hookSpecificOutput.permissionDecision).toBe('deny')
+
+        const incomplete = yield* respond({
+          agent: undefined,
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(incomplete.exitCode).toBe(1)
+        expect(incomplete.stdout).toBeUndefined()
+        expect(incomplete.stderr).toBe(
+          'falsestart: Write carried no content/file_path to judge (tool_input carried: content)',
+        )
+      }),
+    ),
+  )
+})
