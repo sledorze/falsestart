@@ -6,6 +6,7 @@ describe('command line', () => {
   it('takes the rule directory from --rules', () => {
     expect(parseArguments(['--rules', 'my-rules'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -19,6 +20,7 @@ describe('command line', () => {
   it('falls back to a conventional directory when given nothing', () => {
     expect(parseArguments([])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -32,6 +34,7 @@ describe('command line', () => {
   it('recognises --warn-unscoped', () => {
     expect(parseArguments(['--warn-unscoped'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -76,6 +79,7 @@ describe('command line', () => {
   it('recognises --doctor, keeping the resolution it would have run with', () => {
     expect(parseArguments(['--doctor', '--rules', 'my-rules'])).toEqual({
       _tag: 'Doctor',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -287,6 +291,7 @@ describe('the scan command', () => {
   it('takes the last --rules when it is repeated', () => {
     expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -300,6 +305,7 @@ describe('the scan command', () => {
   it('takes a config path from --config', () => {
     expect(parseArguments(['--config', 'my.json'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: 'my.json',
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -319,6 +325,7 @@ describe('the scan command', () => {
   it('accepts both flags together', () => {
     expect(parseArguments(['--rules', 'r', '--config', 'c.json'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: 'c.json',
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -331,6 +338,7 @@ describe('the scan command', () => {
   it('takes a shipped rule set from --preset', () => {
     expect(parseArguments(['--preset', 'effect'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -363,6 +371,7 @@ describe('the scan command', () => {
   it('takes a rules package from a pkg: prefixed --rules', () => {
     expect(parseArguments(['--rules', 'pkg:@acme/falsestart-rules'])).toEqual({
       _tag: 'Run',
+      agent: 'claude-code',
       configPath: undefined,
       freeze: 'auto',
       freezeRef: 'HEAD',
@@ -452,5 +461,98 @@ describe('the freeze switch', () => {
     expect(parseArguments(['--freeze'])).toEqual({ _tag: 'Invalid', problem: '--freeze needs a value' })
     expect(parseArguments(['--freeze-ref'])).toEqual({ _tag: 'Invalid', problem: '--freeze-ref needs a value' })
     expect(parseArguments(['--freeze', '--doctor'])).toEqual({ _tag: 'Invalid', problem: '--freeze needs a value' })
+  })
+})
+
+/**
+ * What a failure of falsestart ITSELF costs, said on the command line and nowhere else.
+ *
+ * A mode word rather than a boolean, for the reason `--freeze` is one: an explicit `--fail open` in
+ * a hook command documents a decision a reader can see, and a third policy stays expressible. Read
+ * from argv only — one of the failures this switch denies on is a config that will not load, so a
+ * config-readable off switch would be disarmed by the very fault it exists to catch.
+ */
+describe('the failure policy switch', () => {
+  // T1
+  it('parses both policies, and is absent when nobody named one', () => {
+    // `undefined` rather than `'open'`: "not named" is what lets `--doctor` stay silent about a
+    // policy nobody chose, and it keeps the default in exactly one place.
+    expect(parseArguments([])).toMatchObject({ _tag: 'Run', failure: undefined })
+    expect(parseArguments(['--fail', 'closed'])).toMatchObject({ _tag: 'Run', failure: 'closed' })
+    expect(parseArguments(['--fail', 'open'])).toMatchObject({ _tag: 'Run', failure: 'open' })
+    expect(parseArguments(['--doctor', '--fail', 'closed'])).toMatchObject({ _tag: 'Doctor', failure: 'closed' })
+  })
+
+  // T2 — the second assertion is what stops a vacuous pass: before the flag exists the parser
+  // already answers `Invalid`, for the entirely different reason that it does not know the word.
+  it('refuses a --fail policy it does not know, rather than defaulting', () => {
+    const parsed = parseArguments(['--fail', 'shut'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('closed, open')
+  })
+
+  // T3 — both already exit 2 on every failure path, so `closed` would be a no-op and `open` would
+  // weaken a guarantee this tool shipped rather than choose a policy.
+  it('refuses --fail with scan and with --list-rules, which already fail closed', () => {
+    for (const args of [
+      ['scan', '--fail', 'closed', 'a.ts'],
+      ['--list-rules', '--fail', 'closed'],
+    ]) {
+      const parsed = parseArguments(args)
+
+      expect(parsed._tag).toBe('Invalid')
+      expect(parsed._tag === 'Invalid' && parsed.problem).toContain('already exit 2')
+    }
+  })
+})
+
+/**
+ * Which agent runtime is on the other end, said on the command line and nowhere else.
+ *
+ * A mode word rather than a boolean for the reason `--fail` is one: `--copilot` cannot express a
+ * third runtime without a second boolean and a "both given" refusal. Declared rather than detected,
+ * because a payload says nothing about how the runtime will read the ANSWER — and guessing that
+ * wrong turns a deny into an allow.
+ */
+describe('the agent contract switch', () => {
+  // T-A14
+  it('parses both agents and defaults to claude-code, in every mode that reads a payload', () => {
+    expect(parseArguments([])).toMatchObject({ _tag: 'Run', agent: 'claude-code' })
+    expect(parseArguments(['--agent', 'copilot'])).toMatchObject({ _tag: 'Run', agent: 'copilot' })
+    expect(parseArguments(['--doctor', '--agent', 'copilot'])).toMatchObject({ _tag: 'Doctor', agent: 'copilot' })
+    expect(parseArguments(['--doctor'])).toMatchObject({ _tag: 'Doctor', agent: 'claude-code' })
+  })
+
+  // T-A15 — the second assertion is what stops a vacuous pass: before the flag exists the parser
+  // already answers `Invalid`, for the unrelated reason that it does not know the word.
+  it('refuses an agent it does not know, naming the ones it does', () => {
+    const parsed = parseArguments(['--agent', 'gemini'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('claude-code, copilot')
+  })
+
+  // T-A16a
+  it('refuses a flag where a value belongs, rather than waiting on a payload', () => {
+    expect(parseArguments(['--agent'])).toEqual({ _tag: 'Invalid', problem: '--agent needs a value' })
+    expect(parseArguments(['--agent', '--doctor'])).toEqual({ _tag: 'Invalid', problem: '--agent needs a value' })
+  })
+
+  // T-A16b — the `claude-code` rows are the ones that matter. With a parser default and nothing
+  // recording that the flag was NAMED, they return a perfectly valid Scan or ListRules: a flag
+  // taken and dropped, which this file's opening paragraph forbids and which shipped once already.
+  it('refuses --agent with scan and with --list-rules, for either value', () => {
+    for (const args of [
+      ['scan', '--agent', 'copilot', 'a.ts'],
+      ['scan', '--agent', 'claude-code', 'a.ts'],
+      ['--list-rules', '--agent', 'copilot'],
+      ['--list-rules', '--agent', 'claude-code'],
+    ]) {
+      const parsed = parseArguments(args)
+
+      expect(parsed._tag).toBe('Invalid')
+      expect(parsed._tag === 'Invalid' && parsed.problem).toContain('neither reads a hook payload')
+    }
   })
 })

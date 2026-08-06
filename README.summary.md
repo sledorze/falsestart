@@ -1,8 +1,8 @@
 # falsestart — summary
 
-Blocks risky code patterns the instant an AI writes them, as a Claude Code `PreToolUse` hook: the
-tool call arrives on stdin, falsestart answers with a decision, and code breaking a rule never
-reaches the file.
+Blocks risky code patterns the instant an AI writes them, as a `PreToolUse` hook for Claude Code or
+— with `--agent copilot` — for GitHub Copilot CLI: the tool call arrives on stdin, falsestart answers
+with a decision, and code breaking a rule never reaches the file.
 
 Install with `pnpm add -D @sledorze/falsestart` — the whole install for the hook, whose binary
 inlines what it needs and never loads yours. The library entry point works straight after it too;
@@ -12,7 +12,8 @@ holds nothing your own `package.json` did not ask for. That is not about `effect
 
 Register it in `.claude/settings.json` (strict JSON) with an `Edit|Write|NotebookEdit` matcher and
 the CLI invoked by path — `node "$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js"`.
-A bare `falsestart` exits 127 while the hook still shows as registered. Choose the preset
+A bare `falsestart` exits 127 while the hook still shows as registered. Copilot registers elsewhere
+— `.github/hooks/*.json` — and needs `--agent copilot`; see `docs/using-the-hook.md`. Choose the preset
 deliberately: `clean-code` assumes no framework and reaches JavaScript as well as TypeScript, `all` includes the Effect set.
 Rules are ast-grep documents, so the same file stays readable by the upstream CLI. A rule acts on a
 file only when its own `files`/`ignores` globs admit the path — matching content is never on its own
@@ -27,6 +28,10 @@ Both are read from `HEAD` rather than from the working tree by default, so a ses
 files cannot disarm its own guard by editing a rule or adding a config the repository never
 committed. `--doctor` prints what is frozen and what is not in effect; `--freeze off` reads the
 working tree while you iterate.
+
+A failure of falsestart itself is reported and the write proceeds, which `--fail closed` inverts for
+the failures the repository owns — a rule tree, rules package or config that will not load, and a
+rule that cannot run. A malformed hook payload and a refused command line are never denied.
 
 Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, docs check).
 

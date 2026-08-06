@@ -179,6 +179,29 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
+  // #63 — registered at `PostToolUse`, the binary used to write a document naming `PreToolUse` and
+  // carrying `permissionDecision`, which that event does not define. Only a process shows what
+  // actually reached the runtime: exit 1 with the refusal on stderr, and stdout EMPTY. A document
+  // on stdout here is the bug, whatever it says.
+  it.effect('refuses a registration at another event instead of writing a PreToolUse document', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* runCli(
+          rules,
+          JSON.stringify({
+            hook_event_name: 'PostToolUse',
+            tool_input: { content: 'const x = v as any', file_path: '/r/a.ts' },
+            tool_name: 'Write',
+          }),
+        )
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('this hook was invoked for `PostToolUse`')
+      }),
+    ),
+  )
+
   // "The last `--rules` wins" is the plausible sentence and it is false across the two FORMS: they
   // write different fields, and `cli.ts` prefers the package whichever order they arrived in. That
   // precedence lives in the wiring, which is excluded from the coverage ratchet and from mutation
@@ -628,6 +651,79 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
         expect(result.exitCode).toBe(1)
         expect(result.stdout).toBe('')
         expect(result.stderr).toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  // T21 — the same failure, under the policy that governs it. A repository that pins its rules to a
+  // package and enforces nothing until `pnpm install` finishes is the "matter of when" this switch
+  // exists for.
+  it.effect('--fail closed denies a judged write when the rules package will not resolve', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath, '--fail', 'closed'],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  // T22 — the reproduction that corrected this design, end to end. Package resolution happens before
+  // stdin is read, so answering it there denied `Bash`, `Read` and `Grep` — a full agent lockup over
+  // calls that write nothing. Silence in EITHER policy is the fix, and that makes this a behaviour
+  // change independent of the flag: it is exit 1 with a stderr notice today.
+  //
+  // A payload that is merely MALFORMED is not in that set and is not silenced: `judgesPayload` says
+  // it is a candidate, so it reaches the guard and is denied for the package, exactly as a broken
+  // rule tree already denies it. See `respond.test.ts`'s T25 pair.
+  it.effect('says nothing about a tool call it does not judge, even when the rules package will not resolve', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath, '--fail', 'closed'],
+          payloadFor({ command: 'ls' }, 'Bash'),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toBe('')
+      }),
+    ),
+  )
+
+  // T23 — `--doctor` is the one question this command exists to answer, and it answered nothing at
+  // all here: no version line, no changelog line, no policy line.
+  it.effect('--doctor reports a rules package it could not resolve, and the policy it was given', () =>
+    Effect.gen(function* () {
+      const result = yield* runCliRaw(
+        ['--doctor', '--rules', 'pkg:@acme/definitely-not-installed', '--fail', 'closed'],
+        '',
+      )
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stdout).toContain('falsestart ')
+      expect(result.stdout).toContain('--fail closed')
+      expect(result.stdout).toContain('COULD NOT RESOLVE')
+    }),
+  )
+
+  // T24 — the end-to-end half of the claim that `--doctor` is byte-unchanged for a caller who never
+  // uses this feature. A parse test cannot see it: the policy travels from the parser through
+  // `cli.ts` unresolved, and `cli.ts` is excluded from the coverage ratchet.
+  it.effect('--doctor says nothing about a policy when none was given', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath], '')
+
+        expect(result.stdout).not.toContain('policy')
       }),
     ),
   )
@@ -1381,6 +1477,180 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
         // Node's own text for the overflow, so the person who was blocked can search for it.
         expect(result.stdout).toContain('ENOBUFS')
       }),
+    ),
+  )
+})
+
+/**
+ * The Copilot contract through the shipped bundle.
+ *
+ * `src/cli.ts` is excluded from the coverage ratchet and from mutation testing, so these are the
+ * only tests that see the refusal code and the broken-pipe forgiveness at all. They are also the
+ * only place the exit code that reaches the operating system is observed, which is the entire point
+ * under a runtime where every non-zero exit other than 2 denies the tool call.
+ */
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot contract, through the binary', (it) => {
+  const copilotRun = (rulesDirectory: string, args: readonly string[], payload: string) =>
+    Effect.gen(function* () {
+      const configPath = yield* withEmptyConfig(rulesDirectory)
+      return yield* runCliRaw(['--rules', rulesDirectory, '--config', configPath, ...args], payload)
+    })
+
+  // T-A24 — including the JSON-encoded `toolArgs` that real invocations carry, and the absence of
+  // `hookSpecificOutput`, which is the envelope Copilot ignores.
+  it.effect('denies a Copilot edit with exit 2 and a top-level deny document', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* copilotRun(
+          rules,
+          ['--agent', 'copilot'],
+          JSON.stringify({
+            cwd: '/r',
+            toolArgs: JSON.stringify({ new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' }),
+            toolName: 'edit',
+          }),
+        )
+
+        expect(result.exitCode).toBe(2)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).not.toContain('hookSpecificOutput')
+        expect(result.stderr).toContain('as any')
+      }),
+    ),
+  )
+
+  // #63 under the contract where an exit code is dangerous. Copilot denies on any non-zero exit
+  // other than 2, so the refusal has to reach the operating system as 0 — and only a process can
+  // say what reached the operating system.
+  it.effect('refuses a registration at another event without a code Copilot reads as a deny', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* copilotRun(
+          rules,
+          ['--agent', 'copilot', '--fail', 'closed'],
+          JSON.stringify({
+            hook_event_name: 'PostToolUse',
+            tool_input: { new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' },
+            tool_name: 'edit',
+          }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('copilot: this hook was invoked for `PostToolUse`')
+      }),
+    ),
+  )
+
+  // T-A25 — the traffic that makes up most of a session, in both spellings. Silence here is the
+  // difference between a guard and an outage: today, unconfigured, every one of these denies.
+  it.effect('says nothing at all about a Copilot tool call that writes nothing', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        for (const payload of [
+          JSON.stringify({ toolArgs: '{"command":"ls"}', toolName: 'bash' }),
+          JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'bash' }),
+        ]) {
+          const result = yield* copilotRun(rules, ['--agent', 'copilot'], payload)
+
+          expect(result.exitCode).toBe(0)
+          expect(result.stdout).toBe('')
+          expect(result.stderr).toBe('')
+        }
+      }),
+    ),
+  )
+
+  // T-A26a — a refused command line must never be able to block a write, and under Copilot the only
+  // code that satisfies that is 0. The two MISSPELLED rows are the ones that matter: the likeliest
+  // typo in a brand-new flag is the flag's own value, and refusing it at exit 1 in front of Copilot
+  // denies every tool call in the repository rather than printing a message.
+  it.effect('cannot deny anything when the command line names any agent but claude-code', () =>
+    Effect.gen(function* () {
+      for (const args of [
+        ['--agent', 'copilot', '--bogus'],
+        ['--agent', 'copilto', '--bogus'],
+        ['--agent', '--bogus'],
+        // The `=` spelling. This parser accepts it for no flag, so it is refused as an
+        // unrecognised argument — and refusing it at exit 1 makes the single likeliest typo in the
+        // whole feature deny every tool call in the repository.
+        ['--agent=copilot'],
+        ['--agent=copilot', '--bogus'],
+        ['--agent=copilto', '--bogus'],
+      ]) {
+        const result = yield* runCliRaw(args, '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).not.toBe('')
+      }
+    }),
+  )
+
+  // T-A26b — the control. Cannot be seen failing by withholding code; guarded by making the
+  // condition unconditionally true and watching both rows drop to 0.
+  it.effect('still refuses at exit 1 where no agent, or claude-code, was named', () =>
+    Effect.gen(function* () {
+      expect(yield* runCliRaw(['--bogus'], '')).toHaveProperty('exitCode', 1)
+      expect(yield* runCliRaw(['--agent', 'claude-code', '--bogus'], '')).toHaveProperty('exitCode', 1)
+      expect(yield* runCliRaw(['--agent=claude-code', '--bogus'], '')).toHaveProperty('exitCode', 1)
+    }),
+  )
+
+  // The Copilot exit-code contract governs the HOOK PATH, and `--list-rules` is not it: it reads no
+  // stdin, emits no hook decision, and documents exactly two outcomes — 0 with the document, 2 when
+  // it could not be produced. Exit 0 with an empty stdout is the one answer a CI consumer running
+  // `falsestart --list-rules > rules.json` cannot tell from success; it writes an empty file and
+  // carries on. Both spellings of the same refused combination must agree.
+  it.effect('refuses --list-rules at a code a script can read, whichever agent was named', () =>
+    Effect.gen(function* () {
+      // The `=` row is refused as an unrecognised argument rather than by the mode check, which is
+      // why only the exit code and the empty stdout are asserted across all three: what matters is
+      // that no spelling of this combination hands a script a zero.
+      for (const args of [
+        ['--list-rules', '--agent', 'copilot'],
+        ['--list-rules', '--agent', 'claude-code'],
+        ['--list-rules', '--agent=copilot'],
+      ]) {
+        const result = yield* runCliRaw(args, '')
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).not.toBe('')
+      }
+
+      expect(yield* runCliRaw(['--list-rules', '--agent', 'copilot'], '')).toHaveProperty(
+        'stderr',
+        expect.stringContaining('--agent has no effect'),
+      )
+    }),
+  )
+
+  // T-A26c — `runMain` exits 1 on any escaping failure, and exit 1 denies under Copilot. Writing
+  // the response is the one fallible step left on the hook path, and a reader that closed the pipe
+  // is not this command's failure. Only a real pipeline shows it: the in-process spawner collects
+  // stdout to completion, so it can never be the reader that leaves.
+  it.effect('does not turn a reader that closed the pipe into a denial', () =>
+    withRules({ 'soft.yml': noAsAny.replace('severity: error', 'severity: warning') }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const configPath = yield* withEmptyConfig(rules)
+        const payload = JSON.stringify({
+          cwd: '/r',
+          toolArgs: { new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' },
+          toolName: 'edit',
+        })
+        const payloadPath = path.join(rules, 'payload.json')
+        yield* (yield* FileSystem.FileSystem).writeFileString(payloadPath, payload)
+
+        const script =
+          `node ${CLI} --rules ${rules} --config ${configPath} --agent copilot < ${payloadPath} 2>&1 | true; ` +
+          `exit "\${PIPESTATUS[0]}"`
+        const handle = yield* spawner.spawn(ChildProcess.make('bash', ['-c', script]))
+
+        expect(yield* handle.exitCode).not.toBe(1)
+      }).pipe(Effect.scoped),
     ),
   )
 })

@@ -6,10 +6,12 @@
  * asserts the diagnosis both fails and names the cause.
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
+import type { AgentId } from './decide.ts'
+import type { FailurePolicy } from './respond.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -38,20 +40,36 @@ const unstattable = Layer.mergeAll(
 )
 
 const run = (options: {
+  agent?: AgentId
   changelogPath?: string
   configPath?: string
+  failure?: FailurePolicy
   freeze?: FreezeOutcome
   projectDirectory?: string
   rulesDirectory?: string
+  unresolvedRules?: string
 }) =>
   diagnose({
+    agent: options.agent,
     changelogPath: options.changelogPath ?? 'CHANGELOG.md',
     configPath: options.configPath,
+    failure: options.failure,
     freeze: options.freeze,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
+    unresolvedRules: options.unresolvedRules,
     version: '0.0.0-test',
   })
+
+/**
+ * What each policy has to say about a judged write, in the words the reader will act on.
+ *
+ * A module-level annotated table, so a row reads as data rather than as a case buried in a loop.
+ */
+const POLICY_ROWS: readonly { readonly expected: string; readonly policy: FailurePolicy }[] = [
+  { expected: 'a write falsestart cannot check is DENIED', policy: 'closed' },
+  { expected: 'reported on stderr and proceeds', policy: 'open' },
+]
 
 layer(platform)('the doctor', (it) => {
   it.effect('reports a healthy installation, and proves the pipeline rather than claiming it', () =>
@@ -363,6 +381,74 @@ layer(platform)('the doctor', (it) => {
       expect(diagnosis.lines.join('\n')).toContain('no/such/config.json')
     }),
   )
+
+  // T14 — "why was that write denied with no finding" is the question this command exists to
+  // answer, and the policy is half of the answer.
+  describe.each(POLICY_ROWS)('under --fail $policy', ({ expected, policy }) => {
+    effect('names the policy a judged write will be answered under', () =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json', failure: policy })
+
+        expect(diagnosis.lines.some((line) => line.startsWith('policy'))).toBeTruthy()
+        expect(diagnosis.lines.join('\n')).toContain(expected)
+      }).pipe(Effect.provide(platform)),
+    )
+  })
+
+  // T15 — the placement, which is the whole argument. Every failure below the header returns early,
+  // and the person asking why a write was denied with no finding is precisely the one whose
+  // installation is in one of those states. A policy line only a healthy run prints is one nobody
+  // sees.
+  it.effect('names the policy even when nothing resolved', () =>
+    withTree({}, (directory) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          configPath: 'src/testing/fixtures/empty.json',
+          failure: 'closed',
+          projectDirectory: directory,
+          rulesDirectory: `${directory}/absent`,
+        })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('--fail closed')
+      }),
+    ),
+  )
+
+  // T16 — a line that appears on every healthy run is one readers stop seeing, and under the
+  // default it would announce the default, which is no news at all. `--doctor`'s output is
+  // byte-unchanged for everyone who does not use the flag.
+  it.effect('says nothing about a policy when the caller named none', () =>
+    Effect.gen(function* () {
+      const diagnosis = yield* run({ configPath: 'src/testing/fixtures/empty.json' })
+
+      expect(diagnosis.lines.some((line) => line.startsWith('policy'))).toBeFalsy()
+    }),
+  )
+
+  // T17 — the one resolution failure that happens before `diagnose` is reachable at all, so a
+  // caller that returned early on it produced no report whatsoever, for the single question this
+  // command exists to answer.
+  it.effect('reports a rules package that could not be resolved, instead of nothing at all', () =>
+    withTree({}, (directory) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          configPath: 'src/testing/fixtures/empty.json',
+          failure: 'closed',
+          projectDirectory: directory,
+          rulesDirectory: 'pkg:@acme/nope',
+          unresolvedRules: "could not resolve rules package (Cannot find module '@acme/nope/package.json')",
+        })
+        const report = diagnosis.lines.join('\n')
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(report).toContain('COULD NOT RESOLVE')
+        // The header survived, and nothing tried to load a directory literally named `pkg:…`.
+        expect(report).toContain('--fail closed')
+        expect(report).not.toContain('COULD NOT LOAD')
+      }),
+    ),
+  )
 })
 
 /**
@@ -552,5 +638,63 @@ layer(platform)('the doctor under a freeze', (it) => {
         expect(none).toContain('config  frozen — no falsestart config at HEAD')
       }),
     ),
+  )
+})
+
+/**
+ * Which contract the hook will run under — the question a person asking "why did my deny not block"
+ * is by definition unable to answer from their command line, because they are the one who never
+ * passed `--agent`.
+ */
+layer(platform)('the active agent contract', (it) => {
+  const agentLine = (lines: readonly string[]): string => lines.find((line) => line.startsWith('agent')) ?? ''
+
+  // T-A21 — printed unconditionally, unlike `policy`, and above every early return. This is the one
+  // departure from the `--fail` precedent: a line printed only when the flag was named is absent
+  // from exactly the report that needs it.
+  it.effect('names the active contract, always, and above every early return', () =>
+    Effect.gen(function* () {
+      expect(agentLine((yield* run({})).lines)).toContain('claude-code')
+      expect(agentLine((yield* run({ agent: 'copilot' })).lines)).toContain('copilot')
+
+      const unresolved = yield* run({ agent: 'copilot', unresolvedRules: 'nope' })
+      expect(agentLine(unresolved.lines)).toContain('copilot')
+    }),
+  )
+
+  // T-A22 — the field names, not just the tool names. Nothing inside falsestart can VERIFY the
+  // Copilot mapping, because nothing here has a real Copilot payload; what it can do is stop hiding
+  // the inference in the source, so a reader can diff it against one payload in ten seconds.
+  it.effect('lists the active contract’s tools with their field names, and flags an inferred table', () =>
+    Effect.gen(function* () {
+      const copilot = yield* run({ agent: 'copilot' })
+      expect(copilot.lines).toContain(
+        'tools    create (path/content), edit (path/new_str) — any other tool call is ignored',
+      )
+      const provisional =
+        copilot.lines[copilot.lines.indexOf(copilot.lines.find((line) => line.startsWith('tools')) ?? '') + 1]
+      expect(provisional).toContain('PROVISIONAL')
+
+      const claudeCode = yield* run({})
+      expect(claudeCode.lines).toContain(
+        'tools    Edit (file_path/new_string), NotebookEdit (notebook_path/new_source), Write (file_path/content) — any other tool call is ignored',
+      )
+      expect(claudeCode.lines.some((line) => line.includes('PROVISIONAL'))).toBeFalsy()
+    }),
+  )
+
+  // T-A23 — the sample has to be written in the ACTIVE contract's vocabulary. Left hand-written in
+  // Claude Code's, a healthy Copilot installation reports `the sample could not be judged` and exits
+  // 1 — from the one command whose whole job is saying whether the installation is healthy.
+  it.effect('reports a healthy Copilot installation as healthy', () =>
+    Effect.gen(function* () {
+      // The same fixture the claude-code health check uses, deliberately: what is being measured is
+      // the contract the sample is written in, and a second rules directory would introduce a
+      // second variable — this repo's own config narrows rules the `clean-code` tree does not load.
+      const diagnosis = yield* run({ agent: 'copilot' })
+
+      expect(diagnosis.healthy).toBeTruthy()
+      expect(diagnosis.lines.some((line) => line.includes('was blocked'))).toBeTruthy()
+    }),
   )
 })

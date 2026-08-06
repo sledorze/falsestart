@@ -6,10 +6,13 @@ describe('library surface', () => {
     // Named individually rather than snapshotted: removing one of these is a breaking change for
     // a consumer, and it should have to be spelled out here before it can happen.
     expect(Object.keys(falsestart).toSorted()).toEqual([
+      'AGENTS',
+      'AGENT_CONTRACTS',
       'BaselineUnreadable',
       'ConfigError',
       'DEFAULT_CONFIG_CANDIDATES',
       'DEFAULT_EXCLUSIONS',
+      'FAILURE_POLICIES',
       'FREEZE_MODES',
       'JAVASCRIPT_EXTENSIONS',
       'MAX_ANCHOR_WALK',

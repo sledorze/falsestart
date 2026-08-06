@@ -12,6 +12,8 @@
 
 import type { FreezeMode } from '../freezing/index.ts'
 import { FREEZE_MODES } from '../freezing/index.ts'
+import type { AgentId, FailurePolicy } from '../hook/index.ts'
+import { AGENTS, FAILURE_POLICIES } from '../hook/index.ts'
 
 /** Where rules live when the caller does not say. */
 export const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
@@ -66,7 +68,14 @@ export type Options =
   | (Freezing & {
       /** Same resolution as `Run`, but reports what it resolved instead of judging a payload. */
       readonly _tag: 'Doctor'
+      /** Which contract the hook will run under. Reported unconditionally, so never `undefined`. */
+      readonly agent: AgentId
       readonly configPath: string | undefined
+      /**
+       * `undefined` means nobody named one, exactly as `configPath` and `preset` do here. It is
+       * what lets `--doctor` say nothing about a policy the caller never chose.
+       */
+      readonly failure: FailurePolicy | undefined
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
@@ -101,7 +110,16 @@ export type Options =
     })
   | (Freezing & {
       readonly _tag: 'Run'
+      /**
+       * Which agent runtime is on the other end: the payload shape read, and how a deny is
+       * expressed. Defaulted HERE rather than left `undefined`, unlike `failure`, because every
+       * consumer needs an answer; whether the flag was NAMED is tracked separately, which is what
+       * keeps `scan --agent claude-code` a refusal rather than a flag taken and dropped.
+       */
+      readonly agent: AgentId
       readonly configPath: string | undefined
+      /** What a failure of the guard itself costs. `undefined` means nobody named one. */
+      readonly failure: FailurePolicy | undefined
       /** Set when `--preset` was used; the caller resolves it against the installed package. */
       readonly preset: Preset | undefined
       /** Set when `--rules pkg:<name>` was used; the caller resolves it against the project. */
@@ -113,7 +131,8 @@ export type Options =
 
 const USAGE = `falsestart — block risky code patterns as they are written
 
-Reads a Claude Code PreToolUse hook payload on stdin and answers with a decision.
+Reads an agent's PreToolUse hook payload on stdin and answers with a decision.
+Claude Code by default; see --agent.
 
 Usage:
   falsestart [--rules <dir>]
@@ -162,6 +181,37 @@ Options:
                   so refs/remotes/origin/main is the stronger setting — no
                   reset, amend or checkout touches it, and a fetch puts it
                   back.
+  --fail <policy> What happens when falsestart itself cannot do its job:
+                  closed, open. Defaults to open — the failure is reported on
+                  stderr, exit 1, and the write proceeds. closed denies the
+                  write instead, for a repo where an edit that cannot be
+                  verified must not land. It covers a rule tree or rules
+                  package that will not load, a config that will not load or
+                  whose override names a rule that is not loaded, and a rule
+                  that cannot run at match time. It does NOT cover a malformed
+                  hook payload or a refused command line: neither is a fact
+                  about your repository, and neither is fixable from inside
+                  it. Nor is it a claim that any rule COVERS what you write —
+                  see --doctor's scope block and --warn-unscoped for that. A
+                  frozen source that cannot be read denies in either policy;
+                  --fail open does not re-open it. Command line only,
+                  deliberately: the thing that denies must not carry its own
+                  off switch. Refused with scan and --list-rules, which
+                  already exit 2 when they cannot run.
+  --agent <name>  Which agent runtime is on the other end:
+                  claude-code, copilot. Defaults to claude-code. It decides
+                  both the payload shape falsestart reads and how a deny is
+                  expressed: claude-code denies with exit 0 and a JSON
+                  document on stdout, copilot with exit 2 and the reason on
+                  stderr. Declared rather than detected, deliberately: a
+                  payload says nothing about how the runtime reads the
+                  answer, and guessing that wrong turns a deny into an
+                  allow. Under copilot there is no exit 1 — every non-zero
+                  exit other than 2 denies there — so a failure falsestart
+                  reports exits 0. copilot support is PROVISIONAL: the tool
+                  argument names it reads are not documented by GitHub. Run
+                  --doctor to see them. Command line only. Refused with scan
+                  and --list-rules, which read no hook payload.
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
@@ -256,6 +306,10 @@ const isPreset = (value: string): value is Preset => PRESETS.some((preset) => pr
 
 const isFreezeMode = (value: string): value is FreezeMode => FREEZE_MODES.some((mode) => mode === value)
 
+const isFailurePolicy = (value: string): value is FailurePolicy => FAILURE_POLICIES.some((policy) => policy === value)
+
+const isAgent = (value: string): value is AgentId => AGENTS.some((id) => id === value)
+
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {
     // `scan` has its own flags and its own exit codes, and printing the hook's usage for it
@@ -282,6 +336,12 @@ export const parseArguments = (args: readonly string[]): Options => {
 
   let freeze: FreezeMode = 'auto'
   let freezeRef: string = DEFAULT_FREEZE_REF
+  let failure: FailurePolicy | undefined
+  let agent: AgentId = 'claude-code'
+  // Named, as opposed to defaulted. `--fail` keeps `undefined` for exactly this reason; the agent
+  // cannot, because `--doctor` reports the active contract on every run, so the two facts are
+  // tracked separately rather than folded into one nullable.
+  let sawAgent = false
 
   let baselinePath: string | undefined
   const exclude: string[] = []
@@ -355,7 +415,9 @@ export const parseArguments = (args: readonly string[]): Options => {
       argument !== '--baseline' &&
       argument !== '--exclude' &&
       argument !== '--freeze' &&
-      argument !== '--freeze-ref'
+      argument !== '--freeze-ref' &&
+      argument !== '--fail' &&
+      argument !== '--agent'
     ) {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
@@ -393,6 +455,20 @@ export const parseArguments = (args: readonly string[]): Options => {
         return { _tag: 'Invalid', problem: `unknown freeze mode: ${value} (expected ${FREEZE_MODES.join(', ')})` }
       }
       freeze = value
+    } else if (argument === '--fail') {
+      if (!isFailurePolicy(value)) {
+        return {
+          _tag: 'Invalid',
+          problem: `unknown failure policy: ${value} (expected ${FAILURE_POLICIES.join(', ')})`,
+        }
+      }
+      failure = value
+    } else if (argument === '--agent') {
+      if (!isAgent(value)) {
+        return { _tag: 'Invalid', problem: `unknown agent: ${value} (expected ${AGENTS.join(', ')})` }
+      }
+      agent = value
+      sawAgent = true
     } else if (isPreset(value)) {
       preset = value
     } else {
@@ -433,6 +509,29 @@ export const parseArguments = (args: readonly string[]): Options => {
     return {
       _tag: 'Invalid',
       problem: '--warn-unscoped has no effect with `scan`; its report always states how many files were in scope',
+    }
+  }
+
+  // Both already fail closed on every path — `scan` exits 2 on a broken rule tree, an unreadable
+  // baseline, an unreadable file and a rule that cannot run, and `--list-rules` exits 2 too. A flag
+  // whose only meaningful value is the one already in force is a flag taken and dropped, and
+  // `--fail open` there would WEAKEN a guarantee this tool shipped rather than choose a policy.
+  // `--doctor` accepts it, because it reports the policy the hook will run under.
+  if ((scanning || listRules) && failure !== undefined) {
+    return {
+      _tag: 'Invalid',
+      problem: '--fail has no effect with `scan` or --list-rules; both already exit 2 when they cannot run',
+    }
+  }
+
+  // Refused for the reason `--fail` is: neither mode reads a hook payload, and neither emits a hook
+  // decision, so the flag would decide nothing. Keyed on `sawAgent` rather than on the value, or
+  // `scan --agent claude-code` would be silently accepted — the flag taken and dropped.
+  if ((scanning || listRules) && sawAgent) {
+    return {
+      _tag: 'Invalid',
+      problem:
+        '--agent has no effect with `scan` or --list-rules; neither reads a hook payload nor emits a hook decision',
     }
   }
 
@@ -490,6 +589,17 @@ export const parseArguments = (args: readonly string[]): Options => {
   }
 
   return doctor
-    ? { _tag: 'Doctor', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
-    : { _tag: 'Run', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage, warnUnscoped }
+    ? { _tag: 'Doctor', agent, configPath, failure, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
+    : {
+        _tag: 'Run',
+        agent,
+        configPath,
+        failure,
+        freeze,
+        freezeRef,
+        preset,
+        rulesDirectory,
+        rulesPackage,
+        warnUnscoped,
+      }
 }

@@ -120,14 +120,16 @@ rejects, and then matches essentially every node. A rule upstream considers brok
 indiscriminately here. So a narrow check rejects those shapes — modelled on behaviour measured
 against the actual CLI rather than reasoned about.
 
-## Four failures that must not be confused
+## Six failures that must not be confused
 
-| Situation                                        | Answer                            |
-| ------------------------------------------------ | --------------------------------- |
-| The code breaks a rule                           | Block, with the rule's message    |
-| A rule matched at a softer severity              | Show it; do not block             |
-| The guard could not do its job                   | Say so loudly; do not block       |
-| The rule source could not be read _as committed_ | Refuse to judge; do not fall back |
+| Situation                                        | Answer                                                                   | Under `--agent copilot`      |
+| ------------------------------------------------ | ------------------------------------------------------------------------ | ---------------------------- |
+| The code breaks a rule                           | Block, with the rule's message                                           | Same, expressed as exit `2`  |
+| A rule matched at a softer severity              | Show it; do not block                                                    | Same, on stderr              |
+| The guard could not do its job                   | Say so loudly; do not block by default                                   | Same, at exit `0` not `1`    |
+| The rule source could not be read _as committed_ | Refuse to judge; do not fall back                                        | Same, expressed as exit `2`  |
+| The hook payload is malformed                    | Say so loudly; never the REASON to block                                 | Same, and exit 0 cannot deny |
+| The payload names a tool from another contract   | Say so loudly, on the other runtime's channel; never the REASON to block |                              |
 
 The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
 conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
@@ -141,6 +143,46 @@ disarm, and is now a no-op. What refuses is a COMMITTED rule set that does not l
 git said was readable and then would not read — a repository-wide problem a commit introduced, and
 exactly what `scan` in CI already fails closed on. Falling back to the working tree there would make
 breaking git the cheapest disarm available, which is the whole reason the freeze exists.
+
+The third is a POLICY, and `--fail closed` inverts it. The argument above is about the default, and
+it is narrower than it was when it was written: under a freeze the working-tree typo it protects
+never reaches the loader, so what is left is mostly the repository with nothing to freeze — where the
+typo really is somebody's work in progress. A repository where an edit that cannot be verified must
+not land says so on the command line, and the same failure denies instead.
+
+The fifth is the row that policy does NOT reach, and it earns its place precisely because the flag
+would otherwise read as "everything denies". A malformed payload is not a fact about the repository:
+the runtime on the other end of the pipe sent an unexpected shape, there is nothing in the project to
+fix, and an agent told "denied" would rewrite code that was never judged. It would also make
+availability depend on another product's release cadence, since the fields falsestart reads are that
+product's.
+
+"Never the reason" is the whole claim, and it is narrower than "never denied". The failures are
+answered in order and a malformed payload is discovered last, so a broken rule tree denies whatever
+payload arrives — naming the tree, which the repository owns and can fix, and never the payload. The
+freeze has done this since it shipped. Answering the malformed payload earlier would buy the stronger
+sentence at the cost of the freeze: a committed rule set that will not load would go back to exit 1
+on that payload, which is the fail-open disarm the freeze exists to close.
+
+The sixth exists because the flag can be wrong, and one direction of wrong is silent. `Write`,
+`Edit` and `NotebookEdit` cannot come from Copilot, whose tool table is documented and closed, and
+`create`/`edit` cannot come from Claude Code — so a tool name in the OTHER contract's table is proof
+the flag names the wrong runtime rather than a tool falsestart has no opinion about. It is answered
+with the emitter of the runtime that really sent it, because a message about a misdeclared `--agent`
+is worth nothing on a channel the runtime that is actually there does not read. Structural, like
+every other discriminator here: membership in a declared table, never a guess about what a name
+looks like.
+
+The third row's default reads as exit `0` under Copilot rather than exit `1`, and that is forced
+rather than chosen: every non-zero exit other than 2 denies the tool call there, so `1` would invert
+`--fail open` into fail-closed with a reason nobody can act on. For the same reason the fifth row is
+STRONGER under Copilot than under Claude Code — exit 0 cannot deny even in principle.
+
+None of this adds a fifth `Decision` tag. What a guard failure COSTS is a fact about the invocation
+rather than about the code, so it is a rendering policy in `hook/respond.ts` — where the protocol's
+price list already lives — and `decide` stays policy-free. A fifth outcome would have moved the
+policy into the judgement, and `--doctor` would then have had to un-pick it again to keep calling a
+failed sample unhealthy.
 
 ## Rules are programs, and programs are wrong
 
@@ -200,20 +242,21 @@ still judges one file at a time. It is a wider view of each file, not a view of 
 Seven areas, each presenting a small entry point that the rest of the codebase and these documents
 cite. Areas are separated by _what they are allowed to know_:
 
-| Area                                    | Knows about                                                               |
-| --------------------------------------- | ------------------------------------------------------------------------- |
-| [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files. |
-| [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.            |
-| [`hook/`](../src/hook/index.ts)         | The agent protocol: a payload in, a verdict out.                          |
-| [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                   |
-| [`freezing/`](../src/freezing/index.ts) | What a git ref committed. Not processes: it parses git's plumbing output. |
-| [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                          |
-| [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
+| Area                                    | Knows about                                                                         |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| [`checking/`](../src/checking/index.ts) | Rule documents and source text. Not processes, protocols or config files.           |
+| [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.                      |
+| [`hook/`](../src/hook/index.ts)         | The agent protocolS: a payload in, a verdict out, in each runtime's own vocabulary. |
+| [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                             |
+| [`freezing/`](../src/freezing/index.ts) | What a git ref committed. Not processes: it parses git's plumbing output.           |
+| [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                                    |
+| [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                                    |
 
 `hook/` and `scanning/` are the two adapters, and they are separate because their failure modes
-are opposite. The hook answers before a write lands and must fail OPEN — a typo in a rule file must
-not hold every write in the repo hostage. A scan is a gate, and must fail CLOSED — one that cannot
-run has to stop, or it passes everything while looking healthy. Same rules underneath, contrary
+are opposite. The hook answers before a write lands and fails OPEN by default, and says so as a
+policy the caller can invert — a typo in a rule file must not hold every write in the repo hostage
+unless the repository asks for that. A scan is a gate, and must fail CLOSED — one that cannot run has
+to stop, or it passes everything while looking healthy. Same rules underneath, contrary
 policies above, which is exactly the kind of thing that goes wrong when one module tries to be both.
 
 Only [`cli.ts`](../src/cli.ts) knows a process exists. `freezing/` is the sharpest case of that

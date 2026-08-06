@@ -27,7 +27,9 @@ import {
 import { appliesTo, fallbacks, loadRules, readRuleDocuments } from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { divergence } from '../freezing/index.ts'
-import { decide, WRITE_TOOLS } from './decide.ts'
+import type { FailurePolicy } from './respond.ts'
+import type { AgentId } from './decide.ts'
+import { contractFor, decide } from './decide.ts'
 
 export interface Diagnosis {
   /** False when any step failed to resolve; the caller turns this into an exit code. */
@@ -36,6 +38,7 @@ export interface Diagnosis {
 }
 
 export interface DiagnoseOptions {
+  readonly agent?: AgentId | undefined
   /**
    * Where this installation's release notes are. Verified to be a readable file before being
    * printed, so a wrong or absent path costs a line of the report rather than the whole report.
@@ -48,6 +51,13 @@ export interface DiagnoseOptions {
   readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
   /**
+   * The `--fail` policy the hook will run under, when the caller named one.
+   *
+   * `undefined` means nobody named one, and nothing is printed. OPTIONAL for the reason
+   * `changelogPath` is.
+   */
+  readonly failure?: FailurePolicy | undefined
+  /**
    * What a git ref committed, when the caller resolved one.
    *
    * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published, and a required field
@@ -56,6 +66,12 @@ export interface DiagnoseOptions {
   readonly freeze?: FreezeOutcome | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
+  /**
+   * Why the caller could not resolve a rules source at all, when it could not.
+   *
+   * OPTIONAL for the reason `changelogPath` is. When set, `rulesDirectory` is never loaded from.
+   */
+  readonly unresolvedRules?: string | undefined
   readonly version: string
 }
 
@@ -121,7 +137,18 @@ export const diagnose = (
   options: DiagnoseOptions,
 ): Effect.Effect<Diagnosis, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { changelogPath, configPath, freeze, projectDirectory, rulesDirectory, version } = options
+    const {
+      agent,
+      changelogPath,
+      configPath,
+      failure,
+      freeze,
+      projectDirectory,
+      rulesDirectory,
+      unresolvedRules,
+      version,
+    } = options
+    const contract = contractFor(agent)
     const lines: string[] = [`falsestart ${version}`]
 
     // Every step below reads the FROZEN bytes where there are any. A report that resolved the
@@ -152,7 +179,39 @@ export const diagnose = (
     if (changelogPath !== undefined && (yield* isReadableFile(changelogPath))) {
       lines.push(`changes  ${changelogPath} — what this version changed, including any rule that is new`)
     }
+
+    // Printed on EVERY run, unlike `policy`, and this is the one departure from the `--fail`
+    // precedent. The person asking "why did my deny not block?" is by definition the one who did
+    // NOT pass `--agent`, so a line printed only when the flag is named is absent from exactly the
+    // report that needs it. Above the early returns for the reason the policy line is.
+    lines.push(
+      contract.id === 'copilot'
+        ? 'agent    copilot — a deny is exit 2 with the reason on stderr; a guard failure exits 0'
+        : 'agent    claude-code — a deny is exit 0 with a JSON document on stdout; a guard failure exits 1',
+    )
+
+    // Printed only when `--fail` was NAMED, and printed here — above everything that can return
+    // early. A line on every run would announce the default, which is no news, and would be the
+    // thing `anchorWarning`'s comment forbids: a line readers stop seeing. Above the early returns
+    // because the person asking "why was that write denied with no finding" is precisely the one
+    // whose installation is in one of those states, and a policy line only a healthy run prints is
+    // a policy line nobody sees.
+    if (failure !== undefined) {
+      lines.push(
+        failure === 'closed'
+          ? 'policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload is never the reason.'
+          : 'policy   --fail open — a write falsestart cannot check is reported on stderr and proceeds.',
+      )
+    }
     lines.push('')
+
+    // Reported rather than left to the caller's stderr: this is the one resolution failure that
+    // happens before `diagnose` is reachable at all, so a caller that returned early on it produced
+    // no report whatsoever — for the single question this command exists to answer.
+    if (unresolvedRules !== undefined) {
+      lines.push(`rules    COULD NOT RESOLVE — ${unresolvedRules}`)
+      return { healthy: false, lines }
+    }
 
     const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
     if (loaded._tag === 'Failure') {
@@ -265,7 +324,24 @@ export const diagnose = (
       }
     }
 
-    lines.push(`tools    ${Object.keys(WRITE_TOOLS).toSorted().join(', ')} — any other tool call is ignored`)
+    // The FIELD names, not just the tool names. Nothing inside falsestart can verify the Copilot
+    // mapping — it has no real Copilot payload — so the strongest honest answer available is to
+    // print what it will read and let the reader diff it against one.
+    // Rendered first and sorted after, so the ordering needs no comparator of its own: the tool name
+    // is the prefix of every rendered entry, and a hand-written comparator here has an arm no
+    // contract's table can reach.
+    const judged = Object.entries(contract.tools)
+      .map(([tool, fields]) => `${tool} (${fields.path}/${fields.content})`)
+      .toSorted()
+    lines.push(`tools    ${judged.join(', ')} — any other tool call is ignored`)
+
+    // A declared fact about the contract, not a name check on the agent.
+    if (contract.provisionalTools) {
+      lines.push(
+        '         PROVISIONAL — GitHub does not document these argument names. Compare them against one real',
+        '         hook payload; if they differ, that tool is not being judged. Please report it.',
+      )
+    }
 
     const reach = PROBE_PATHS.map(
       (path) => [path, scoped.success.filter((rule) => appliesTo(rule, path)).length] as const,
@@ -289,11 +365,21 @@ export const diagnose = (
 
     // A real payload through the real decision path, reported as what it is: one observation, not a
     // verdict on the installation.
-    const verdict = yield* decide(scoped.success, {
-      cwd: projectDirectory,
-      tool_input: { content: SAMPLE_SOURCE, file_path: `${projectDirectory}/${SAMPLE_PATH}` },
-      tool_name: 'Write',
-    })
+    // Written in the ACTIVE contract's vocabulary, from the contract itself. Hand-written in Claude
+    // Code's, a healthy Copilot installation reports `the sample could not be judged` and exits 1 —
+    // from the one command whose whole job is saying whether the installation is healthy.
+    const verdict = yield* decide(
+      scoped.success,
+      {
+        cwd: projectDirectory,
+        [contract.envelopes[0].name]: contract.sample.tool,
+        [contract.envelopes[0].input]: {
+          [contract.sample.content]: SAMPLE_SOURCE,
+          [contract.sample.path]: `${projectDirectory}/${SAMPLE_PATH}`,
+        },
+      },
+      { agent: contract.id },
+    )
 
     // `Report` is the guard failing, not the sample passing. Collapsing every non-`Deny` tag into
     // the reassuring branch reported a rule that cannot run at match time as a clean bill of health,

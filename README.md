@@ -6,8 +6,10 @@
 Blocks risky code patterns the instant an AI writes them — before the file lands, not
 just at CI. Can also be used to enforce structure/architecture conventions.
 
-falsestart runs as a Claude Code `PreToolUse` hook. The tool call arrives on stdin, falsestart
-answers with a decision, and code that breaks a rule never reaches the file.
+falsestart runs as a `PreToolUse` hook for Claude Code, or with `--agent copilot` for GitHub Copilot
+CLI. The tool call arrives on stdin, falsestart answers with a decision, and code that breaks a rule
+never reaches the file. Registering it for Copilot is a different file and one extra flag — see
+[Using the hook](./docs/using-the-hook.md).
 
 ## Install
 
@@ -75,8 +77,9 @@ them to find.
 ### Check it works
 
 Blocking is exit **0 with JSON on stdout**; allowed is exit 0 and silence; exit **1** means
-falsestart could not run and the write proceeded. So `echo $?` alone cannot tell you the difference
-between "allowed" and "blocked" — look at stdout:
+falsestart could not run and the write proceeded (or, with `--fail closed`, is denied — see the
+[reference](./docs/reference.md#when-falsestart-itself-cannot-run)). So `echo $?` alone cannot tell
+you the difference between "allowed" and "blocked" — look at stdout:
 
 ```bash
 echo '{"tool_name":"Write","cwd":"'"$PWD"'","tool_input":{"file_path":"'"$PWD"'/src/a.ts","content":"const x = v as any"}}' \

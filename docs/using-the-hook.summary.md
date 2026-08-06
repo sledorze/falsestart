@@ -1,9 +1,14 @@
 # Using the hook — summary
 
-falsestart runs as a Claude Code `PreToolUse` hook: register it in `.claude/settings.json` with a
+falsestart runs as an agent's `PreToolUse` hook. For Claude Code, register it in
+`.claude/settings.json` with a
 `Edit|Write|NotebookEdit` matcher and the CLI invoked by PATH (`node .../dist/cli.js`), because
 `node_modules/.bin` is not on a hook's `PATH` and a bare name exits 127 while looking registered.
-Settings must be strict JSON. Guarding shell commands is a second `PreToolUse` entry beside this one
+Settings must be strict JSON. `PreToolUse` is the only event it implements: registered at
+`PostToolUse` it refuses on stderr naming the event it was invoked for and judges nothing, where it
+used to answer with a document naming the wrong event that the runtime ignored. `PostToolUse` will
+not be implemented — nothing can block after the tool has run — so `falsestart scan` is the
+`PostToolUse` command for after-the-write reporting. Guarding shell commands is a second `PreToolUse` entry beside this one
 — the intended arrangement, not a workaround, since a `matcher` makes the two select disjoint sets
 of tool calls, and on a call falsestart does not judge it writes nothing to either stream and exits
 0 before its rule tree is read. `--doctor` answers "is this guarding anything?" — it prints the
@@ -16,7 +21,17 @@ its version line too — a hook wired at a path holding an older copy describes 
 Under it, a `changes` line names the changelog inside that same copy, because a version number alone
 cannot say that a MINOR bump added an `error`-severity rule and turned a green repo red (`0.2.0` did
 it twice); the line is absent on versions published before it existed, which shipped no changelog at
-all. `--rules` is searched recursively and defaults
+all. For GitHub Copilot CLI, register it in `.github/hooks/*.json` (or `~/.copilot/hooks/`) under
+`{"version":1,"hooks":{"preToolUse":[…]}}` and add `--agent copilot`, without which falsestart
+answers in the wrong vocabulary and Copilot denies EVERY tool call in the session. The casing of the
+event name decides the payload spelling — `preToolUse` sends `toolName`/`toolArgs`, `PreToolUse`
+sends `tool_name`/`tool_input` — and falsestart reads both, so either registration works. There a
+deny is exit 2, everything that exits 1 under Claude Code exits 0, `--fail closed` is the recommended
+policy, and an advisory finding reaches the user and the log but never the model. Copilot support is
+provisional: the tool argument names are inferred, and `--doctor` prints them so a reader can check
+them against one real payload.
+
+`--rules` is searched recursively and defaults
 to `.falsestart/rules`. The matcher is an optimisation, not a safety boundary — tool calls
 falsestart has no opinion about are ignored without even loading the rule tree.
 
@@ -48,8 +63,8 @@ C-quotes non-ASCII paths into something that opens as ENOENT. `{push_files}` is 
 branch's first push. `node_modules` and `.git` are always excluded and `.gitignore` is honoured via `git check-ignore`
 (best-effort), while `dist`/`build`/`vendor` are not, since projects author real source there;
 `--exclude <glob>` covers the rest and every exclusion is counted. Exit codes are its own contract — 0 clean, 1 findings, 2 could-not-run — and it
-fails CLOSED where the hook fails open, because a gate that cannot run must stop rather than pass
-everything. It judges whole files where the hook judges introduced text, so it is strictly stricter:
+fails CLOSED where the hook fails open by default, because a gate that cannot run must stop rather
+than pass everything. It judges whole files where the hook judges introduced text, so it is strictly stricter:
 64% of real TypeScript files already carry a finding, which is what `--baseline`/`--update-baseline`
 absorb — one entry per occurrence, so accepting two identical lines does not accept a third, and a
 baseline that exists but cannot be read exits 2 rather than silently accepting nothing. Every run prints `scanned N, M in scope, K finding(s)`; `M = 0` is the signal that a run
@@ -58,7 +73,18 @@ enforced nothing, which otherwise looks identical to success.
 Behaviour: an `error`-severity match blocks with the rule's message; softer severities do not
 block; a path outside a rule's `files`/`ignores` never runs it; other tools are ignored. A rule
 tree that will not load, or a rule that cannot run, produces a visible error while letting the
-write proceed — loud, but not able to hold a repository hostage.
+write proceed — loud, but not able to hold a repository hostage. A repository that would rather have
+the opposite adds `--fail closed` to the hook command: the same failures then deny, while a malformed
+hook payload, a refused command line and any tool call falsestart does not judge stay exactly as they
+were, and a freeze refusal denies either way. The trap to know first is that a load-time failure is
+answered before anything is judged, so while `--fail closed` is on and the rule tree is broken every
+judged write denies, including the edit that would repair it — the denial says so and names
+`--fail open`. Where the broken tree is COMMITTED, the way out is two steps and each denial names the
+next: the freeze prints `--freeze off`, and the working tree's copy of the same document then denies
+for the guard and prints `--fail open`. Running `falsestart --rules pkg:<missing>` by hand now waits
+for a payload rather than exiting, since the answer comes after the payload is read; `--doctor` is
+the way to check a setup by hand. `--doctor --fail closed` prints a `policy` line proving it is on, before anything is
+resolved.
 
 A rule declaring `warning`, `info` or `hint` is shown to the author as
 `{"systemMessage":"falsestart:\n<rule-id> (<line>:<column>): <message>"}` and decides nothing — a

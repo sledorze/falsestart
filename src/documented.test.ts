@@ -24,11 +24,18 @@ import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
-import { WRITE_TOOLS } from './hook/decide.ts'
+import type { AgentId } from './hook/decide.ts'
+import { AGENT_CONTRACTS, AGENTS, decide } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
-import { respond } from './hook/respond.ts'
+import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
+
+/** Where each contract's tool table lives, so a whole-file scan cannot read one against the other. */
+const TOOL_TABLE_HEADINGS: Readonly<Record<AgentId, string>> = {
+  'claude-code': '#### Claude Code (the default)',
+  copilot: '#### GitHub Copilot CLI',
+}
 
 /** The `files` array, read from the manifest rather than restated where it would drift from it. */
 const packagedFiles = Effect.gen(function* () {
@@ -306,21 +313,85 @@ layer(platform)('documentation covers the source', (it) => {
     }),
   )
 
-  // Which tool calls get judged is the most consequential fact about this hook, and until now the
-  // docs never stated it — a reader could not tell whether their write tool was covered. Anything
-  // outside the map is allowed in silence, which is indistinguishable from a clean write, so a
-  // fourth write tool appearing upstream would go unguarded with no signal at all.
-  it.effect('the reference documents exactly the tool calls that are judged', () =>
+  // T-A18 — which tool calls get judged is the most consequential fact about this hook, and until
+  // this test the docs never stated it — a reader could not tell whether their write tool was
+  // covered. Anything outside the map is allowed in silence, which is indistinguishable from a
+  // clean write, so a fourth write tool appearing upstream would go unguarded with no signal at all.
+  //
+  // Anchored per contract rather than scanned whole, for the reason the `language` row is: a
+  // whole-file scan would now pick up BOTH tables and compare their union against one contract's.
+  // Looped over `AGENTS` so a third contract cannot be added without a table to describe it.
+  it.effect('the reference documents exactly the tool calls each contract judges', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const reference = yield* fs.readFileString('docs/reference.md')
 
-      const documented = [...reference.matchAll(/^\| `(\w+)`\s+\| `(\w+)`\s+\| `(\w+)`\s+\|$/gm)].map((row) =>
-        [row[1], row[2], row[3]].join('/'),
-      )
-      const actual = Object.entries(WRITE_TOOLS).map(([name, fields]) => `${name}/${fields.path}/${fields.content}`)
+      for (const id of AGENTS) {
+        const section = reference.split(TOOL_TABLE_HEADINGS[id])[1]?.split(/^#{2,6} /m)[0] ?? ''
+        const documented = [...section.matchAll(/^\| `([\w-]+)`\s+\| `(\w+)`\s+\| `(\w+)`\s+\|$/gm)].map((row) =>
+          [row[1], row[2], row[3]].join('/'),
+        )
+        const actual = Object.entries(AGENT_CONTRACTS[id].tools).map(
+          ([name, fields]) => `${name}/${fields.path}/${fields.content}`,
+        )
 
-      expect(documented.toSorted()).toEqual(actual.toSorted())
+        // Asserted first, so a renamed or moved heading fails loudly instead of comparing two empty
+        // arrays and reporting success.
+        expect(documented.length).toBeGreaterThan(0)
+        expect(documented.toSorted()).toEqual(actual.toSorted())
+      }
+    }),
+  )
+
+  // T-A19 — the envelope keys, which the table above says nothing about. A reader whose Copilot
+  // config names the event `PreToolUse` gets the snake_case payload, and a reference documenting
+  // only the camelCase one tells them falsestart cannot read what it reads perfectly well.
+  it.effect('the reference states the envelope keys the code reads, for every spelling', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      for (const id of AGENTS) {
+        const section = reference.split(TOOL_TABLE_HEADINGS[id])[1]?.split(/^#{2,6} /m)[0] ?? ''
+        const missing = AGENT_CONTRACTS[id].envelopes
+          .flatMap((envelope) => [envelope.name, envelope.input])
+          .filter((key) => !section.includes(`\`${key}\``))
+
+        expect(missing).toEqual([])
+      }
+    }),
+  )
+
+  // #63 — the refusal a payload from another event gets is one string literal in `decide.ts` and
+  // prose in two documents, and nothing links them: cairn hashes what a doc LINKS to, and this is
+  // a claim about a MESSAGE. Quoted verbatim in the reference, from the real decision path, so the
+  // sentence a reader searches for is the sentence their terminal printed.
+  it.effect('the reference quotes the refusal a registration at another event really gets', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      const decision = yield* decide([], {
+        hook_event_name: 'PostToolUse',
+        tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' },
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Report')
+      expect(reference).toContain(decision._tag === 'Report' ? decision.problem : 'no refusal was produced')
+    }),
+  )
+
+  // The document a person registering the hook actually reads, and deliberately weaker: it pins
+  // that the guide names the event falsestart is NOT, not that it repeats the whole sentence.
+  // "falsestart is a PreToolUse hook" is already there and always was; what was missing is what
+  // happens when you register it somewhere else, and only the second claim distinguishes them.
+  it.effect('the hook guide says what registering it at another event does', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const guide = yield* fs.readFileString('docs/using-the-hook.md')
+
+      expect(guide).toContain('PostToolUse')
     }),
   )
 
@@ -585,6 +656,54 @@ layer(platform)('documentation covers the source', (it) => {
   })
 
   /**
+   * T4 — the same drift, one flag over. `--fail` is the switch a reader reaches for when a write was
+   * denied with no finding, and a policy the help text names but the parser refuses would send them
+   * to a second failure.
+   */
+  it('the --fail policies --help names are exactly the ones the parser accepts', () => {
+    const help = parseArguments(['--help'])
+    const named = (help._tag === 'Help' ? help.text : '').match(
+      /--fail <policy>\s+What happens when falsestart itself cannot do its job:\s+([^.]+)\./,
+    )
+
+    expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FAILURE_POLICIES].toSorted())
+  })
+
+  /**
+   * T-A20 — `--doctor` writes its sample from `contract.sample` rather than from `contract.tools`,
+   * because a lookup would need a `?? …` arm no input can reach. The two therefore have to be
+   * asserted equal, or the sample silently stops exercising the mapping the report just printed.
+   *
+   * STATED LIMITATION: this proves internal consistency, not correctness against Copilot. Nothing
+   * inside falsestart can prove the latter — it has no real Copilot payload — which is why the
+   * report prints the field names for a reader to check instead.
+   */
+  it('the doctor sample agrees with its own contract’s tool table', () => {
+    for (const id of AGENTS) {
+      const contract = AGENT_CONTRACTS[id]
+
+      expect(contract.tools[contract.sample.tool]).toEqual({
+        content: contract.sample.content,
+        path: contract.sample.path,
+      })
+    }
+  })
+
+  /**
+   * T-A17 — the same drift, one flag over, and the one where getting it wrong is worst: an agent
+   * the help text names but the parser refuses sends a reader to a refused command line in front of
+   * a runtime where every non-zero exit denies.
+   */
+  it('the agents --help names are exactly the ones the parser accepts', () => {
+    const help = parseArguments(['--help'])
+    const named = (help._tag === 'Help' ? help.text : '').match(
+      /--agent <name>\s+Which agent runtime is on the other end:\s+([^.]+)\./,
+    )
+
+    expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...AGENTS].toSorted())
+  })
+
+  /**
    * T73 — `SECURITY.md` carries no summary and no link cairn could hash, so nothing else in this
    * repository can see what it claims. The framing sentence was already right; the escapes it names
    * were not, and an earlier draft pinned only the sentence that needed no pinning.
@@ -678,6 +797,54 @@ layer(platform)('documentation covers the source', (it) => {
       for (const remedy of remedies) {
         expect(parseArguments(remedy)).not.toHaveProperty('_tag', 'Invalid')
       }
+    }),
+  )
+
+  /**
+   * T13 — the same guard for `--fail`, whose deny reason is the one a blocked repository reads
+   * first. It has to name both policies, because one of them is how the reader gets unblocked.
+   */
+  it.effect('every --fail remedy the tool prints is one the parser accepts, and both policies are offered', () =>
+    Effect.gen(function* () {
+      const refused = yield* respond({
+        failure: 'closed',
+        input: JSON.stringify({
+          tool_input: { content: 'const x = y as any', file_path: '/r/a.ts' },
+          tool_name: 'Write',
+        }),
+        projectDirectory: '/no/such/place',
+        rulesDirectory: '/no/such/place',
+      })
+      const diagnosis = yield* diagnose({
+        configPath: undefined,
+        failure: 'closed',
+        projectDirectory: 'rules',
+        rulesDirectory: 'rules',
+        version: '0.0.0-test',
+      })
+
+      const decision: unknown = JSON.parse(refused.stdout ?? '{}')
+      const reason =
+        typeof decision === 'object' && decision !== null && 'hookSpecificOutput' in decision
+          ? String(JSON.stringify(decision.hookSpecificOutput)).replaceAll(String.raw`\n`, ' ')
+          : ''
+
+      const words = [reason, ...diagnosis.lines]
+        .join(' ')
+        .split(/\s+/)
+        .map((word) => word.replace(/[.,;`'"]+$/, ''))
+      const remedies = words.flatMap((word, index) =>
+        word.startsWith('--fail') ? [word.includes('=') ? [word] : [word, words[index + 1] ?? '']] : [],
+      )
+
+      expect(remedies.length).toBeGreaterThan(1)
+      for (const remedy of remedies) {
+        expect(parseArguments(remedy)).not.toHaveProperty('_tag', 'Invalid')
+      }
+      // Both policies must actually be named. Without this, emptying the escape leaves the two
+      // `--fail closed` occurrences in the lead and the doctor line, `length > 1` still holds, and
+      // the mutant survives — with the reader who is blocked never told how to get unblocked.
+      expect(new Set(remedies.map((pair) => pair.join(' ')))).toEqual(new Set(['--fail closed', '--fail open']))
     }),
   )
 })
