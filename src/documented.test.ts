@@ -25,7 +25,7 @@ import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
 import type { AgentId } from './hook/decide.ts'
-import { AGENT_CONTRACTS, AGENTS } from './hook/decide.ts'
+import { AGENT_CONTRACTS, AGENTS, decide } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
 import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
@@ -359,6 +359,39 @@ layer(platform)('documentation covers the source', (it) => {
 
         expect(missing).toEqual([])
       }
+    }),
+  )
+
+  // #63 — the refusal a payload from another event gets is one string literal in `decide.ts` and
+  // prose in two documents, and nothing links them: cairn hashes what a doc LINKS to, and this is
+  // a claim about a MESSAGE. Quoted verbatim in the reference, from the real decision path, so the
+  // sentence a reader searches for is the sentence their terminal printed.
+  it.effect('the reference quotes the refusal a registration at another event really gets', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      const decision = yield* decide([], {
+        hook_event_name: 'PostToolUse',
+        tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' },
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Report')
+      expect(reference).toContain(decision._tag === 'Report' ? decision.problem : 'no refusal was produced')
+    }),
+  )
+
+  // The document a person registering the hook actually reads, and deliberately weaker: it pins
+  // that the guide names the event falsestart is NOT, not that it repeats the whole sentence.
+  // "falsestart is a PreToolUse hook" is already there and always was; what was missing is what
+  // happens when you register it somewhere else, and only the second claim distinguishes them.
+  it.effect('the hook guide says what registering it at another event does', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const guide = yield* fs.readFileString('docs/using-the-hook.md')
+
+      expect(guide).toContain('PostToolUse')
     }),
   )
 

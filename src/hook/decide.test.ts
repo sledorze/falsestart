@@ -642,3 +642,127 @@ describe('the Copilot payload contract', () => {
     }),
   )
 })
+
+/**
+ * The one event falsestart implements, and what it says when it was registered at another one.
+ *
+ * #63. Both runtimes name the event in the payload — Claude Code always, Copilot in its VS Code
+ * compatible spelling — so falsestart can read which event it was invoked for instead of assuming.
+ * Registered at `PostToolUse` it used to judge the payload normally and emit a document naming
+ * `PreToolUse` and carrying `permissionDecision`, a field `PostToolUse` does not define. That
+ * document is ignored: nothing errors, nothing warns, and the hook shows as registered.
+ *
+ * What is asserted here is a REFUSAL, not a judgement. PostToolUse is deliberately not implemented
+ * (#51): after the write neither runtime can block, so `Deny` and `Advise` collapse and `severity`
+ * stops meaning anything — `falsestart scan` is the tool for that ground, and the message says so.
+ */
+describe('the event falsestart implements', () => {
+  const problemOf = (decision: Decision): string => (decision._tag === 'Report' ? decision.problem : '')
+
+  /** Four events a repository might plausibly register a guard on. None of them is this one. */
+  const ELSEWHERE = [
+    { event: 'PostToolUse' },
+    { event: 'SessionStart' },
+    { event: 'Stop' },
+    { event: 'UserPromptSubmit' },
+  ]
+
+  describe.each(ELSEWHERE)('invoked for $event', ({ event }) => {
+    effect('reports the event it was given rather than judging the write', () =>
+      Effect.gen(function* () {
+        // The same payload that is denied at PreToolUse, which is what makes this measure the
+        // event and not the content: without the fix every row here is a `Deny`.
+        const decision = yield* decide(yield* rulesOf(noAsAny), {
+          ...writePayload('const x = value as any'),
+          hook_event_name: event,
+        })
+
+        expect(decision._tag).toBe('Report')
+        expect(problemOf(decision)).toContain(`\`${event}\``)
+        expect(problemOf(decision)).toContain('PreToolUse')
+        // The remedy for the ground PostToolUse would have covered, named where it is read.
+        expect(problemOf(decision)).toContain('falsestart scan')
+      }),
+    )
+  })
+
+  // The negative that keeps every row above honest. `hook_event_name` is absent from most payloads
+  // in this suite and from every library caller that predates it, so absence must not become a
+  // refusal — a guard that reports instead of denying is a guard that stopped guarding.
+  effect('judges a payload that names no event at all exactly as it always has', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), writePayload('const x = value as any'))
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // The other negative: the event falsestart DOES implement, named explicitly, is not a refusal.
+  effect('judges a payload that names PreToolUse exactly as it always has', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 'PreToolUse',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // A payload whose event name is not a string is not a claim about an event. Guards the same
+  // conjunct from the other side: `event !== 'PreToolUse'` alone would refuse this, and refuse
+  // every payload that carries no event at all.
+  effect('does not read a non-string event name as an event', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 7,
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // Why the event is read BEFORE the envelope: most of the events falsestart does not implement
+  // carry no tool call whatsoever. Answering this with `hook payload carried no tool_name` names
+  // neither the cause nor the remedy — it is the dead end issue #50 opened with.
+  effect('names the event on a payload that carries no tool call at all', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        cwd: '/repo',
+        hook_event_name: 'SessionStart',
+        session_id: 'abc',
+      })
+
+      expect(problemOf(decision)).toContain('`SessionStart`')
+      expect(problemOf(decision)).not.toContain('carried no tool_name')
+    }),
+  )
+
+  // Every problem a contract reports names that contract, so a reader can tell which one rejected
+  // their payload. Copilot carries `hook_event_name` in the spelling a PascalCase hook config
+  // selects, so this refusal is reachable there and not only under the default.
+  effect('names the contract that refused, under either agent', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const copilot = yield* decide(
+        rules,
+        {
+          hook_event_name: 'PostToolUse',
+          tool_input: { new_str: 'const x = value as any', old_str: '', path: '/repo/src/widget.ts' },
+          tool_name: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+      expect(problemOf(copilot)).toContain('copilot: this hook was invoked for `PostToolUse`')
+
+      const claudeCode = yield* decide(rules, {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 'PostToolUse',
+      })
+      expect(problemOf(claudeCode)).toContain('this hook was invoked for `PostToolUse`')
+      expect(problemOf(claudeCode)).not.toContain('copilot')
+    }),
+  )
+})
