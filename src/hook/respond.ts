@@ -263,6 +263,8 @@ export const respond = (
       return silent()
     }
 
+    const target = judgedTarget(parsed.success)
+
     // Invoked here and nowhere earlier: everything above this line runs on every tool call.
     const outcome = options.freeze === undefined ? undefined : yield* options.freeze()
 
@@ -311,7 +313,6 @@ export const respond = (
 
     const decision = yield* decide(scoped.success, parsed.success, { warnUnscoped })
 
-    const target = judgedTarget(parsed.success)
     const note =
       outcome?.rules._tag === 'Frozen'
         ? yield* frozenRuleNote({
@@ -331,7 +332,15 @@ export const respond = (
         return denial(join(decision.reason, note))
       }
       case 'Report': {
-        return problem(decision.problem)
+        // A malformed payload never denies, in any policy: it is the agent runtime's shape, not this
+        // repository's, so there is nothing here to fix and an agent told "denied" would rewrite
+        // code that was never judged. See docs/architecture.md, "Five failures that must not be
+        // confused".
+        //
+        // The discriminator is STRUCTURAL and never the text of the problem: `decide` can only reach
+        // `Report` from a malformed target or from a rule that could not run, and `judgedTarget` has
+        // already said which.
+        return target._tag === 'Malformed' ? problem(decision.problem) : guardFailure(options.failure, decision.problem)
       }
       default: {
         return note === undefined ? silent() : advice(note)
