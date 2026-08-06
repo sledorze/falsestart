@@ -366,3 +366,33 @@ describe('notebook writes', () => {
     })
   })
 })
+
+/**
+ * GitHub Copilot CLI, whose payload is a second wire contract rather than a variant of the first.
+ *
+ * The agent is DECLARED, never sniffed: a payload says what shape came in and nothing whatsoever
+ * about how the runtime will read the answer, and that second half is where a wrong guess turns a
+ * deny into an allow. What IS read from the payload is which of the two spellings GitHub documents
+ * for its OWN envelope arrived — a choice the hook author makes in the hook config file, by the
+ * casing of the event name, and one that can change without the agent changing.
+ */
+describe('the Copilot payload contract', () => {
+  // T-A1 — triage recognises both Copilot spellings, defers Copilot's non-write traffic, and claims
+  // a misdeclaration so `decide` can report it rather than deferring in silence.
+  it('claims a Copilot write in either spelling and lets its other traffic past', () => {
+    expect(judgesPayload({ toolName: 'bash' }, 'copilot')).toBeFalsy()
+    // The hot path in the VS Code compatible spelling. Without the second envelope declared this is
+    // `true`, and `respond` then loads the whole rule tree and spawns the freeze's four git
+    // processes for a `bash` call — on every single tool call in the session.
+    expect(judgesPayload({ tool_name: 'bash' }, 'copilot')).toBeFalsy()
+    expect(judgesPayload({ toolName: 'edit' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ tool_name: 'edit' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ toolName: 'create' }, 'copilot')).toBeTruthy()
+    // A tool from ANOTHER contract is claimed rather than deferred, which is what lets `decide`
+    // report that the flag names the wrong runtime. Deferring here is silence, and silence is the
+    // one answer a guard must never give to a payload it cannot judge.
+    expect(judgesPayload({ tool_name: 'Write' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ toolName: 'edit' })).toBeTruthy()
+    expect(judgesPayload({ tool_name: 'Bash' })).toBeFalsy()
+  })
+})
