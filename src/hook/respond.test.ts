@@ -707,6 +707,15 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
   )
 })
 
+/** Loads cleanly and cannot run: a matcher that narrows to no AST kind is rejected at match time. */
+const UNRUNNABLE = `
+id: unrunnable
+language: tsx
+message: 'never reached'
+rule:
+  regex: foo
+`
+
 /**
  * `--fail closed`: a write falsestart could not check is denied rather than reported.
  *
@@ -805,6 +814,45 @@ layer(platform)('a guard failure under --fail closed', (it) => {
         // natural first draft — and it is the draft that puts the loader error in front of an agent
         // before the sentence telling it not to act on one.
         expect(reason).toMatch(/"permissionDecisionReason":"falsestart could not check this write/)
+      }),
+    ),
+  )
+
+  // T9 — the control, and the fixture's own guard. It asserts today's behaviour, so it cannot be
+  // seen red by withholding code; its failure mode is `UNRUNNABLE` rotting into something that
+  // runs, which would leave T10 passing against a rule that failed for an unrelated reason.
+  it.effect('reports an unrunnable rule without blocking, under the default', () =>
+    withRules({ 'unrunnable.yml': UNRUNNABLE }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: writeOf('const foo = 1'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('rule unrunnable could not run')
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T10 — the class the switch buys most on, because it is orthogonal to the freeze: a perfectly
+  // committed, perfectly loadable rule still fails here, and `--freeze off` cannot repair it.
+  it.effect('denies a write it could not check because a rule could not run', () =>
+    withRules({ 'unrunnable.yml': UNRUNNABLE }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const foo = 1'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('rule unrunnable could not run')
       }),
     ),
   )
