@@ -8,7 +8,7 @@ file content. Anything else is allowed in silence. `Bash` is deliberately absent
 redirect writes a file falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
-`--config <file>`, `--doctor`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
+`--config <file>`, `--doctor`, `--list-rules`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
 rule source: a preset and any `--rules` are refused together rather than ranked, and between the two
 `--rules` forms the `pkg:` one wins whichever came first — so layering two rule sets means two hook
 entries. `--doctor` reports what was
@@ -16,7 +16,21 @@ resolved, says how many loaded rules block and how many advise, probes five path
 extensions than it ships with — an override REPLACES `files` rather than merging, so a restated
 glob that omits an extension silently unguards it. It also names the changelog shipped inside the
 installation it reports on, so an upgrade's new rules are readable where the upgrade is verified.
-Reads no stdin. `--warn-unscoped` reports a
+Reads no stdin.
+
+`--list-rules` prints the resolved rule set — after preset/`pkg:` resolution and after config
+overrides — as JSON on stdout and exits, so a repo can assert that the rules blocking writes are the
+rules its CI gate checks. Five fields per rule (`files`, `id`, `ignores`, `language`, `severity`),
+one rule per line, sorted by id so two runs diff cleanly; the matcher and the prose are deliberately
+absent, so a pattern refactor cannot break an assertion, and the config's top-level `exclude` is
+absent too because it belongs to `scan` rather than to a rule — as are `--exclude` and the caller's
+`.gitignore`, which narrow what a scan answers for the same way. `null` files means "no scope
+declared", the opposite of `[]`. Exits 0 with the document or 2 if it could not be produced; a
+refused hook command line still exits 1, because exit 2 from a hook blocks the write (a refused
+`scan` still exits 2, as it always has). Reads no stdin, and
+there is no `--json` flag.
+
+`--warn-unscoped` reports a
 judged write no rule is scoped to rather than passing it in silence; non-blocking, off by default. Exit 0 carries either a decision (`hookSpecificOutput`, a block) or advice
 (`systemMessage`, which decides nothing, and comes either from a softer-than-`error` rule or from
 `--warn-unscoped` with no rule involved at all) — separate documents, not one with a different verdict —

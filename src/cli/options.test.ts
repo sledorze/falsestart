@@ -80,6 +80,53 @@ describe('command line', () => {
     expect(parseArguments(['--preset', 'all', '--doctor'])._tag).toBe('Doctor')
   })
 
+  it('recognises --list-rules as its own mode, carrying the same resolution as a judging run', () => {
+    // "Resolved, not raw" is what the document is for, so the flags that decide the resolution
+    // have to arrive on the mode intact — a dropped `--config` would emit a rule set nobody asked
+    // for, which is exactly the substitution this file exists to prevent.
+    expect(parseArguments(['--list-rules', '--preset', 'clean-code', '--config', 'c.json'])).toEqual({
+      _tag: 'ListRules',
+      configPath: 'c.json',
+      preset: 'clean-code',
+      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesPackage: undefined,
+    })
+  })
+
+  it('refuses --list-rules with --doctor, and with --version', () => {
+    // Two report modes in one process: whichever won, the other flag was taken and dropped. Both
+    // orderings, because the parser is order-sensitive elsewhere and `--version` is checked late.
+    for (const args of [
+      ['--list-rules', '--doctor'],
+      ['--doctor', '--list-rules'],
+      ['--list-rules', '--version'],
+      ['--version', '--list-rules'],
+    ]) {
+      const parsed = parseArguments(args)
+
+      expect(parsed._tag).toBe('Invalid')
+      expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--list-rules')
+    }
+  })
+
+  it('refuses --list-rules with --warn-unscoped', () => {
+    // It reports on the path a real payload carries, and `--list-rules` reads no payload. The
+    // information is not missing: the listing states every rule's files and ignores.
+    const parsed = parseArguments(['--list-rules', '--warn-unscoped'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--warn-unscoped')
+  })
+
+  it('refuses the scan-only flags alongside --list-rules', () => {
+    // A REGRESSION PIN on behaviour that already exists: both flags take values and are parsed
+    // unconditionally, so they reach the `!scanning` guard whatever mode was asked for. Reverting
+    // `--list-rules` does not make this fail, and a green run of it is no evidence the new mode
+    // works — falsify it by deleting a term from that guard.
+    expect(parseArguments(['--list-rules', '--baseline', 'b.json'])._tag).toBe('Invalid')
+    expect(parseArguments(['--list-rules', '--exclude', 'x/**'])._tag).toBe('Invalid')
+  })
+
   it('recognises --version ahead of everything else', () => {
     expect(parseArguments(['--version'])).toEqual({ _tag: 'Version' })
     expect(parseArguments(['--rules', 'x', '--version'])).toEqual({ _tag: 'Version' })
@@ -184,6 +231,14 @@ describe('the scan command', () => {
   it('refuses scan combined with a mode that answers a different question', () => {
     expect(parseArguments(['scan', '--doctor'])._tag).toBe('Invalid')
     expect(parseArguments(['scan', '--version'])._tag).toBe('Invalid')
+    // `scan` judges paths and reports findings; `--list-rules` reports a rule set. Accepting both
+    // means one of them was written and thrown away.
+    const combined = parseArguments(['scan', '--list-rules', 'a.ts'])
+    expect(combined._tag).toBe('Invalid')
+    // And refused by NAME, not swept up by the unrecognised-argument guard at the end of the loop.
+    // Both spellings are `Invalid`, so only the message tells them apart — and the difference is
+    // whether a reader is told which two things cannot be combined or just that a flag is unknown.
+    expect(combined._tag === 'Invalid' && combined.problem).not.toContain('unrecognised')
   })
 
   it('answers --help with the SCAN usage, not the hook usage', () => {

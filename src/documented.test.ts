@@ -19,6 +19,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
 import { loadRules } from './checking/loader.ts'
+import { RuleDescriptionSchema } from './checking/listing.ts'
 import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
@@ -329,9 +330,14 @@ layer(platform)('documentation covers the source', (it) => {
       const fs = yield* FileSystem.FileSystem
       const reference = yield* fs.readFileString('docs/reference.md')
 
+      // Anchored to the section that makes the claim, not to the first matching line in the file:
+      // `--list-rules` documents a `language` field of its own, in a table that appears earlier and
+      // describes the grammar a rule DECLARES rather than the values it may take. A whole-file
+      // search silently started reading that one instead, and compared the wrong cell.
+      const section = reference.split('## Rule document')[1]?.split(/^#{2,6} /m)[0] ?? ''
+      const row = section.split('\n').find((line) => line.startsWith('| `language`')) ?? ''
       // The row, then its Meaning cell: the field name is backticked too, and reading the whole
       // line would compare `language` against the languages.
-      const row = reference.split('\n').find((line) => line.startsWith('| `language`')) ?? ''
       const meaning = row.split('|')[3] ?? ''
       const documented = [...meaning.matchAll(/`([^`]+)`/g)].flatMap((value) =>
         value[1] === undefined ? [] : [value[1]],
@@ -374,6 +380,30 @@ layer(platform)('documentation covers the source', (it) => {
       )
 
       expect(fields.filter((field) => !named.has(field))).toEqual([])
+    }),
+  )
+
+  // The same blind spot the rule-document table has, one command over: `--list-rules` emits a
+  // declared shape, and the table describing it is a five-row claim about that shape in a document
+  // that links the schema nowhere. A field added to the document without a row here is a promise a
+  // consumer cannot read; a row left behind after a field is dropped is one they will write a
+  // decode against and lose.
+  it.effect('the --list-rules field table lists exactly the fields the document carries', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      // Stops at the next heading, so the `#### --list-rules exit codes` rows below it — `| \`0\` |`
+      // and `| \`2\` |` — cannot be read as fields.
+      const section = reference.split('### `falsestart --list-rules`')[1]?.split(/^#{2,6} /m)[0] ?? ''
+      const documented = [...section.matchAll(/^\| `(\w+)`\s+\|/gm)].flatMap((row) =>
+        row[1] === undefined ? [] : [row[1]],
+      )
+
+      // Asserted first, so a renamed or moved heading fails loudly instead of comparing two empty
+      // arrays and reporting success.
+      expect(documented.length).toBeGreaterThan(0)
+      expect(documented.toSorted()).toEqual(Object.keys(RuleDescriptionSchema.fields).toSorted())
     }),
   )
 

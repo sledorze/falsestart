@@ -104,6 +104,26 @@ files:
   - '**/*.{ts,tsx}'
 `
 
+/**
+ * A rule with BOTH scope keys, for the override test.
+ *
+ * Its own fixture rather than the shared `noAsAny`, which carries no `ignores` at all — asserting
+ * that an unnamed `ignores` survives an override would then be comparing `null` with `null` and
+ * proving nothing.
+ */
+const scopedRule = `
+id: scoped-rule
+language: tsx
+severity: error
+message: 'placeholder'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.{ts,tsx}'
+ignores:
+  - '**/*.test.{ts,tsx}'
+`
+
 const payloadFor = (toolInput: Record<string, unknown>, toolName = 'Write') =>
   JSON.stringify({ hook_event_name: 'PreToolUse', tool_input: toolInput, tool_name: toolName })
 
@@ -419,6 +439,177 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
         expect(result.stdout).toBe('')
       }),
     ),
+  )
+
+  // Note the name. This helper closes stdin immediately, so it cannot observe "never reads stdin":
+  // an implementation that read it would not hang, it would take the judging path on an empty
+  // payload and exit 1 complaining about the JSON. The existing `--doctor` test's name claims that
+  // observation and does not make it either.
+  it.effect('--list-rules writes the resolved rule set to stdout and says nothing on stderr', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--list-rules', '--rules', rules, '--config', configPath], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stderr).toBe('')
+        // The BYTES, not the parsed shape. One rule per line is what four documents and `--help`
+        // give as the reason two runs diff cleanly, and `JSON.parse` is blind to every part of
+        // that claim — the layout could collapse to one line, or lose its trailing newline, with
+        // this suite green. `listing.test.ts` pins what `ruleListText` returns; only a process can
+        // say that is what reaches stdout.
+        expect(result.stdout).toBe(
+          `[\n  {"files":["**/*.{ts,tsx}"],"id":"no-as-any","ignores":null,"language":"tsx","severity":"error"}\n]\n`,
+        )
+        expect(JSON.parse(result.stdout)).toEqual([
+          {
+            files: ['**/*.{ts,tsx}'],
+            id: 'no-as-any',
+            ignores: null,
+            language: 'tsx',
+            severity: 'error',
+          },
+        ])
+      }),
+    ),
+  )
+
+  // "Resolved, not raw" is the whole claim of this flag, and it lives only in the wiring: the
+  // config is loaded and applied in `cli.ts`, which no in-process test can see. Both halves are
+  // asserted, because an override REPLACES `files` while leaving an `ignores` it did not name — so
+  // a merge that quietly dropped the rule's own exemption would look like a narrower scope.
+  it.effect('--list-rules reports the config globs, and keeps the ignores the override did not name', () =>
+    withRules({ 'scoped-rule.yml': scopedRule }, (rules) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const configPath = path.join(rules, 'scoped.config.json')
+        yield* fs.writeFileString(
+          configPath,
+          JSON.stringify({ rules: { 'scoped-rule': { files: ['src/domain/**/*.ts'] } } }),
+        )
+
+        const result = yield* runCliRaw(['--list-rules', '--rules', rules, '--config', configPath], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(JSON.parse(result.stdout)).toEqual([
+          {
+            files: ['src/domain/**/*.ts'],
+            id: 'scoped-rule',
+            ignores: ['**/*.test.{ts,tsx}'],
+            language: 'tsx',
+            severity: 'error',
+          },
+        ])
+      }),
+    ),
+  )
+
+  it.effect('--list-rules exits 2 on a rule tree that will not load, with nothing on stdout', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        // 2, not the hook's 1: this command answers a script, and a document that could not be
+        // produced must not be confused with an empty one.
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--list-rules', '--rules', rules, '--config', configPath], '')
+
+        expect(result.exitCode).toBe(2)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('broken.yml')
+      }),
+    ),
+  )
+
+  it.effect('--list-rules exits 2 when the rules package will not resolve', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        // The only test of the failure code on the resolution path, which runs before the mode's
+        // own block and would otherwise keep the hook's 1.
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--list-rules', '--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath],
+          '',
+        )
+
+        expect(result.exitCode).toBe(2)
+        expect(result.stderr).toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  it.effect('a refused command line keeps the hook non-blocking 1, even when --list-rules was written', () =>
+    Effect.gen(function* () {
+      // The refusal happens before any mode exists, and the default mode is the hook — where exit
+      // 2 BLOCKS the write and the runtime discards stdout (`docs/reference.md`). A mis-typed hook
+      // command that happened to name --list-rules must not become an outage, so the shared
+      // fail-open 1 stands whatever flags were written.
+      const result = yield* runCliRaw(['--list-rules', '--bogus'], '')
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain('--bogus')
+    }),
+  )
+
+  // A reader that stops reading is the documented way to use this flag — the reference's own
+  // sample pipes it into `jq`, and `| head` and `| grep -q` are what people reach for next. Past
+  // one pipe buffer the writer then takes an EPIPE, and unhandled that exits 1, which under this
+  // command's own vocabulary means the command line was refused. `set -o pipefail` turns that into
+  // a red build on a document that was produced perfectly.
+  //
+  // Only a real pipeline shows it, which is why this spawns a shell: the in-process spawner
+  // collects stdout to completion, so it can never be the reader that leaves. The fixture is sized
+  // past the buffer on purpose — with the one-rule fixtures above the write finishes first and the
+  // test would pass without the handling it exists to check.
+  it.effect('survives a reader that closes the pipe after one line', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-e2e-pipe-' })
+
+      const globs = Array.from({ length: 12 }, (_, index) => `  - '**/segment-${index}/**/*.{ts,tsx,mts,cts}'`)
+      yield* Effect.all(
+        Array.from({ length: 150 }, (_, index) =>
+          fs.writeFileString(
+            path.join(root, `rule-${index}.yml`),
+            `id: rule-${String(index).padStart(5, '0')}\nlanguage: tsx\nrule:\n  pattern: $X as any\nfiles:\n${globs.join('\n')}\n`,
+          ),
+        ),
+      )
+      const configPath = yield* withEmptyConfig(root)
+
+      // `PIPESTATUS[0]` is what a user's `set -o pipefail` reads, and it is the only place the
+      // writer's own code survives the pipeline.
+      const script = `node ${CLI} --list-rules --rules ${root} --config ${configPath} | head -1 > /dev/null; exit "\${PIPESTATUS[0]}"`
+      const handle = yield* spawner.spawn(ChildProcess.make('bash', ['-c', script]))
+
+      expect(yield* handle.exitCode).toBe(0)
+    }).pipe(Effect.scoped, Effect.orDie),
+  )
+
+  // The one exception to the paragraph above, pinned because the help text and the reference now
+  // both state it and nothing else observes it — a parse test sees `Invalid`, not an exit code.
+  // `scan` earns its 2 by being a subcommand at argv[0]: an unmistakable act that cannot be a
+  // stray flag on a hook command line, which is the whole reason the hook path keeps 1.
+  it.effect('scan refuses --list-rules with its own 2, the one exception to the shared 1', () =>
+    Effect.gen(function* () {
+      const result = yield* runCliRaw(['scan', '--list-rules', 'a.ts'], '')
+
+      expect(result.exitCode).toBe(2)
+      expect(result.stderr).toContain('--list-rules')
+    }),
+  )
+
+  it.effect('there is no --json flag; it is refused rather than accepted and ignored', () =>
+    Effect.gen(function* () {
+      // Settled deliberately: the output is JSON because that is the only thing this command is
+      // for, and a flag accepted that changes nothing is what this CLI refuses everywhere else.
+      // The human rendering of the same resolution already exists, and it is `--doctor`.
+      const result = yield* runCliRaw(['--list-rules', '--json'], '')
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stderr).toContain('unrecognised argument: --json')
+    }),
   )
 
   // The other half of `packageRulesDirectory`'s contract, which cannot honestly be tested in
