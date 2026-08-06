@@ -26,7 +26,7 @@ import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
-import { respond } from './hook/respond.ts'
+import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -582,6 +582,20 @@ layer(platform)('documentation covers the source', (it) => {
     )
 
     expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FREEZE_MODES].toSorted())
+  })
+
+  /**
+   * T4 — the same drift, one flag over. `--fail` is the switch a reader reaches for when a write was
+   * denied with no finding, and a policy the help text names but the parser refuses would send them
+   * to a second failure.
+   */
+  it('the --fail policies --help names are exactly the ones the parser accepts', () => {
+    const help = parseArguments(['--help'])
+    const named = (help._tag === 'Help' ? help.text : '').match(
+      /--fail <policy>\s+What happens when falsestart itself cannot do its job:\s+([^.]+)\./,
+    )
+
+    expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FAILURE_POLICIES].toSorted())
   })
 
   /**

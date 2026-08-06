@@ -454,3 +454,46 @@ describe('the freeze switch', () => {
     expect(parseArguments(['--freeze', '--doctor'])).toEqual({ _tag: 'Invalid', problem: '--freeze needs a value' })
   })
 })
+
+/**
+ * What a failure of falsestart ITSELF costs, said on the command line and nowhere else.
+ *
+ * A mode word rather than a boolean, for the reason `--freeze` is one: an explicit `--fail open` in
+ * a hook command documents a decision a reader can see, and a third policy stays expressible. Read
+ * from argv only — one of the failures this switch denies on is a config that will not load, so a
+ * config-readable off switch would be disarmed by the very fault it exists to catch.
+ */
+describe('the failure policy switch', () => {
+  // T1
+  it('parses both policies, and is absent when nobody named one', () => {
+    // `undefined` rather than `'open'`: "not named" is what lets `--doctor` stay silent about a
+    // policy nobody chose, and it keeps the default in exactly one place.
+    expect(parseArguments([])).toMatchObject({ _tag: 'Run', failure: undefined })
+    expect(parseArguments(['--fail', 'closed'])).toMatchObject({ _tag: 'Run', failure: 'closed' })
+    expect(parseArguments(['--fail', 'open'])).toMatchObject({ _tag: 'Run', failure: 'open' })
+    expect(parseArguments(['--doctor', '--fail', 'closed'])).toMatchObject({ _tag: 'Doctor', failure: 'closed' })
+  })
+
+  // T2 — the second assertion is what stops a vacuous pass: before the flag exists the parser
+  // already answers `Invalid`, for the entirely different reason that it does not know the word.
+  it('refuses a --fail policy it does not know, rather than defaulting', () => {
+    const parsed = parseArguments(['--fail', 'shut'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('closed, open')
+  })
+
+  // T3 — both already exit 2 on every failure path, so `closed` would be a no-op and `open` would
+  // weaken a guarantee this tool shipped rather than choose a policy.
+  it('refuses --fail with scan and with --list-rules, which already fail closed', () => {
+    for (const args of [
+      ['scan', '--fail', 'closed', 'a.ts'],
+      ['--list-rules', '--fail', 'closed'],
+    ]) {
+      const parsed = parseArguments(args)
+
+      expect(parsed._tag).toBe('Invalid')
+      expect(parsed._tag === 'Invalid' && parsed.problem).toContain('already exit 2')
+    }
+  })
+})
