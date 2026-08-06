@@ -1314,7 +1314,7 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
-        yield* fs.writeFile(path.join(root, 'rules', 'bad.yml'), new Uint8Array([0x69, 0x64, 0x3a, 0x20, 0xff, 0xfe, 0x0a]))
+        yield* fs.writeFile(path.join(root, 'rules', 'bad.yml'), new Uint8Array([105, 100, 58, 32, 255, 254, 10]))
         yield* commitAll(root)
 
         const result = yield* runIn(root, ['--rules', './rules'], violation(root))
@@ -1378,7 +1378,8 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain('"permissionDecision":"deny"')
         expect(result.stdout).toContain('could not read 70 rule document(s)')
-        expect(result.stdout).toContain('maxBuffer')
+        // Node's own text for the overflow, so the person who was blocked can search for it.
+        expect(result.stdout).toContain('ENOBUFS')
       }),
     ),
   )

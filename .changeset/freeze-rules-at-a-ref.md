@@ -36,6 +36,23 @@ rules come from the ref, so the committed set still applies. That is a behaviour
 direction, and it is the reason `--freeze require` can now honestly claim to refuse what it cannot
 verify.
 
+**The freeze's `git` invocations ignore global and system configuration.** They run with
+`GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` pointed at `/dev/null` and with `GIT_DIR`,
+`GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`,
+`GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_CEILING_DIRECTORIES` and `GIT_NAMESPACE` cleared, because
+git consults all of them before it looks at any path and any of them could decide which repository is
+authoritative. A global `include`, a custom `core.*` or a `[user]` block does not apply to these four
+invocations; repo-local `.git/config` still does. This also means `git` failing for a reason other
+than "there is no repository" now denies rather than reading the working tree.
+
+**Nested repositories are resolved from the outside in.** The outermost enclosing repository speaks
+first, and one nested below it is trusted only where the authority already established has nothing at
+that path — an independent checkout, which is what a dotfiles repository in `$HOME` makes of every
+project inside it — or accounts for it as one of its own linked worktrees, which then freezes against
+its own branch. Where that cannot be established, the freeze refuses in every mode. If you keep an
+untracked clone at a path your repository also tracks, that is the shape which now refuses; pass
+`--freeze off` for it.
+
 Where there is nothing to freeze, nothing changes and nothing fails: a project that is not a git
 repository, a repository with no commit yet, a rules directory outside the project repository or in a
 submodule, and `--preset` / `--rules pkg:` trees inside `node_modules` all keep reading the working

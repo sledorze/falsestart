@@ -1,7 +1,7 @@
 {
   "refs": [
     {
-      "hash": "204ae9c30c36cde8cbb7b04ddaa2ef1dbfe568cf8cff6e7522e01ae0519ea183",
+      "hash": "640bfdece9998c1cfb22b9e5c9d690031b691a587aa21daa4df1881f01dc2b95",
       "target": "./README.md"
     },
     {
@@ -21,11 +21,11 @@
       "target": "./CONTRIBUTING.md"
     },
     {
-      "hash": "c28685e7fb819d88dc1af44aac09f5658a97e76415f020d363cc5d574f612924",
+      "hash": "5f95029f826bd97bc04950532a669472eae3123c84da954d9d87feba26cf22a8",
       "target": "./SECURITY.md"
     },
     {
-      "hash": "f93299a3fe35d38dcb1d097eaf78ed59bdd5cb61293fb617925602e18fc09c96",
+      "hash": "4a2821edb9b2682791f22286daee4c57a78d6be3a0fe4746bc9470f9a8b97977",
       "target": "./SECURITY.summary.md"
     },
     {

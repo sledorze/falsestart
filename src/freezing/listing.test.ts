@@ -148,7 +148,7 @@ describe('the objects a ref holds', () => {
   // as content. It is the loader's business whether that parses, and it will not — which denies.
   effect('hands on a blob that is not valid UTF-8 rather than failing the frame', () =>
     Effect.gen(function* () {
-      const invalid = new Uint8Array([0x69, 0x64, 0x3a, 0x20, 0xff, 0xfe, 0x0a])
+      const invalid = new Uint8Array([105, 100, 58, 32, 255, 254, 10])
       const stdout = bytes(encoder.encode(`${'a'.repeat(40)} blob ${invalid.length}\n`), invalid, encoder.encode('\n'))
 
       const [content] = yield* parseBatchObjects(stdout, ['a'.repeat(40)])

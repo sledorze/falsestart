@@ -69,10 +69,10 @@ const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   namedRefs: () => answer(''),
   probe: probeAnswer,
   projectDirectory: '/p',
-  repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' },
   readBlobs: () => answer(''),
   ref: 'HEAD',
   refExplicit: false,
+  repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' },
   rulesDirectory: './rules',
   rulesPath: { _tag: 'Contained', relative: 'rules' },
   workTree: { _tag: 'Inside' },
@@ -146,12 +146,36 @@ describe('classifying what git said', () => {
     effect('refuses when git will not say which repository this is', () =>
       Effect.gen(function* () {
         const outcome = yield* freeze(
-          inputFor({ mode, workTree: { _tag: 'Unreadable', stderr: 'fatal: bad config line 1 in file /h/.gitconfig' } }),
+          inputFor({
+            mode,
+            workTree: { _tag: 'Unreadable', stderr: 'fatal: bad config line 1 in file /h/.gitconfig' },
+          }),
         )
 
         expect(outcome.rules._tag).toBe('Broken')
         expect(outcome.config._tag).toBe('Broken')
         expect(outcome.rules).toHaveProperty('reason', expect.stringContaining('bad config line 1'))
+      }),
+    )
+  })
+
+  // Which repository speaks for the project could not be established. That is not an absence — the
+  // freeze cannot say what it would be enforcing — so it refuses in every mode.
+  describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
+    effect('refuses when the authoritative repository could not be established', () =>
+      Effect.gen(function* () {
+        const outcome = yield* freeze(
+          inputFor({
+            mode,
+            repository: { _tag: 'Ambiguous', reason: 'could not establish whether /p accounts for /p/pkg' },
+          }),
+        )
+
+        expect(outcome.rules).toEqual({
+          _tag: 'Broken',
+          reason: 'could not establish whether /p accounts for /p/pkg',
+        })
+        expect(outcome.config._tag).toBe('Broken')
       }),
     )
   })
@@ -559,8 +583,12 @@ describe('an anchor that one write can repoint', () => {
   // and it must freeze exactly as much as it would anywhere else.
   effect('freezes an unverified anchor under auto, with the same documents', () =>
     Effect.gen(function* () {
-      const unverified = yield* freeze(frozenTree({ repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }))
-      const verified = yield* freeze(frozenTree({ repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' } }))
+      const unverified = yield* freeze(
+        frozenTree({ repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }),
+      )
+      const verified = yield* freeze(
+        frozenTree({ repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' } }),
+      )
 
       expect(unverified.rules._tag).toBe('Frozen')
       expect(unverified.rules).toHaveProperty('anchor', 'unverified')
@@ -573,7 +601,9 @@ describe('an anchor that one write can repoint', () => {
   // cannot be verified.
   effect('refuses an unverified anchor under require, saying what the condition is', () =>
     Effect.gen(function* () {
-      const outcome = yield* freeze(frozenTree({ mode: 'require', repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }))
+      const outcome = yield* freeze(
+        frozenTree({ mode: 'require', repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }),
+      )
 
       expect(outcome.rules._tag).toBe('Broken')
       expect(outcome.config._tag).toBe('Broken')

@@ -31,7 +31,14 @@ import {
 } from './scanning/index.ts'
 import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
 import { isRuleDocument, loadRules, ruleListText } from './checking/index.ts'
-import type { AnchorResolution, ConfigSource, FreezeMode, FreezeOutcome, GitAnswer, WorkTree } from './freezing/index.ts'
+import type {
+  AnchorResolution,
+  ConfigSource,
+  FreezeMode,
+  FreezeOutcome,
+  GitAnswer,
+  WorkTree,
+} from './freezing/index.ts'
 import { containedPath, enclosingGitDirectory, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
 
 /**
@@ -192,9 +199,11 @@ const runGit = (args: readonly string[], input?: string): GitAnswer => {
     ...(input === undefined ? {} : { input }),
   })
 
+  // A spawn error — `maxBuffer` exceeded, git not on PATH — leaves stderr empty, so it has to be
+  // carried explicitly or the refusal says nothing to the person it just blocked.
   return {
     failed: result.error !== undefined || result.status !== 0,
-    stderr: result.stderr?.toString() ?? '',
+    stderr: result.error === undefined ? (result.stderr?.toString() ?? '') : result.error.message,
     stdout: result.stdout ?? new Uint8Array(),
   }
 }
@@ -252,9 +261,7 @@ const resolveFreeze = (options: {
             toplevel: located,
           })
     const anchored =
-      repository._tag === 'Anchored'
-        ? repository
-        : { anchor: 'unverified' as const, toplevel: projectReal }
+      repository._tag === 'Anchored' ? repository : { anchor: 'unverified' as const, toplevel: projectReal }
 
     /**
      * git failing to name the repository is not evidence that there is none.
@@ -298,8 +305,8 @@ const resolveFreeze = (options: {
       readBlobs: (oids) => at(['cat-file', '--batch', '--buffer'], `${oids.join('\n')}\n`),
       ref,
       refExplicit,
-      rulesDirectory,
       repository,
+      rulesDirectory,
       rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
       workTree,
     })

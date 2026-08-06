@@ -140,9 +140,7 @@ const isLinkedWorktreeOf = (
  * Unbounded on purpose, unlike the authority chain: `dirname` is lexical and strictly shortens, so
  * it reaches the root in as many steps as the path has segments and cannot loop.
  */
-export const enclosingGitDirectory = (
-  directory: string,
-): Effect.Effect<string | undefined, never, Path.Path> =>
+export const enclosingGitDirectory = (directory: string): Effect.Effect<string | undefined, never, Path.Path> =>
   Effect.gen(function* () {
     const path = yield* Path.Path
 
@@ -174,25 +172,25 @@ export interface AnchorOptions {
 }
 
 /** Whether a repository's committed tree accounts for a path, as far as it can be established. */
-type Accounting = 'tracked' | 'unknown' | 'untracked'
+type Accounting =
+  { readonly _tag: 'tracked' } | { readonly _tag: 'untracked' } | { readonly _tag: 'unknown'; readonly stderr: string }
 
-const accountingFor = (
-  authority: string,
-  relative: string,
-  options: AnchorOptions,
-): Accounting => {
+const TRACKED = { _tag: 'tracked' } as const
+const UNTRACKED = { _tag: 'untracked' } as const
+
+const accountingFor = (authority: string, relative: string, options: AnchorOptions): Accounting => {
   // A repository with no commit at the ref has committed nothing and so accounts for nothing. Asked
   // separately, because `ls-tree` cannot distinguish "no such path" from "no such ref" by its exit
   // code, and treating the second as an absence is the mistake this whole rule exists to undo.
   if (options.refExists(authority).failed) {
-    return 'untracked'
+    return UNTRACKED
   }
 
   const listed = options.listTreeAt(authority, relative)
   if (listed.failed) {
-    return 'unknown'
+    return { _tag: 'unknown', stderr: listed.stderr.trim() }
   }
-  return new TextDecoder().decode(listed.stdout).trim() === '' ? 'untracked' : 'tracked'
+  return new TextDecoder().decode(listed.stdout).trim() === '' ? UNTRACKED : TRACKED
 }
 
 /**
@@ -202,10 +200,7 @@ const accountingFor = (
  * `lstat` only: no spawn, and nothing here asks git which repository anything belongs to. That
  * question is exactly what an inherited variable or a planted entry can answer for it.
  */
-const repositoryChain = (
-  toplevel: string,
-  path: Path.Path,
-): readonly string[] => {
+const repositoryChain = (toplevel: string, path: Path.Path): readonly string[] => {
   const found: string[] = []
   let candidate = toplevel
   for (;;) {
@@ -275,20 +270,20 @@ export const resolveAnchor = (
         continue
       }
 
-      const relative = containedPath(authority, candidate)
-      const accounting = accountingFor(authority, relative ?? candidate, options)
-      if (accounting === 'unknown') {
+      // Both come from the same `dirname` chain and the chain is walked outermost first, so the
+      // authority is always a strict ancestor of the candidate: the slice is exact and cannot fail.
+      const relative = candidate.slice(authority.length + 1)
+      const accounting = accountingFor(authority, relative, options)
+      if (accounting._tag === 'unknown') {
         return {
           _tag: 'Ambiguous',
-          reason:
-            `could not establish whether ${authority} accounts for ${candidate}: ` +
-            options.listTreeAt(authority, relative ?? candidate).stderr.trim(),
+          reason: `could not establish whether ${authority} accounts for ${candidate}: ${accounting.stderr}`,
         }
       }
       // 'tracked' means the authority holds that path itself, so an inner repository there is
       // shadowing it and the authority keeps speaking. 'untracked' means the authority has nothing
       // to say, and the inner one speaks for itself.
-      if (accounting === 'untracked') {
+      if (accounting._tag === 'untracked') {
         authority = candidate
         anchor = verificationOf(candidate)
       }

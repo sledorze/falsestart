@@ -665,7 +665,10 @@ layer(platform)('documentation covers the source', (it) => {
 
       // Split the way a shell would, so the SEPARATOR is part of what is being tested:
       // `--freeze=off` is one argv token and `--freeze off` is two, and only one of them parses.
-      const words = [reason, ...diagnosis.lines].join(' ').split(/\s+/).map((word) => word.replace(/[.,;`'"]+$/, ''))
+      const words = [reason, ...diagnosis.lines]
+        .join(' ')
+        .split(/\s+/)
+        .map((word) => word.replace(/[.,;`'"]+$/, ''))
       const remedies = words.flatMap((word, index) =>
         word.startsWith('--freeze') ? [word.includes('=') ? [word] : [word, words[index + 1] ?? '']] : [],
       )

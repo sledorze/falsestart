@@ -77,7 +77,8 @@ const asking = (asked: string[]) => ({
     asked.push(`${repository} ? ${relative}`)
     return runGit(repository, ['ls-tree', 'HEAD', '--', relative])
   },
-  refExists: (repository: string): GitAnswer => runGit(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']),
+  refExists: (repository: string): GitAnswer =>
+    runGit(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']),
 })
 
 const commitAll = (directory: string) =>
