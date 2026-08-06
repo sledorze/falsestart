@@ -372,12 +372,23 @@ const program = Effect.gen(function* () {
     }),
   )
 
-  // A rules package that will not resolve is reported like any other misconfiguration: visible,
-  // and non-blocking, so a missing dependency cannot stop every write in the repo.
-  if (located._tag === 'Failure') {
-    yield* write(`falsestart: could not resolve rules package (${located.failure})\n`, stdio.stderr())
+  const unresolvedRules =
+    located._tag === 'Failure' ? `could not resolve rules package (${located.failure})` : undefined
+
+  // `scan` and `--list-rules` answer it right here, as they always have: neither emits a hook
+  // decision, and neither has a payload to be silent about. The other two must NOT — this is
+  // discovered before stdin is read, so refusing here would deny `Bash`, `Read` and every other tool
+  // call an agent makes over a payload that writes nothing. The hook carries it into `respond`,
+  // which answers it behind `judgesPayload`; `--doctor` carries it into `diagnose`, which otherwise
+  // produces no report at all for the one question it exists to answer.
+  if (unresolvedRules !== undefined && options._tag !== 'Run' && options._tag !== 'Doctor') {
+    yield* write(`falsestart: ${unresolvedRules}\n`, stdio.stderr())
     return yield* new Exit({ code: failureCode })
   }
+
+  // Inert under `Run`/`Doctor` when the resolution failed: `respond` returns before it reads this,
+  // and `diagnose` returns before it loads from it.
+  const rulesDirectory = located._tag === 'Failure' ? options.rulesDirectory : located.success
 
   /**
    * The freeze for whichever mode is running, built from the same command line every time.
@@ -394,7 +405,7 @@ const program = Effect.gen(function* () {
       // A ref the caller NAMED is a statement that it exists, so failing to resolve it is
       // unambiguously broken rather than a fresh-repository special case.
       refExplicit: options.freezeRef !== DEFAULT_FREEZE_REF,
-      rulesDirectory: located.success,
+      rulesDirectory,
     })
 
   /** The documents a frozen source holds, or nothing when the working tree is what is in effect. */
@@ -429,7 +440,7 @@ const program = Effect.gen(function* () {
 
     const prepared = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(located.success, heldBy(frozen.rules))
+        const loaded = yield* loadRules(rulesDirectory, heldBy(frozen.rules))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
@@ -501,7 +512,7 @@ const program = Effect.gen(function* () {
 
     const resolved = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(located.success, heldBy(frozen.rules))
+        const loaded = yield* loadRules(rulesDirectory, heldBy(frozen.rules))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
@@ -535,9 +546,11 @@ const program = Effect.gen(function* () {
     const diagnosis = yield* diagnose({
       changelogPath: CHANGELOG_PATH,
       configPath: options.configPath,
+      failure: options.failure,
       freeze: yield* freezeFor(),
       projectDirectory,
-      rulesDirectory: located.success,
+      rulesDirectory,
+      unresolvedRules,
       version: VERSION,
     })
 
@@ -550,12 +563,14 @@ const program = Effect.gen(function* () {
 
   const response = yield* respond({
     configPath: options.configPath,
+    failure: options.failure,
     freeze: freezeFor,
     input,
     // The process runs in the project, which is where a repo's own config lives — not beside the
     // rules, which `--preset` and `pkg:` both put inside node_modules.
     projectDirectory,
-    rulesDirectory: located.success,
+    rulesDirectory,
+    unresolvedRules,
     warnUnscoped: options.warnUnscoped,
   })
 

@@ -240,6 +240,18 @@ export interface RespondOptions {
    * call that predates this is unchanged. Never a `Broken` freeze, which denies in every policy.
    */
   readonly failure?: FailurePolicy | undefined
+  /**
+   * Why the caller could not resolve a rules source at all, when it could not.
+   *
+   * `--rules pkg:<name>` naming a package that is not installed is discovered by `cli.ts` BEFORE
+   * stdin is read, so it cannot be answered there: under `--fail closed` it would deny `Bash`,
+   * `Read` and every other tool call an agent makes, over payloads that write nothing — measured,
+   * and the exact thing `judgesPayload`'s docstring says must not happen. Handing it here puts it
+   * behind `judgesPayload`, where every other guard failure already sits.
+   *
+   * When set, `rulesDirectory` is never read and `freeze` is never invoked.
+   */
+  readonly unresolvedRules?: string | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
@@ -264,6 +276,14 @@ export const respond = (
     }
 
     const target = judgedTarget(parsed.success)
+
+    // Answered here and nowhere earlier. Everything above this line runs on every tool call; a
+    // rules source that could not be resolved is still a guard failure, but it is not a reason to
+    // say anything about a `Bash` call. Ahead of `options.freeze()` too: a run that cannot load a
+    // rule set has no use for four git spawns.
+    if (options.unresolvedRules !== undefined) {
+      return guardFailure(options.failure, options.unresolvedRules)
+    }
 
     // Invoked here and nowhere earlier: everything above this line runs on every tool call.
     const outcome = options.freeze === undefined ? undefined : yield* options.freeze()
