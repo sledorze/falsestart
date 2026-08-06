@@ -340,9 +340,30 @@ const program = Effect.gen(function* () {
    * outage rather than a message. Read from `args` rather than `options` for the reason `brokenCode`
    * already is: this runs INSTEAD of the mode being known.
    */
-  const mayDenyOnNonZero = args.some((argument, index) => argument === '--agent' && args[index + 1] !== 'claude-code')
+  const mayDenyOnNonZero = args.some((argument, index) => {
+    // Both spellings of one declaration. This parser accepts `--agent x` and refuses `--agent=x`,
+    // but the REFUSAL has to cover both — `--agent=copilot` is the likeliest typo in the whole
+    // flag, and refusing it at exit 1 in front of Copilot is a repository-wide outage rather than
+    // a message. A missing value counts too: the parser is about to refuse that as well.
+    const named =
+      argument === '--agent'
+        ? (args[index + 1] ?? '')
+        : argument.startsWith('--agent=')
+          ? argument.slice('--agent='.length)
+          : undefined
+    return named !== undefined && named !== 'claude-code'
+  })
 
-  const brokenCode = args[0] === 'scan' ? ScanExit.Broken : mayDenyOnNonZero ? 0 : 1
+  /**
+   * ... and `--list-rules` is not the hook path either, so it keeps 1.
+   *
+   * The Copilot exit-code contract governs a command line that answers a TOOL CALL. `--list-rules`
+   * reads no stdin, emits no hook decision, and documents exactly two outcomes — 0 with the
+   * document, 2 when it could not be produced. Letting the Copilot refusal reach it produced exit 0
+   * with an empty stdout, which is the one answer `falsestart --list-rules > rules.json` cannot
+   * tell from success, and made two spellings of the same refused combination disagree.
+   */
+  const brokenCode = args[0] === 'scan' ? ScanExit.Broken : args.includes('--list-rules') ? 1 : mayDenyOnNonZero ? 0 : 1
 
   if (options._tag === 'Help') {
     return yield* write(`${options.text}\n`, stdio.stdout())

@@ -1558,6 +1558,9 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot co
   // carries on. Both spellings of the same refused combination must agree.
   it.effect('refuses --list-rules at a code a script can read, whichever agent was named', () =>
     Effect.gen(function* () {
+      // The `=` row is refused as an unrecognised argument rather than by the mode check, which is
+      // why only the exit code and the empty stdout are asserted across all three: what matters is
+      // that no spelling of this combination hands a script a zero.
       for (const args of [
         ['--list-rules', '--agent', 'copilot'],
         ['--list-rules', '--agent', 'claude-code'],
@@ -1567,8 +1570,13 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot co
 
         expect(result.exitCode).toBe(1)
         expect(result.stdout).toBe('')
-        expect(result.stderr).toContain('--agent has no effect')
+        expect(result.stderr).not.toBe('')
       }
+
+      expect(yield* runCliRaw(['--list-rules', '--agent', 'copilot'], '')).toHaveProperty(
+        'stderr',
+        expect.stringContaining('--agent has no effect'),
+      )
     }),
   )
 
