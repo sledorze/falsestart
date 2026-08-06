@@ -1525,6 +1525,12 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot co
         ['--agent', 'copilot', '--bogus'],
         ['--agent', 'copilto', '--bogus'],
         ['--agent', '--bogus'],
+        // The `=` spelling. This parser accepts it for no flag, so it is refused as an
+        // unrecognised argument — and refusing it at exit 1 makes the single likeliest typo in the
+        // whole feature deny every tool call in the repository.
+        ['--agent=copilot'],
+        ['--agent=copilot', '--bogus'],
+        ['--agent=copilto', '--bogus'],
       ]) {
         const result = yield* runCliRaw(args, '')
 
@@ -1541,6 +1547,28 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot co
     Effect.gen(function* () {
       expect(yield* runCliRaw(['--bogus'], '')).toHaveProperty('exitCode', 1)
       expect(yield* runCliRaw(['--agent', 'claude-code', '--bogus'], '')).toHaveProperty('exitCode', 1)
+      expect(yield* runCliRaw(['--agent=claude-code', '--bogus'], '')).toHaveProperty('exitCode', 1)
+    }),
+  )
+
+  // The Copilot exit-code contract governs the HOOK PATH, and `--list-rules` is not it: it reads no
+  // stdin, emits no hook decision, and documents exactly two outcomes — 0 with the document, 2 when
+  // it could not be produced. Exit 0 with an empty stdout is the one answer a CI consumer running
+  // `falsestart --list-rules > rules.json` cannot tell from success; it writes an empty file and
+  // carries on. Both spellings of the same refused combination must agree.
+  it.effect('refuses --list-rules at a code a script can read, whichever agent was named', () =>
+    Effect.gen(function* () {
+      for (const args of [
+        ['--list-rules', '--agent', 'copilot'],
+        ['--list-rules', '--agent', 'claude-code'],
+        ['--list-rules', '--agent=copilot'],
+      ]) {
+        const result = yield* runCliRaw(args, '')
+
+        expect(result.exitCode).toBe(1)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toContain('--agent has no effect')
+      }
     }),
   )
 
