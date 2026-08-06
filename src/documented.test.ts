@@ -24,7 +24,7 @@ import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
-import { WRITE_TOOLS } from './hook/decide.ts'
+import { AGENTS, WRITE_TOOLS } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
 import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
@@ -596,6 +596,20 @@ layer(platform)('documentation covers the source', (it) => {
     )
 
     expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FAILURE_POLICIES].toSorted())
+  })
+
+  /**
+   * T-A17 — the same drift, one flag over, and the one where getting it wrong is worst: an agent
+   * the help text names but the parser refuses sends a reader to a refused command line in front of
+   * a runtime where every non-zero exit denies.
+   */
+  it('the agents --help names are exactly the ones the parser accepts', () => {
+    const help = parseArguments(['--help'])
+    const named = (help._tag === 'Help' ? help.text : '').match(
+      /--agent <name>\s+Which agent runtime is on the other end:\s+([^.]+)\./,
+    )
+
+    expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...AGENTS].toSorted())
   })
 
   /**
