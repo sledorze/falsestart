@@ -165,6 +165,94 @@ layer(platform)('resolving the anchor', (it) => {
     ),
   )
 
+  /**
+   * A linked worktree INSIDE its main repository, which the walk used to step over.
+   *
+   * Stepping over it is right for a PLANTED gitfile and wrong for a real worktree: the ref then
+   * consulted is the main repository's HEAD, which does not track the worktree's own path, so the
+   * freeze reported "not tracked" and read the working tree — silently under `auto`, and as a total
+   * outage under `require`.
+   *
+   * The discriminator asks nothing of the repository the gitfile names, which would be forgeable by
+   * whoever wrote it. It compares the target against `<anchor>/.git/worktrees`, and the anchor is a
+   * `.git` DIRECTORY reached by walking outward — the one thing a write cannot replace. Trust flows
+   * outward from that directory, never inward from the file.
+   */
+  it.effect('trusts a real linked worktree of the anchor as its own authority', () =>
+    withTree({}, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* fs.writeFileString(path.join(root, 'keep.txt'), 'x')
+        yield* Effect.sync(() => spawnSync('git', ['-C', root, 'add', '-A'], { encoding: 'utf8' }))
+        yield* Effect.sync(() =>
+          spawnSync('git', ['-C', root, '-c', 'user.email=a@b.c', '-c', 'user.name=a', 'commit', '-qm', 'first'], {
+            encoding: 'utf8',
+          }),
+        )
+        const worktree = path.join(root, 'wt')
+        yield* Effect.sync(() =>
+          spawnSync('git', ['-C', root, 'worktree', 'add', '-q', '-b', 'wt', worktree], { encoding: 'utf8' }),
+        )
+
+        expect((yield* fs.stat(path.join(worktree, '.git'))).type).toBe('File')
+        expect(yield* resolveAnchor(worktree, spawningRevParse([]))).toEqual({
+          anchor: 'verified',
+          toplevel: worktree,
+        })
+      }),
+    ),
+  )
+
+  // The negative half AGENTS.md asks for: superficially similar, provably untouched. A directory
+  // merely NAMED `worktrees` is not `<anchor>/.git/worktrees`.
+  it.effect('is not fooled by a gitdir under a directory named worktrees somewhere else', () =>
+    withTree({ 'decoy/worktrees/fake/HEAD': 'ref: refs/heads/master\n', 'wt/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* fs.writeFileString(path.join(root, 'wt', '.git'), `gitdir: ${path.join(root, 'decoy', 'worktrees', 'fake')}\n`)
+
+        expect(yield* resolveAnchor(path.join(root, 'wt'), spawningRevParse([]))).toEqual({
+          anchor: 'verified',
+          toplevel: root,
+        })
+      }),
+    ),
+  )
+
+  it.effect('is not fooled by a gitfile whose target does not exist, or by one that is not a gitfile', () =>
+    withTree({ 'a/.git': 'gitdir: /no/such/place\n', 'b/.git': 'not a gitfile at all\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+
+        for (const name of ['a', 'b']) {
+          expect(yield* resolveAnchor(path.join(root, name), spawningRevParse([]))).toEqual({
+            anchor: 'verified',
+            toplevel: root,
+          })
+        }
+      }),
+    ),
+  )
+
+  it.effect('treats a plain subdirectory of a repository as the repository, not as a worktree', () =>
+    withTree({ 'sub/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+
+        expect(yield* resolveAnchor(path.join(root, 'sub'), spawningRevParse([]))).toEqual({
+          anchor: 'verified',
+          toplevel: root,
+        })
+      }),
+    ),
+  )
+
   // T86, second half: a judged write must not be hangable by an arrangement of paths.
   it.effect('gives up unverified rather than walking further than MAX_ANCHOR_WALK', () =>
     withTree({ 'store/': '' }, (root) =>

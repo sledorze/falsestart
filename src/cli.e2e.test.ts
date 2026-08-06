@@ -1203,4 +1203,39 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
       }),
     ),
   )
+  /**
+   * A linked worktree INSIDE its main repository — the common `git worktree add ./wt` layout.
+   *
+   * The anchor walk used to step over it onto the main repository, so the ref consulted was the main
+   * repository's HEAD, which does not track `wt/rules`. That reported "not tracked": a silent
+   * disarm under `auto`, and a refusal of every write under `require`, in a setup with nothing wrong
+   * with it.
+   */
+  it.effect('freezes a linked worktree inside its main repository against its own branch', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* commitAll(root)
+        const worktree = path.join(root, 'wt')
+        yield* git(root, ['worktree', 'add', '-q', '-b', 'wt', worktree])
+
+        // Preconditions: it really is a gitfile, and it really is inside the main repository.
+        expect((yield* fs.stat(path.join(worktree, '.git'))).type).toBe('File')
+        expect((yield* fs.stat(path.join(root, '.git'))).type).toBe('Directory')
+
+        yield* writeAll(worktree, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+        const denied = yield* runIn(worktree, ['--rules', './rules'], violation(worktree))
+
+        expect(denied.stdout).toContain('PROJECT RULE')
+
+        // And `require` must not refuse a clean write in a setup that is entirely ordinary.
+        const clean = payloadFor({ content: 'const ok = 1', file_path: `${worktree}/src/a.ts` })
+        const allowed = yield* runIn(worktree, ['--rules', './rules', '--freeze', 'require'], clean)
+
+        expect(allowed.exitCode).toBe(0)
+        expect(allowed.stdout).toBe('')
+      }),
+    ),
+  )
 })
