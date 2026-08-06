@@ -24,7 +24,7 @@ import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
-import { AGENTS, WRITE_TOOLS } from './hook/decide.ts'
+import { AGENT_CONTRACTS, AGENTS, WRITE_TOOLS } from './hook/decide.ts'
 import { diagnose } from './hook/doctor.ts'
 import { FAILURE_POLICIES, respond } from './hook/respond.ts'
 
@@ -596,6 +596,26 @@ layer(platform)('documentation covers the source', (it) => {
     )
 
     expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FAILURE_POLICIES].toSorted())
+  })
+
+  /**
+   * T-A20 — `--doctor` writes its sample from `contract.sample` rather than from `contract.tools`,
+   * because a lookup would need a `?? …` arm no input can reach. The two therefore have to be
+   * asserted equal, or the sample silently stops exercising the mapping the report just printed.
+   *
+   * STATED LIMITATION: this proves internal consistency, not correctness against Copilot. Nothing
+   * inside falsestart can prove the latter — it has no real Copilot payload — which is why the
+   * report prints the field names for a reader to check instead.
+   */
+  it('the doctor sample agrees with its own contract’s tool table', () => {
+    for (const id of AGENTS) {
+      const contract = AGENT_CONTRACTS[id]
+
+      expect(contract.tools[contract.sample.tool]).toEqual({
+        content: contract.sample.content,
+        path: contract.sample.path,
+      })
+    }
   })
 
   /**
