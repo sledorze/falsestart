@@ -80,6 +80,42 @@ const FREEZE_ESCAPE = 're-run the hook with --freeze off to use the working tree
 
 const withEscape = (reason: string): string => `${reason}\n${FREEZE_ESCAPE}`
 
+/**
+ * Said first, and said in the agent's own terms, because whoever reads a deny reason is about to
+ * start editing. Nothing about the code was judged, so an agent that treats this like a finding will
+ * rewrite correct code to appease a rule that never ran.
+ */
+const UNCHECKED_LEAD =
+  'falsestart could not check this write, and --fail closed denies a write it could not check. ' +
+  'Nothing about the code was judged, so do not change it to satisfy this. What failed:'
+
+/**
+ * The remedy that works, first — and the trap named, because the obvious remedy is not available.
+ *
+ * `respond` returns before `decide` on every load-time failure, so while `--fail closed` is on and
+ * the rule tree is broken, EVERY judged write denies, including the edit that would repair the rule
+ * document. "Fix the problem above" is advice the reader cannot take through the tool they are
+ * reading it in. The freeze's own escape does not have this shape — `--freeze off` makes a
+ * working-tree repair take effect immediately — so the wording is deliberately not copied from it.
+ */
+const UNCHECKED_ESCAPE =
+  're-run the hook with --fail open to allow writes falsestart cannot check. ' +
+  'Repairing the problem above needs that too: while --fail closed is on and the guard is broken, ' +
+  'every judged write is denied, including the one that would fix it.'
+
+const unchecked = (reason: string): string => `${UNCHECKED_LEAD}\n${reason}\n${UNCHECKED_ESCAPE}`
+
+/**
+ * What a guard failure emits under the policy in force.
+ *
+ * `undefined` is a real state at this boundary and means the default: `RespondOptions.failure` is
+ * optional, so a library caller that predates this flag never names one. Defaulting HERE rather than
+ * at each call site is what keeps the default in exactly one place — `??` scattered across three
+ * modules is three chances to disagree about it, and one of them is `cli.ts`, which nothing covers.
+ */
+const guardFailure = (policy: FailurePolicy | undefined, reason: string): HookResponse =>
+  policy === 'closed' ? denial(unchecked(reason)) : problem(reason)
+
 /** Both, when there are both. The freeze note never replaces what a rule had to say. */
 const join = (text: string, extra: string | undefined): string => (extra === undefined ? text : `${text}\n${extra}`)
 
@@ -99,9 +135,15 @@ const documentsOf = (source: Frozen | undefined): ReadonlyMap<string, string> | 
  * of it. Under a freeze a WORKING-TREE typo never reaches the loader at all, so the case the old
  * policy protected is strictly better off. What denies is a COMMITTED rule set that does not load —
  * a repository-wide problem a commit introduced, and the thing `scan` in CI already fails closed on.
+ *
+ * `frozen` is asked FIRST, and where it wins the message keeps exactly the text it always had. The
+ * two switches decide different things — the freeze decides which bytes are authoritative, `--fail`
+ * decides what a guard failure costs — and where the freeze already denies, `--freeze off` is the
+ * remedy that works and `--fail open` is not. A denial naming both would send the reader down the
+ * one that cannot help, so the disjunction resolves by precedence rather than growing a "both" arm.
  */
-const refuse = (frozen: boolean, message: string): HookResponse =>
-  frozen ? denial(withEscape(message)) : problem(message)
+const refuse = (frozen: boolean, policy: FailurePolicy | undefined, message: string): HookResponse =>
+  frozen ? denial(withEscape(message)) : guardFailure(policy, message)
 
 /**
  * Why a rule an author just edited did not change anything, said at the moment the confusion happens.
@@ -193,6 +235,11 @@ export interface RespondOptions {
    * Absent means unfrozen — the 0.2.0 behaviour — so a library call that predates this is unchanged.
    */
   readonly freeze?: (() => Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path>) | undefined
+  /**
+   * What a failure of the guard itself costs. Absent means `open`, the 0.2.0 behaviour, so a library
+   * call that predates this is unchanged. Never a `Broken` freeze, which denies in every policy.
+   */
+  readonly failure?: FailurePolicy | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
@@ -236,6 +283,7 @@ export const respond = (
     if (loaded._tag === 'Failure') {
       return refuse(
         frozenRules !== undefined,
+        options.failure,
         `could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`,
       )
     }
@@ -251,14 +299,14 @@ export const respond = (
     )
 
     if (configured._tag === 'Failure') {
-      return refuse(frozenConfig !== undefined, configured.failure.reasons.join('\n'))
+      return refuse(frozenConfig !== undefined, options.failure, configured.failure.reasons.join('\n'))
     }
 
     const scoped = yield* Effect.result(applyScopeOverrides(loaded.success, configured.success))
     if (scoped._tag === 'Failure') {
       // No path prefix: overrides only exist when a config file supplied them, so a `configPath ??`
       // fallback here would be a branch no input can reach. The reasons name the rule themselves.
-      return refuse(eitherFrozen, scoped.failure.reasons.join('\n'))
+      return refuse(eitherFrozen, options.failure, scoped.failure.reasons.join('\n'))
     }
 
     const decision = yield* decide(scoped.success, parsed.success, { warnUnscoped })
