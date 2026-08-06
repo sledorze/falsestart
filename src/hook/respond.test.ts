@@ -856,6 +856,46 @@ layer(platform)('a guard failure under --fail closed', (it) => {
       }),
     ),
   )
+
+  // T11 — a Write carrying no file_path: judgeable in principle, and the agent runtime's shape
+  // rather than this repository's. Nothing in the project is wrong, so a denial leaves an agent one
+  // move — rewriting code that was never judged. `WRITE_TOOLS` hard-codes another product's field
+  // names, so governing this would make availability depend on their release cadence.
+  it.effect('never denies a malformed hook payload, even under --fail closed', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('carried no content/file_path')
+      }),
+    ),
+  )
+
+  // T12 — the same argument one step earlier. Denying an unparseable payload for a guard reason is
+  // the malformed-payload class wearing a hat.
+  it.effect('never denies stdin that is not JSON, even under --fail closed', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: 'this is not json',
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('JSON')
+      }),
+    ),
+  )
 })
 
 /**
