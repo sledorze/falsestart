@@ -11,6 +11,7 @@
  */
 export * from './checking/index.ts'
 export * from './config/index.ts'
+export * from './freezing/index.ts'
 export * from './hook/index.ts'
 export * from './scanning/index.ts'
 export * from './testing/index.ts'

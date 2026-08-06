@@ -183,7 +183,7 @@ still judges one file at a time. It is a wider view of each file, not a view of 
 
 ## How the code is divided
 
-Six areas, each presenting a small entry point that the rest of the codebase and these documents
+Seven areas, each presenting a small entry point that the rest of the codebase and these documents
 cite. Areas are separated by _what they are allowed to know_:
 
 | Area                                    | Knows about                                                               |
@@ -192,6 +192,7 @@ cite. Areas are separated by _what they are allowed to know_:
 | [`config/`](../src/config/index.ts)     | A repository's own scope overrides, and reading them off disk.            |
 | [`hook/`](../src/hook/index.ts)         | The agent protocol: a payload in, a verdict out.                          |
 | [`scanning/`](../src/scanning/index.ts) | The filesystem: paths in, a report out.                                   |
+| [`freezing/`](../src/freezing/index.ts) | What a git ref committed. Not processes: it parses git's plumbing output. |
 | [`cli/`](../src/cli/index.ts)           | What the command line asked for.                                          |
 | [`testing/`](../src/testing/index.ts)   | Helpers a consumer uses to test their own rules.                          |
 

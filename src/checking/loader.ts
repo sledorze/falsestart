@@ -32,7 +32,16 @@ const SHARED_UTILS_DIRECTORY = '_utils'
 const isMapping = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-const isRuleDocument = (name: string): boolean => RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
+/**
+ * Exported because the freeze needs the same authority.
+ *
+ * A frozen tree is judged by this before it is read — a `120000` entry that is a rule document is
+ * refused where a `120000` README is ignored — and the write-time note about editing a rule under a
+ * freeze is scoped by it too. Two copies of "what counts as a rule document" would eventually
+ * disagree, and the disagreement would be silent in both directions.
+ */
+export const isRuleDocument = (name: string): boolean =>
+  RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
 
 const isSharedUtil = (entry: string): boolean => entry.split('/')[0] === SHARED_UTILS_DIRECTORY
 
@@ -82,22 +91,20 @@ const findDuplicateIds = (rules: readonly Rule[]): readonly string[] => {
 }
 
 /**
- * Reads every `.yml`/`.yaml` document under `directory`, recursively.
+ * Every `.yml`/`.yaml` document under `directory`, recursively, keyed by its path relative to it.
  *
- * Results are sorted by path. The directory walk's own order is NOT dependable — measured against
- * a real temp tree it returned sibling directories in reverse — so the sort is what actually makes
+ * Extracted from `loadRules` rather than inlined so the freeze can hand the loader committed bytes,
+ * and so `--doctor` can compare what the working tree holds against what the ref committed. The key
+ * shape is the one `readDirectory` produces and nothing else: a frozen tree's keys are matched
+ * against it.
+ *
+ * Results are sorted by path. The directory walk's own order is NOT dependable — measured against a
+ * real temp tree it returned sibling directories in reverse — so the sort is what actually makes
  * findings come out the same way run to run.
  */
-/** Stub: slice 2's tests need the symbol to exist before the extraction happens. */
 export const readRuleDocuments = (
-  _directory: string,
-): Effect.Effect<ReadonlyMap<string, string>, RuleLoadError, FileSystem.FileSystem | Path.Path> =>
-  Effect.succeed(new Map())
-
-export const loadRules = (
   directory: string,
-  _documents?: ReadonlyMap<string, string> | undefined,
-): Effect.Effect<readonly Rule[], RuleLoadError, FileSystem.FileSystem | Path.Path> =>
+): Effect.Effect<ReadonlyMap<string, string>, RuleLoadError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
@@ -106,40 +113,66 @@ export const loadRules = (
       .readDirectory(directory, { recursive: true })
       .pipe(Effect.mapError((cause) => new RuleLoadError({ reasons: [`cannot read ${directory}: ${cause}`] })))
 
-    const documents = entries.filter((entry) => isRuleDocument(entry)).toSorted()
-
-    const read = (entry: string) =>
-      fs.readFileString(path.join(directory, entry)).pipe(Effect.mapError((cause) => `cannot read ${entry}: ${cause}`))
+    const names = entries.filter((entry) => isRuleDocument(entry)).toSorted()
 
     // Reading a rule tree is I/O bound and the documents are independent, so they are read
     // concurrently. The results are still assembled in list order, which is what keeps findings
     // deterministic regardless of which read finishes first.
+    const documents = yield* Effect.all(
+      names.map((name) =>
+        fs.readFileString(path.join(directory, name)).pipe(
+          Effect.map((contents) => [name, contents] as const),
+          Effect.mapError((cause) => new RuleLoadError({ reasons: [`cannot read ${name}: ${cause}`] })),
+        ),
+      ),
+      { concurrency: 'unbounded' },
+    )
+
+    return new Map(documents)
+  })
+
+/**
+ * Loads a rule set, from the working tree or from bytes the caller already has.
+ *
+ * With `documents`, the working tree is not touched at all and `directory` is used only for error
+ * origins — that is what lets the freeze substitute what a git ref committed without the loader
+ * knowing a ref exists. Validation is identical on both paths, because a committed tree is no more
+ * trustworthy than an uncommitted one; what changes is only which bytes it is.
+ */
+export const loadRules = (
+  directory: string,
+  documents?: ReadonlyMap<string, string> | undefined,
+): Effect.Effect<readonly Rule[], RuleLoadError, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    // `FileSystem | Path` stays in the requirement type on the frozen path too, so there is one
+    // return type rather than two — a caller that switches between the two paths keeps one signature.
+    const held = documents ?? (yield* readRuleDocuments(directory))
+
+    // The same filter runs on both paths: a frozen map holds whatever the REF committed under the
+    // rules directory, which is as likely to include a README as the working tree is.
+    const entries = [...held]
+      .filter(([name]) => isRuleDocument(name))
+      .toSorted(([left], [right]) => (left < right ? -1 : 1))
+
     const concurrently = { concurrency: 'unbounded' } as const
 
     const utilOutcomes = yield* Effect.all(
-      documents
-        .filter((entry) => isSharedUtil(entry))
-        .map((entry) =>
-          read(entry).pipe(
-            Effect.flatMap((contents) => parseSharedUtil(contents, entry)),
-            Effect.result,
-          ),
-        ),
+      entries
+        .filter(([name]) => isSharedUtil(name))
+        // Each document is reduced to a Result so one bad rule does not short-circuit the walk;
+        // the failures are collected and reported together below.
+        .map(([name, contents]) => parseSharedUtil(contents, name).pipe(Effect.result)),
       concurrently,
     )
 
     const outcomes = yield* Effect.all(
-      documents
-        .filter((entry) => !isSharedUtil(entry))
-        .map((entry) =>
-          read(entry).pipe(
-            Effect.flatMap((contents) =>
-              // The origin is folded into the text here: a bare reason like "Missing key at [id]"
-              // is useless when the whole point is to say WHICH of forty rule files is broken.
-              parseRule(contents, entry).pipe(Effect.mapError((error) => `${error.origin}: ${error.reason}`)),
-            ),
-            // Each document is reduced to a Result so one bad rule does not short-circuit the walk;
-            // the failures are collected and reported together below.
+      entries
+        .filter(([name]) => !isSharedUtil(name))
+        .map(([name, contents]) =>
+          // The origin is folded into the text here: a bare reason like "Missing key at [id]" is
+          // useless when the whole point is to say WHICH of forty rule files is broken.
+          parseRule(contents, name).pipe(
+            Effect.mapError((error) => `${error.origin}: ${error.reason}`),
             Effect.result,
           ),
         ),
