@@ -79,6 +79,19 @@ const importDefault = (url: string, origin: string): Effect.Effect<unknown, Conf
     ),
   )
 
+const dataUrl = (javascript: string): string =>
+  `data:text/javascript;base64,${Buffer.from(javascript).toString('base64')}`
+
+const stripAndImport = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>
+  Effect.gen(function* () {
+    const javascript = yield* Effect.try({
+      catch: (cause) => failure(`${origin}: is not valid TypeScript (${String(cause)})`),
+      try: () => stripTypeScriptTypes(source),
+    })
+
+    return yield* validateConfig(yield* importDefault(dataUrl(javascript), origin), origin)
+  })
+
 const loadTypeScript = (
   configPath: string,
   origin: string,
@@ -89,16 +102,46 @@ const loadTypeScript = (
       .readFileString(configPath)
       .pipe(Effect.mapError((cause) => failure(`${origin}: cannot be read (${String(cause)})`)))
 
-    const javascript = yield* Effect.try({
-      catch: (cause) => failure(`${origin}: is not valid TypeScript (${String(cause)})`),
-      try: () => stripTypeScriptTypes(source),
-    })
-
-    const url = `data:text/javascript;base64,${Buffer.from(javascript).toString('base64')}`
-    const exported = yield* importDefault(url, origin)
-
-    return yield* validateConfig(exported, origin)
+    return yield* stripAndImport(source, origin)
   })
+
+/**
+ * Why a frozen `.js`/`.mjs` config loses package and relative imports, said where it happens.
+ *
+ * The freeze substitutes bytes for all four formats, so every format is imported from a `data:` URL,
+ * which has no filesystem location to resolve a specifier against. That is a real capability loss for
+ * the one format that had it, and the alternative — verify the file, then import it from its path —
+ * is a window an agent can write into between the two steps. A loud failure naming its own escape
+ * hatch is the honest version of that trade.
+ */
+const FROZEN_IMPORT_NOTE =
+  'a config read from a ref is imported from a data: URL, which has no location to resolve a ' +
+  'package or relative import against; pass --freeze=off to import it from disk'
+
+/**
+ * Loads the bytes a ref committed, for whichever format the path names.
+ *
+ * The working tree is never stat'ed or read here — not even to check the file is there. Gating the
+ * frozen path on the file's existence would make `rm falsestart.config.json` a one-command disarm.
+ */
+const loadFrozenConfig = (
+  extension: string,
+  source: string,
+  origin: string,
+): Effect.Effect<Config, ConfigError> => {
+  if (extension === '.json') {
+    return parseConfig(source, origin)
+  }
+
+  const imported =
+    extension === '.ts' || extension === '.mts'
+      ? stripAndImport(source, origin)
+      : importDefault(dataUrl(source), origin).pipe(Effect.flatMap((exported) => validateConfig(exported, origin)))
+
+  return imported.pipe(
+    Effect.mapError((error) => new ConfigError({ reasons: [...error.reasons, FROZEN_IMPORT_NOTE] })),
+  )
+}
 
 /**
  * Loads the config at `configPath`.
@@ -108,12 +151,16 @@ const loadTypeScript = (
  */
 export const loadConfigFile = (
   configPath: string,
-  _frozen?: string | undefined,
+  frozen?: string | undefined,
 ): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const origin = configPath
+
+    if (frozen !== undefined) {
+      return yield* loadFrozenConfig(path.extname(configPath), frozen, origin)
+    }
 
     // A path we cannot even stat is reported the same way as one that is not there: the caller's
     // next step is identical, and a separate branch for it is one no input can reach.
@@ -148,14 +195,25 @@ export const loadConfigFile = (
  *
  * Shared with the doctor rather than duplicated: it reports which config was picked up, and a second
  * copy of this scan would be a second thing to keep in step with `DEFAULT_CONFIG_CANDIDATES`.
+ *
+ * With `frozen`, "present" means present AT THE REF, keyed by basename, and the directory is never
+ * read. Discovery has to be frozen as well as content: adding a second config file beside a
+ * committed one breaks the load, and a broken load is an allowed write with a stderr line the agent
+ * runtime discards — so freezing only the bytes would leave that open by adding a file.
  */
 export const findDefaultConfigs = (
   directory: string,
-  _frozen?: ReadonlyMap<string, string> | undefined,
+  frozen?: ReadonlyMap<string, string> | undefined,
 ): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+
+    if (frozen !== undefined) {
+      return DEFAULT_CONFIG_CANDIDATES.filter((candidate) => frozen.has(candidate)).map((candidate) =>
+        path.join(directory, candidate),
+      )
+    }
 
     const present: string[] = []
     for (const candidate of DEFAULT_CONFIG_CANDIDATES) {
@@ -178,10 +236,11 @@ export const findDefaultConfigs = (
  */
 export const loadDefaultConfig = (
   directory: string,
-  _frozen?: ReadonlyMap<string, string> | undefined,
+  frozen?: ReadonlyMap<string, string> | undefined,
 ): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const present = yield* findDefaultConfigs(directory)
+    const path = yield* Path.Path
+    const present = yield* findDefaultConfigs(directory, frozen)
 
     const [only, ...rest] = present
     if (only === undefined) {
@@ -193,5 +252,7 @@ export const loadDefaultConfig = (
       )
     }
 
-    return yield* loadConfigFile(only)
+    // `frozen` holds every candidate `findDefaultConfigs` just returned, so the lookup is a lookup
+    // and not a fallback: there is no arrangement in which this reaches the working tree.
+    return yield* loadConfigFile(only, frozen?.get(path.basename(only)))
   })
