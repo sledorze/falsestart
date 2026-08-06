@@ -35,7 +35,7 @@
  */
 import { lstatSync } from 'node:fs'
 import { Effect, FileSystem, Path } from 'effect'
-import type { Anchor } from './freeze.ts'
+import type { Anchor, GitAnswer } from './freeze.ts'
 import { containedPath } from './freeze.ts'
 
 /**
@@ -46,11 +46,6 @@ import { containedPath } from './freeze.ts'
  * unverified rather than as an error: the answer "this cannot be verified" is already the right one.
  */
 export const MAX_ANCHOR_WALK = 16
-
-export interface AnchorResolution {
-  readonly anchor: Anchor
-  readonly toplevel: string
-}
 
 /**
  * Whether this exact path is a directory, without following a link to one.
@@ -72,34 +67,49 @@ const isDirectoryEntry = (path: string): boolean =>
  * unverified anchor must still freeze against the repository the project is actually in, rather than
  * silently starting to read a different one because the walk gave up.
  */
-export const resolveAnchor = (
-  toplevel: string,
-  revParse: (directory: string) => string | undefined,
-): Effect.Effect<AnchorResolution, never, Path.Path> =>
+/** `gitdir: <path>` is the whole of a gitfile. Anything else at `.git` is not one. */
+const GITFILE_PREFIX = 'gitdir: '
+
+/**
+ * Whether `candidate`'s `.git` file is the one a real linked worktree of `anchor` carries.
+ *
+ * The discriminator asks the repository the gitfile NAMES nothing at all: an agent that wrote the
+ * file wrote everything it points at, so corroboration from there is forgeable with three ordinary
+ * writes. What it compares against is `<anchor>/.git/worktrees`, and the anchor is a `.git`
+ * DIRECTORY the walk reached from outside — the one thing a write cannot replace. Trust flows
+ * outward from that directory, never inward from the file.
+ *
+ * The target's PARENT must be exactly that directory, which is where `git worktree add` puts it. A
+ * deeper path under it would be an equally valid containment and a weaker claim.
+ *
+ * What this does not survive is an agent writing INSIDE `<anchor>/.git`, which SECURITY.md already
+ * places outside what falsestart can defend: the directory cannot be replaced, but a process that
+ * can create files in it can create a plausible worktree entry. That is a strictly smaller surface
+ * than "one write anywhere on the filesystem", which is what this replaces.
+ */
+const isLinkedWorktreeOf = (
+  candidate: string,
+  anchor: string,
+): Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
 
-    let candidate = toplevel
-    // The bound is on the loop rather than checked inside it, so it also bounds the number of
-    // spawns an arrangement of gitfiles can provoke on a judged write.
-    for (let walked = 0; walked < MAX_ANCHOR_WALK; walked += 1) {
-      if (isDirectoryEntry(path.join(candidate, '.git'))) {
-        return { anchor: 'verified', toplevel: candidate }
-      }
-
-      const parent = path.dirname(candidate)
-      if (parent === candidate) {
-        return { anchor: 'unverified', toplevel }
-      }
-
-      const next = revParse(parent)
-      if (next === undefined) {
-        return { anchor: 'unverified', toplevel }
-      }
-      candidate = next
+    const declared = yield* fs
+      .readFileString(path.join(candidate, '.git'))
+      .pipe(Effect.orElseSucceed(() => ''))
+      .pipe(Effect.map((text) => text.trim()))
+    if (!declared.startsWith(GITFILE_PREFIX)) {
+      return false
     }
 
-    return { anchor: 'unverified', toplevel }
+    // A gitfile's path may be relative to the worktree, and both sides are resolved before they are
+    // compared so that a symlink cannot make two different places look like one.
+    const real = (target: string) => fs.realPath(target).pipe(Effect.orElseSucceed(() => undefined))
+    const gitdir = yield* real(path.resolve(candidate, declared.slice(GITFILE_PREFIX.length)))
+    const worktrees = yield* real(path.join(anchor, '.git', 'worktrees'))
+
+    return gitdir !== undefined && path.dirname(gitdir) === worktrees
   })
 
 /**
@@ -111,11 +121,10 @@ export const resolveAnchor = (
  * nothing to freeze" hands the working tree back to whoever wrote that file.
  *
  * The alternative would be to classify git's stderr, which is another program's prose and a content
- * match; this asks the filesystem instead. A `.git` FILE deliberately does not count: it is a
- * pointer a write produces, and the question here is what a write cannot produce.
+ * match; this asks the filesystem instead.
  *
- * Unbounded on purpose, unlike the anchor walk: `dirname` is lexical and strictly shortens, so it
- * reaches the root in as many steps as the path has segments and cannot loop.
+ * Unbounded on purpose, unlike the authority chain: `dirname` is lexical and strictly shortens, so
+ * it reaches the root in as many steps as the path has segments and cannot loop.
  */
 export const enclosingGitDirectory = (
   directory: string,
@@ -134,6 +143,44 @@ export const enclosingGitDirectory = (
       }
       candidate = parent
     }
+  })
+
+export type AnchorResolution =
+  | { readonly _tag: 'Anchored'; readonly anchor: Anchor; readonly toplevel: string }
+  | { readonly _tag: 'Ambiguous'; readonly reason: string }
+
+export interface AnchorOptions {
+  /** `git -C <repository> ls-tree <ref> -- <relative>`. */
+  readonly listTreeAt: (repository: string, relative: string) => GitAnswer
+  readonly projectDirectory: string
+  /** `git -C <repository> rev-parse --verify --quiet <ref>^{commit}`. */
+  readonly refExists: (repository: string) => GitAnswer
+  /** What `rev-parse --show-toplevel` answered for the project directory. */
+  readonly toplevel: string
+}
+
+/** Stub: the previous rule — the nearest `.git` directory wins — so the red is a concrete value. */
+export const resolveAnchor = (
+  options: AnchorOptions,
+): Effect.Effect<AnchorResolution, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+
+    let candidate = options.toplevel
+    for (let walked = 0; walked < MAX_ANCHOR_WALK; walked += 1) {
+      if (isDirectoryEntry(path.join(candidate, '.git'))) {
+        return (yield* isLinkedWorktreeOf(options.toplevel, candidate))
+          ? { _tag: 'Anchored', anchor: 'verified', toplevel: options.toplevel }
+          : { _tag: 'Anchored', anchor: 'verified', toplevel: candidate }
+      }
+      const parent = path.dirname(candidate)
+      if (parent === candidate) {
+        return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
+      }
+      candidate = parent
+    }
+
+    return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
   })
 
 export type RulesPath =

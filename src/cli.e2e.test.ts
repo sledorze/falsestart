@@ -1238,4 +1238,71 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
       }),
     ),
   )
+  /**
+   * A `.git` DIRECTORY created where none was — the exploit that survived `--freeze=require`.
+   *
+   * The previous rule stopped at the nearest `.git` directory and called it verified, reasoning that
+   * a write to one fails EISDIR. That is true of REPLACING a directory and says nothing about
+   * creating one, and creating one needs no shell. The attacker's committed rules were then
+   * enforced under `auto` AND under `require`, the real repository stayed clean, and `--doctor`
+   * reported a healthy frozen tree while calling the project's own committed rule the uncommitted
+   * change.
+   */
+  it.effect('refuses to be spoken for by a .git directory created at a tracked path', () =>
+    withProject({ 'pkg/rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* commitAll(root)
+        const pkg = path.join(root, 'pkg')
+
+        // The plant: a whole repository at a path the real one tracks, carrying a weakened rule,
+        // with the strict bytes put back on disk so nothing looks tampered with.
+        yield* commitAll(pkg)
+        yield* writeAll(pkg, { 'rules/r.yml': ATTACKER_RULE })
+        yield* git(pkg, ['add', '-A'])
+        yield* git(pkg, ['-c', 'user.email=t@e.st', '-c', 'user.name=t', 'commit', '-qm', 'weakened'])
+        yield* writeAll(pkg, { 'rules/r.yml': PROJECT_RULE })
+
+        // The real repository is untouched, which is what made this invisible.
+        expect((yield* git(root, ['status', '--porcelain'])).stdout.trim()).toBe('')
+
+        const payload = payloadFor({
+          content: 'const x = v as any\nconst zzz_marker = 1',
+          file_path: `${pkg}/src/a.ts`,
+        })
+        for (const extra of [[], ['--freeze', 'require']]) {
+          const result = yield* runIn(pkg, ['--rules', './rules', ...extra], payload)
+
+          expect(result.stdout).toContain('PROJECT RULE')
+          expect(result.stdout).not.toContain('ATTACKER RULE FIRED')
+        }
+      }),
+    ),
+  )
+
+  /**
+   * And the report must not invert which side is authoritative.
+   *
+   * "N working-tree change(s) are NOT in effect" is a claim about which bytes win. Printing it where
+   * the anchor is not positively established was wrong in the direction that reassures: it named the
+   * project's own rule as the change that had not landed.
+   */
+  it.effect('never calls the working tree stale where the anchor is not established', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (main) =>
+      withProject({}, (elsewhere) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          yield* commitAll(main)
+          const worktree = path.join(elsewhere, 'wt')
+          yield* git(main, ['worktree', 'add', '--detach', '-q', worktree, 'HEAD'])
+          yield* writeAll(worktree, { 'rules/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+          const doctor = yield* runIn(worktree, ['--doctor', '--rules', './rules'], '')
+
+          expect(doctor.stdout).toContain('anchor  UNVERIFIED')
+          expect(doctor.stdout).not.toContain('NOT in effect')
+        }),
+      ),
+    ),
+  )
 })

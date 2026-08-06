@@ -62,7 +62,6 @@ const CANDIDATES = ['falsestart.config.ts', 'falsestart.config.json'] as const
 const probeAnswer = (): GitAnswer => answer(bytes(commit(), ...CANDIDATES.map((name) => missing(`HEAD:${name}`))))
 
 const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
-  anchor: 'verified',
   config: { _tag: 'Candidates', names: CANDIDATES, relative: '' },
   isDocument: (name) => name.endsWith('.yml'),
   listTree: () => answer(''),
@@ -70,12 +69,12 @@ const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   namedRefs: () => answer(''),
   probe: probeAnswer,
   projectDirectory: '/p',
+  repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' },
   readBlobs: () => answer(''),
   ref: 'HEAD',
   refExplicit: false,
   rulesDirectory: './rules',
   rulesPath: { _tag: 'Contained', relative: 'rules' },
-  toplevel: '/p',
   workTree: { _tag: 'Inside' },
   ...overrides,
 })
@@ -560,8 +559,8 @@ describe('an anchor that one write can repoint', () => {
   // and it must freeze exactly as much as it would anywhere else.
   effect('freezes an unverified anchor under auto, with the same documents', () =>
     Effect.gen(function* () {
-      const unverified = yield* freeze(frozenTree({ anchor: 'unverified' }))
-      const verified = yield* freeze(frozenTree({ anchor: 'verified' }))
+      const unverified = yield* freeze(frozenTree({ repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }))
+      const verified = yield* freeze(frozenTree({ repository: { _tag: 'Anchored', anchor: 'verified', toplevel: '/p' } }))
 
       expect(unverified.rules._tag).toBe('Frozen')
       expect(unverified.rules).toHaveProperty('anchor', 'unverified')
@@ -574,7 +573,7 @@ describe('an anchor that one write can repoint', () => {
   // cannot be verified.
   effect('refuses an unverified anchor under require, saying what the condition is', () =>
     Effect.gen(function* () {
-      const outcome = yield* freeze(frozenTree({ anchor: 'unverified', mode: 'require' }))
+      const outcome = yield* freeze(frozenTree({ mode: 'require', repository: { _tag: 'Anchored', anchor: 'unverified', toplevel: '/p' } }))
 
       expect(outcome.rules._tag).toBe('Broken')
       expect(outcome.config._tag).toBe('Broken')

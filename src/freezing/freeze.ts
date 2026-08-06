@@ -20,7 +20,7 @@
  * `--freeze=off` asks git nothing, and a rules tree the ref does not track never reads a blob.
  */
 import { Effect } from 'effect'
-import type { RulesPath } from './anchor.ts'
+import type { AnchorResolution, RulesPath } from './anchor.ts'
 import type { Absent, TreeEntry } from './listing.ts'
 import { isAbsent, parseBatchObjects, parseTreeListing } from './listing.ts'
 
@@ -87,7 +87,8 @@ export type WorkTree =
   | { readonly _tag: 'Unreadable'; readonly stderr: string }
 
 export interface FreezeInput {
-  readonly anchor: Anchor
+  /** Which repository speaks for the project, or why that could not be established. */
+  readonly repository: AnchorResolution
   readonly config: ConfigSource
   readonly isDocument: (name: string) => boolean
   readonly listTree: (relative: string) => GitAnswer
@@ -102,7 +103,6 @@ export interface FreezeInput {
   /** The path the command line named, as written — it is what a reader recognises. */
   readonly rulesDirectory: string
   readonly rulesPath: RulesPath
-  readonly toplevel: string
   readonly workTree: WorkTree
 }
 
@@ -321,14 +321,6 @@ export const classifyRules = (options: ClassifyRulesOptions): Effect.Effect<Froz
  */
 export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
   Effect.gen(function* () {
-    const evidence = {
-      anchor: input.anchor,
-      mode: input.mode,
-      projectDirectory: input.projectDirectory,
-      ref: input.ref,
-      toplevel: input.toplevel,
-    }
-
     if (input.mode === 'off') {
       return both(unfrozen('--freeze=off'))
     }
@@ -349,14 +341,28 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
       )
     }
 
-    if (input.anchor === 'unverified' && input.mode === 'require') {
+    // Which repository is authoritative could not be established. That is not an absence — it is a
+    // freeze that cannot say what it would be enforcing — so it refuses in every mode.
+    if (input.repository._tag === 'Ambiguous') {
+      return both(broken(input.repository.reason))
+    }
+
+    const evidence = {
+      anchor: input.repository.anchor,
+      mode: input.mode,
+      projectDirectory: input.projectDirectory,
+      ref: input.ref,
+      toplevel: input.repository.toplevel,
+    }
+
+    if (input.repository.anchor === 'unverified' && input.mode === 'require') {
       return both(broken(anchorRefusal(evidence)))
     }
 
     const requests = [input.ref, ...configRequests(input.ref, input.config)]
     const answered = yield* Effect.result(parseBatchObjects(input.probe(requests).stdout, requests))
     if (answered._tag === 'Failure') {
-      return both(broken(`could not read ${input.ref} from ${input.toplevel}: ${answered.failure}`))
+      return both(broken(`could not read ${input.ref} from ${evidence.toplevel}: ${answered.failure}`))
     }
 
     const [probed, ...configObjects] = answered.success
@@ -369,7 +375,7 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
       // raises the cost of that escape by one command; it does not close it, because no probe inside
       // a git directory survives an agent that can write inside that git directory.
       return input.namedRefs().stdout.length === 0
-        ? both(byMode(input.mode, `${input.toplevel} has no commit yet`))
+        ? both(byMode(input.mode, `${evidence.toplevel} has no commit yet`))
         : both(broken('HEAD does not resolve in a repository that has refs'))
     }
 

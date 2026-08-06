@@ -31,7 +31,7 @@ import {
 } from './scanning/index.ts'
 import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
 import { isRuleDocument, loadRules, ruleListText } from './checking/index.ts'
-import type { ConfigSource, FreezeMode, FreezeOutcome, GitAnswer, WorkTree } from './freezing/index.ts'
+import type { AnchorResolution, ConfigSource, FreezeMode, FreezeOutcome, GitAnswer, WorkTree } from './freezing/index.ts'
 import { containedPath, enclosingGitDirectory, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
 
 /**
@@ -242,10 +242,19 @@ const resolveFreeze = (options: {
     // `off` asks git nothing at all, including this.
     const asked = mode === 'off' ? undefined : toplevelOf(projectDirectory)
     const located = asked?.toplevel
-    const anchored =
+    const repository: AnchorResolution =
       located === undefined
-        ? { anchor: 'unverified' as const, toplevel: projectReal }
-        : yield* resolveAnchor(located, (directory) => toplevelOf(directory).toplevel)
+        ? { _tag: 'Anchored', anchor: 'unverified', toplevel: projectReal }
+        : yield* resolveAnchor({
+            listTreeAt: (repo, relative) => runGit(['-C', repo, 'ls-tree', ref, '--', relative]),
+            projectDirectory,
+            refExists: (repo) => runGit(['-C', repo, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]),
+            toplevel: located,
+          })
+    const anchored =
+      repository._tag === 'Anchored'
+        ? repository
+        : { anchor: 'unverified' as const, toplevel: projectReal }
 
     /**
      * git failing to name the repository is not evidence that there is none.
@@ -279,7 +288,6 @@ const resolveFreeze = (options: {
           }
 
     return yield* freeze({
-      anchor: anchored.anchor,
       config,
       isDocument: isRuleDocument,
       listTree: (relative) => at(['ls-tree', '-r', '-z', ref, '--', relative === '' ? '.' : relative]),
@@ -291,8 +299,8 @@ const resolveFreeze = (options: {
       ref,
       refExplicit,
       rulesDirectory,
+      repository,
       rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
-      toplevel: anchored.toplevel,
       workTree,
     })
   })

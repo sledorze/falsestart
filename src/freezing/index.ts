@@ -5,7 +5,7 @@
  * hands the answers here, which is what lets every arm of the decision be reached by a test. Why the
  * areas are drawn this way is explained in `docs/architecture.md`.
  */
-export type { AnchorResolution, RulesPath, RulesPathOptions } from './anchor.ts'
+export type { AnchorOptions, AnchorResolution, RulesPath, RulesPathOptions } from './anchor.ts'
 export { enclosingGitDirectory, MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
 export type {
   Anchor,

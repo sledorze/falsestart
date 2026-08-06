@@ -1,17 +1,24 @@
 /**
- * Which repository, and which path.
+ * Which repository speaks for this directory, and which path the ref is asked about.
  *
- * A real temp filesystem throughout, and real git for the walk's `rev-parse`. Both are load-bearing:
- * the question these functions answer is what `lstat` says about a `.git` entry and what `realpath`
- * says about a directory that may not be there, and an in-memory double answers whichever of those
- * its author implemented. An earlier revision of this design used `stat` instead of `lstat` — a
- * defect a double would have carried straight through.
+ * A real temp filesystem and real git throughout. The questions here are what `lstat` says about a
+ * `.git` entry, what a gitfile really points at, and what a repository's committed tree really
+ * holds; an in-memory double answers whichever of those its author implemented, and two revisions of
+ * this design were broken by exactly that kind of assumption.
+ *
+ * **Proximity is not evidence.** "The nearest `.git`" is a heuristic, and every arrangement below
+ * that breaks it was reachable by a `Write` tool call. Authority is established from the OUTSIDE in:
+ * the outermost repository speaks first, and an inner one is trusted only where the repository
+ * already trusted has nothing at that path, or accounts for it as one of its own linked worktrees.
+ * No question is ever put to the candidate repository itself — an agent that created it wrote every
+ * answer it could give.
  */
 import { spawnSync } from 'node:child_process'
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { enclosingGitDirectory, MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
+import type { GitAnswer } from './freeze.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -47,175 +54,189 @@ const withTree = <A, E>(
 const initRepository = (directory: string) =>
   Effect.sync(() => spawnSync('git', ['init', '-q', directory], { encoding: 'utf8' }))
 
-/**
- * The probe `cli.ts` will supply, spelled here exactly as it is there.
- *
- * It records the directories it was asked about, because "the walk costs zero extra spawns in the
- * common case" is a claim about the number of calls and nothing else can see it.
- */
-const spawningRevParse =
-  (calls: string[]) =>
-  (directory: string): string | undefined => {
-    calls.push(directory)
-    const result = spawnSync('git', ['--no-optional-locks', '-C', directory, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-    })
-    return result.status === 0 ? result.stdout.trim() : undefined
+const runGit = (directory: string, args: readonly string[]): GitAnswer => {
+  const result = spawnSync('git', ['--no-optional-locks', '-C', directory, ...args], {
+    env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
+  })
+  return {
+    failed: result.error !== undefined || result.status !== 0,
+    stderr: result.stderr?.toString() ?? '',
+    stdout: result.stdout ?? new Uint8Array(),
   }
+}
 
-/** Every parent is its own repository — the only shape that walks all the way to the root. */
-const echoingRevParse = (directory: string): string | undefined => directory
+/**
+ * The two questions `cli.ts` will put to git, spelled here exactly as it does.
+ *
+ * Every directory asked is recorded, because "the candidate repository is never consulted" is a claim
+ * about WHICH repository was asked and nothing else can see it — and it is the whole of why a chain
+ * of planted repositories does not win.
+ */
+const asking = (asked: string[]) => ({
+  listTreeAt: (repository: string, relative: string): GitAnswer => {
+    asked.push(`${repository} ? ${relative}`)
+    return runGit(repository, ['ls-tree', 'HEAD', '--', relative])
+  },
+  refExists: (repository: string): GitAnswer => runGit(repository, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']),
+})
 
-layer(platform)('resolving the anchor', (it) => {
-  // T83 — C1. A planted `.git` gitfile in a monorepo subdirectory moves the toplevel there, and a
-  // freeze that stopped at the moved toplevel would enforce the attacker's rules under the default.
-  it.effect('walks over a planted gitfile onto the enclosing repository, in one rev-parse', () =>
-    withTree({ 'pkg/app/.git': 'gitdir: /elsewhere/.git\n' }, (root) =>
+const commitAll = (directory: string) =>
+  Effect.sync(() => {
+    spawnSync('git', ['-C', directory, 'add', '-A'])
+    spawnSync('git', ['-C', directory, '-c', 'user.email=a@b.c', '-c', 'user.name=a', 'commit', '-qm', 'first'])
+  })
+
+const anchorOf = (start: string, asked: string[] = []) =>
+  resolveAnchor({ projectDirectory: start, toplevel: start, ...asking(asked) })
+
+layer(platform)('deciding which repository speaks for a directory', (it) => {
+  it.effect('an ordinary repository speaks for itself, and git is not asked anything', () =>
+    withTree({ 'keep.txt': 'x' }, (root) =>
       Effect.gen(function* () {
-        const path = yield* Path.Path
         yield* initRepository(root)
-        const calls: string[] = []
+        const asked: string[] = []
 
-        const resolved = yield* resolveAnchor(path.join(root, 'pkg', 'app'), spawningRevParse(calls))
-
-        expect(resolved).toEqual({ anchor: 'verified', toplevel: root })
-        expect(calls).toEqual([path.join(root, 'pkg')])
-      }),
-    ),
-  )
-
-  // T77 lives in the classification suite; this is the same fact one layer down, and it is what
-  // makes the walk cost nothing in the common case.
-  it.effect('stops on the first lstat when .git is a real directory', () =>
-    withTree({}, (root) =>
-      Effect.gen(function* () {
-        yield* initRepository(root)
-        const calls: string[] = []
-
-        expect(yield* resolveAnchor(root, spawningRevParse(calls))).toEqual({ anchor: 'verified', toplevel: root })
-        expect(calls).toEqual([])
-      }),
-    ),
-  )
-
-  // T84 — the walk gives up rather than reading some other repository.
-  it.effect('returns the starting toplevel unverified when rev-parse finds nothing above', () =>
-    withTree({ 'project/x.txt': 'x' }, (root) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        const project = path.join(root, 'project')
-
-        expect(yield* resolveAnchor(project, spawningRevParse([]))).toEqual({
-          anchor: 'unverified',
-          toplevel: project,
-        })
-      }),
-    ),
-  )
-
-  // T84, second half: the filesystem root is an exit, not a place the loop spins on.
-  it.effect('stops at the filesystem root when every parent claims to be a repository', () =>
-    withTree({ 'project/x.txt': 'x' }, (root) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        const project = path.join(root, 'project')
-
-        expect(yield* resolveAnchor(project, echoingRevParse)).toEqual({ anchor: 'unverified', toplevel: project })
-      }),
-    ),
-  )
-
-  // T85 — C6. `stat` reports a symlinked `.git` as a directory, and an `unlink` plus one write
-  // replaces the link without touching its target, so it is exactly the agent-replaceable pointer
-  // this check exists to refuse.
-  it.effect('treats a symlinked .git as unverified rather than as the directory it names', () =>
-    withTree({ 'store/': '', 'wt/keep.txt': 'x' }, (root) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        yield* initRepository(path.join(root, 'store'))
-        yield* fs.symlink(path.join(root, 'store', '.git'), path.join(root, 'wt', '.git'))
-        const worktree = path.join(root, 'wt')
-
-        expect(yield* resolveAnchor(worktree, spawningRevParse([]))).toEqual({
-          anchor: 'unverified',
-          toplevel: worktree,
-        })
-      }),
-    ),
-  )
-
-  // T86 — one visible write per level still loses at a root whose `.git` is a directory.
-  it.effect('walks past a gitfile planted at every level up to the repository root', () =>
-    withTree({ 'a/b/c/keep.txt': 'x' }, (root) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        yield* initRepository(root)
-        for (const level of ['a', 'a/b', 'a/b/c']) {
-          yield* fs.writeFileString(path.join(root, level, '.git'), `gitdir: ${path.join(root, '.git')}\n`)
-        }
-        const calls: string[] = []
-
-        const resolved = yield* resolveAnchor(path.join(root, 'a', 'b', 'c'), spawningRevParse(calls))
-
-        expect(resolved).toEqual({ anchor: 'verified', toplevel: root })
-        expect(calls).toHaveLength(3)
+        expect(yield* anchorOf(root, asked)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: root })
+        expect(asked).toEqual([])
       }),
     ),
   )
 
   /**
-   * A linked worktree INSIDE its main repository, which the walk used to step over.
+   * The exploit this rewrite exists for: a `.git` DIRECTORY created where none was.
    *
-   * Stepping over it is right for a PLANTED gitfile and wrong for a real worktree: the ref then
-   * consulted is the main repository's HEAD, which does not track the worktree's own path, so the
-   * freeze reported "not tracked" and read the working tree — silently under `auto`, and as a total
-   * outage under `require`.
-   *
-   * The discriminator asks nothing of the repository the gitfile names, which would be forgeable by
-   * whoever wrote it. It compares the target against `<anchor>/.git/worktrees`, and the anchor is a
-   * `.git` DIRECTORY reached by walking outward — the one thing a write cannot replace. Trust flows
-   * outward from that directory, never inward from the file.
+   * The previous rule stopped at the nearest `.git` directory and called it verified, on the
+   * reasoning that a write to one fails EISDIR — which is true of REPLACING a directory and says
+   * nothing about creating one. Under `auto` and under `require` alike, the attacker's committed
+   * rules were then enforced while `--doctor` reported a healthy frozen tree.
    */
-  it.effect('trusts a real linked worktree of the anchor as its own authority', () =>
-    withTree({}, (root) =>
+  it.effect('refuses to let a .git DIRECTORY created at a tracked path speak', () =>
+    withTree({ 'pkg/rules/r.yml': 'id: r\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* commitAll(root)
+        const pkg = path.join(root, 'pkg')
+        yield* initRepository(pkg)
+        yield* commitAll(pkg)
+        const asked: string[] = []
+
+        expect(yield* anchorOf(pkg, asked)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: root })
+        expect(asked).toEqual([`${root} ? pkg`])
+      }),
+    ),
+  )
+
+  it.effect('refuses to let a planted .git FILE at a tracked path speak either', () =>
+    withTree({ 'pkg/rules/r.yml': 'id: r\n' }, (root) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         yield* initRepository(root)
-        yield* fs.writeFileString(path.join(root, 'keep.txt'), 'x')
-        yield* Effect.sync(() => spawnSync('git', ['-C', root, 'add', '-A'], { encoding: 'utf8' }))
-        yield* Effect.sync(() =>
-          spawnSync('git', ['-C', root, '-c', 'user.email=a@b.c', '-c', 'user.name=a', 'commit', '-qm', 'first'], {
-            encoding: 'utf8',
-          }),
-        )
+        yield* commitAll(root)
+        const pkg = path.join(root, 'pkg')
+        yield* fs.writeFileString(path.join(pkg, '.git'), 'gitdir: /elsewhere/.git\n')
+
+        expect(yield* anchorOf(pkg)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: root })
+      }),
+    ),
+  )
+
+  /**
+   * And a chain of them, which is what makes "ask the enclosing repository" different from "ask the
+   * nearest one". Every question must go to the authority established from OUTSIDE; a candidate that
+   * an agent created must never be asked whether it is legitimate.
+   */
+  it.effect('asks only the outermost authority, however many repositories are planted below it', () =>
+    withTree({ 'a/b/c/rules/r.yml': 'id: r\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* commitAll(root)
+        for (const level of ['a', 'a/b', 'a/b/c']) {
+          const nested = path.join(root, level)
+          yield* initRepository(nested)
+          yield* commitAll(nested)
+        }
+        const asked: string[] = []
+
+        const resolved = yield* anchorOf(path.join(root, 'a', 'b', 'c'), asked)
+
+        expect(resolved).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: root })
+        expect(asked).toEqual([`${root} ? a`, `${root} ? a/b`, `${root} ? a/b/c`])
+      }),
+    ),
+  )
+
+  /**
+   * The case that keeps this from being an outage for everyone with a dotfiles repository in `$HOME`.
+   *
+   * An inner repository at a path the outer one has nothing at is not shadowing anything. It is an
+   * independent checkout that happens to live there, and it speaks for itself.
+   */
+  it.effect('lets an independent checkout at an untracked path speak for itself', () =>
+    withTree({ 'dotfile.txt': 'x', 'project/rules/r.yml': 'id: r\n' }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* fs.writeFileString(path.join(root, '.gitignore'), 'project\n')
+        yield* commitAll(root)
+        const project = path.join(root, 'project')
+        yield* initRepository(project)
+        yield* commitAll(project)
+
+        expect(yield* anchorOf(project)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: project })
+      }),
+    ),
+  )
+
+  it.effect('treats an outer repository with no commits as accounting for nothing', () =>
+    withTree({ 'project/rules/r.yml': 'id: r\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        const project = path.join(root, 'project')
+        yield* initRepository(project)
+        yield* commitAll(project)
+
+        expect(yield* anchorOf(project)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: project })
+      }),
+    ),
+  )
+
+  it.effect('trusts a real linked worktree of the authority as its own authority', () =>
+    withTree({ 'keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* commitAll(root)
         const worktree = path.join(root, 'wt')
-        yield* Effect.sync(() =>
-          spawnSync('git', ['-C', root, 'worktree', 'add', '-q', '-b', 'wt', worktree], { encoding: 'utf8' }),
-        )
+        yield* Effect.sync(() => spawnSync('git', ['-C', root, 'worktree', 'add', '-q', '-b', 'wt', worktree]))
 
         expect((yield* fs.stat(path.join(worktree, '.git'))).type).toBe('File')
-        expect(yield* resolveAnchor(worktree, spawningRevParse([]))).toEqual({
-          anchor: 'verified',
-          toplevel: worktree,
-        })
+        expect(yield* anchorOf(worktree)).toEqual({ _tag: 'Anchored', anchor: 'verified', toplevel: worktree })
       }),
     ),
   )
 
   // The negative half AGENTS.md asks for: superficially similar, provably untouched. A directory
-  // merely NAMED `worktrees` is not `<anchor>/.git/worktrees`.
+  // merely NAMED `worktrees` is not `<authority>/.git/worktrees`.
   it.effect('is not fooled by a gitdir under a directory named worktrees somewhere else', () =>
     withTree({ 'decoy/worktrees/fake/HEAD': 'ref: refs/heads/master\n', 'wt/keep.txt': 'x' }, (root) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         yield* initRepository(root)
-        yield* fs.writeFileString(path.join(root, 'wt', '.git'), `gitdir: ${path.join(root, 'decoy', 'worktrees', 'fake')}\n`)
+        yield* commitAll(root)
+        yield* fs.writeFileString(
+          path.join(root, 'wt', '.git'),
+          `gitdir: ${path.join(root, 'decoy', 'worktrees', 'fake')}\n`,
+        )
 
-        expect(yield* resolveAnchor(path.join(root, 'wt'), spawningRevParse([]))).toEqual({
+        expect(yield* anchorOf(path.join(root, 'wt'))).toEqual({
+          _tag: 'Anchored',
           anchor: 'verified',
           toplevel: root,
         })
@@ -224,13 +245,15 @@ layer(platform)('resolving the anchor', (it) => {
   )
 
   it.effect('is not fooled by a gitfile whose target does not exist, or by one that is not a gitfile', () =>
-    withTree({ 'a/.git': 'gitdir: /no/such/place\n', 'b/.git': 'not a gitfile at all\n' }, (root) =>
+    withTree({ 'a/.git': 'gitdir: /no/such/place\n', 'b/.git': 'not a gitfile at all\n', 'keep.txt': 'x' }, (root) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
         yield* initRepository(root)
+        yield* commitAll(root)
 
         for (const name of ['a', 'b']) {
-          expect(yield* resolveAnchor(path.join(root, name), spawningRevParse([]))).toEqual({
+          expect(yield* anchorOf(path.join(root, name))).toEqual({
+            _tag: 'Anchored',
             anchor: 'verified',
             toplevel: root,
           })
@@ -239,42 +262,72 @@ layer(platform)('resolving the anchor', (it) => {
     ),
   )
 
-  it.effect('treats a plain subdirectory of a repository as the repository, not as a worktree', () =>
-    withTree({ 'sub/keep.txt': 'x' }, (root) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        yield* initRepository(root)
-
-        expect(yield* resolveAnchor(path.join(root, 'sub'), spawningRevParse([]))).toEqual({
-          anchor: 'verified',
-          toplevel: root,
-        })
-      }),
-    ),
-  )
-
-  // T86, second half: a judged write must not be hangable by an arrangement of paths.
-  it.effect('gives up unverified rather than walking further than MAX_ANCHOR_WALK', () =>
-    withTree({ 'store/': '' }, (root) =>
+  /**
+   * A repository with no enclosing repository at all and a `.git` that is not a directory: a linked
+   * worktree outside its main repository, or `--separate-git-dir`. Nothing encloses it, so nothing
+   * can account for it — and that is reported rather than refused, because both are supported git
+   * workflows. `--freeze=require` is what refuses here.
+   */
+  it.effect('reports an anchor that nothing encloses and that one write can repoint', () =>
+    withTree({ 'store/': '', 'wt/keep.txt': 'x' }, (root) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         yield* initRepository(path.join(root, 'store'))
+        const worktree = path.join(root, 'wt')
+        yield* fs.writeFileString(path.join(worktree, '.git'), `gitdir: ${path.join(root, 'store', '.git')}\n`)
 
-        const depth = MAX_ANCHOR_WALK + 4
-        let deepest = root
-        for (let level = 0; level < depth; level += 1) {
-          deepest = path.join(deepest, `level-${level}`)
-          yield* fs.makeDirectory(deepest, { recursive: true })
-          yield* fs.writeFileString(path.join(deepest, '.git'), `gitdir: ${path.join(root, 'store', '.git')}\n`)
-        }
-        const calls: string[] = []
+        expect(yield* anchorOf(worktree)).toEqual({ _tag: 'Anchored', anchor: 'unverified', toplevel: worktree })
+      }),
+    ),
+  )
 
-        expect(yield* resolveAnchor(deepest, spawningRevParse(calls))).toEqual({
-          anchor: 'unverified',
-          toplevel: deepest,
+  it.effect('refuses when the authority cannot be asked whether it tracks the path', () =>
+    withTree({ 'pkg/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+        yield* commitAll(root)
+        const pkg = path.join(root, 'pkg')
+        yield* initRepository(pkg)
+
+        const resolved = yield* resolveAnchor({
+          listTreeAt: () => ({ failed: true, stderr: 'fatal: bad object', stdout: new Uint8Array() }),
+          projectDirectory: pkg,
+          refExists: () => ({ failed: false, stderr: '', stdout: new Uint8Array() }),
+          toplevel: pkg,
         })
-        expect(calls.length).toBeLessThanOrEqual(MAX_ANCHOR_WALK)
+
+        expect(resolved._tag).toBe('Ambiguous')
+        expect(resolved).toHaveProperty('reason', expect.stringContaining('fatal: bad object'))
+      }),
+    ),
+  )
+
+  it.effect('refuses rather than following a chain deeper than MAX_ANCHOR_WALK', () =>
+    withTree({}, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        yield* initRepository(root)
+
+        let deepest = root
+        for (let level = 0; level < MAX_ANCHOR_WALK + 2; level += 1) {
+          deepest = path.join(deepest, `level-${level}`)
+          yield* initRepository(deepest)
+        }
+
+        expect((yield* anchorOf(deepest))._tag).toBe('Ambiguous')
+      }),
+    ),
+  )
+
+  it.effect('reports an unverified anchor when nothing anywhere has a .git entry', () =>
+    withTree({ 'project/keep.txt': 'x' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const project = path.join(root, 'project')
+
+        expect(yield* anchorOf(project)).toEqual({ _tag: 'Anchored', anchor: 'unverified', toplevel: project })
       }),
     ),
   )
