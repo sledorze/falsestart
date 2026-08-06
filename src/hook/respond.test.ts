@@ -1745,6 +1745,28 @@ layer(platform)('registered at an event falsestart does not implement', (it) => 
     ),
   )
 
+  // The regression an adversarial review found, pinned where it happened: on the CHANNEL. With the
+  // event refusal winning, `--agent copilot` in front of a Claude Code payload at another event
+  // answered at exit 0 on Copilot's channel, which Claude Code writes to the debug log and nowhere
+  // else — while the release before it said `Set --agent claude-code` at exit 1, in the transcript.
+  // A fix that turns a visible diagnostic into silence is a regression whatever its exit code says.
+  it.effect('keeps the misdeclared-agent notice, which is the only one that can be read here', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: AT_ANOTHER_EVENT,
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('--agent claude-code')
+        expect(response.stderr).not.toContain('this hook was invoked for')
+      }),
+    ),
+  )
+
   // A tool call falsestart would have deferred at PreToolUse costs the same at any other event:
   // silence. It is registration noise otherwise — most of a session's traffic writes nothing, and
   // a notice on every `Bash` call is one the reader learns to skip.

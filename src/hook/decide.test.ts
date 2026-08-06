@@ -739,6 +739,27 @@ describe('the event falsestart implements', () => {
     }),
   )
 
+  // Both mistakes at once, and the one case where the event refusal must NOT win. A tool name is
+  // structural proof of who is really on the other end; `hook_event_name` is not, because both
+  // runtimes send it. Measured against the binary before the event check existed, `--agent copilot`
+  // in front of this payload said `Set --agent claude-code` at exit 1, which Claude Code shows in
+  // the transcript. Answering it with the event refusal instead emits at exit 0 on Copilot's
+  // channel — stderr Claude Code writes to the debug log and nothing else — so a diagnostic that
+  // was visible becomes silence. The misdeclaration wins, and the event refusal follows once the
+  // flag is right.
+  effect('lets a misdeclared agent win, because only that answer can reach the runtime', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        { ...writePayload('const x = value as any'), hook_event_name: 'PostToolUse' },
+        { agent: 'copilot' },
+      )
+
+      expect(problemOf(decision)).toContain('--agent claude-code')
+      expect(problemOf(decision)).not.toContain('this hook was invoked for')
+    }),
+  )
+
   // Every problem a contract reports names that contract, so a reader can tell which one rejected
   // their payload. Copilot carries `hook_event_name` in the spelling a PascalCase hook config
   // selects, so this refusal is reachable there and not only under the default.
