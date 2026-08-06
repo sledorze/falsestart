@@ -102,9 +102,39 @@ export const resolveAnchor = (
     return { anchor: 'unverified', toplevel }
   })
 
-/** Stub: slice A's tests need the symbol to exist before the walk is written. */
-export const enclosingGitDirectory = (_directory: string): Effect.Effect<string | undefined, never, Path.Path> =>
-  Effect.succeed(undefined)
+/**
+ * The nearest directory, starting at `directory` itself, whose `.git` is a real DIRECTORY.
+ *
+ * Used to establish the absence of a repository POSITIVELY. git failing to say which repository this
+ * is proves nothing about whether one exists — a malformed config file it reads before doing
+ * anything makes it fail in every directory on the machine — and reading that failure as "there is
+ * nothing to freeze" hands the working tree back to whoever wrote that file.
+ *
+ * The alternative would be to classify git's stderr, which is another program's prose and a content
+ * match; this asks the filesystem instead. A `.git` FILE deliberately does not count: it is a
+ * pointer a write produces, and the question here is what a write cannot produce.
+ *
+ * Unbounded on purpose, unlike the anchor walk: `dirname` is lexical and strictly shortens, so it
+ * reaches the root in as many steps as the path has segments and cannot loop.
+ */
+export const enclosingGitDirectory = (
+  directory: string,
+): Effect.Effect<string | undefined, never, Path.Path> =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+
+    let candidate = directory
+    for (;;) {
+      if (isDirectoryEntry(path.join(candidate, '.git'))) {
+        return candidate
+      }
+      const parent = path.dirname(candidate)
+      if (parent === candidate) {
+        return undefined
+      }
+      candidate = parent
+    }
+  })
 
 export type RulesPath =
   /** Inside the repository, at the path the command line named. `''` means the toplevel itself. */

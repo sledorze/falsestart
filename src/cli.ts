@@ -31,8 +31,8 @@ import {
 } from './scanning/index.ts'
 import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
 import { isRuleDocument, loadRules, ruleListText } from './checking/index.ts'
-import type { ConfigSource, FreezeMode, FreezeOutcome, GitAnswer } from './freezing/index.ts'
-import { containedPath, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
+import type { ConfigSource, FreezeMode, FreezeOutcome, GitAnswer, WorkTree } from './freezing/index.ts'
+import { containedPath, enclosingGitDirectory, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
@@ -134,17 +134,60 @@ const gitIgnored = (paths: readonly string[], projectDirectory: string): Readonl
 }
 
 /**
+ * The location variables git honours before it looks at any path.
+ *
+ * Cleared, because falsestart decides which repository is authoritative by walking the filesystem
+ * outward to a `.git` DIRECTORY, and an inherited variable that overrides that decision is the
+ * environment disarming the guard. Measured: `GIT_DIR=<other>/.git GIT_WORK_TREE=<other>` made the
+ * freeze read a different repository entirely and report the project's own rules as "outside the
+ * project repository".
+ */
+const GIT_LOCATION_VARIABLES = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_NAMESPACE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_WORK_TREE',
+]
+
+/**
+ * The environment every freeze spawn runs in: the caller's, minus everything that could decide for
+ * it which repository this is.
+ *
+ * Global and system configuration are pointed at `/dev/null` as well. Not because config is
+ * dangerous, but because git reads it BEFORE it does anything: one malformed line in `~/.gitconfig`
+ * makes `rev-parse` exit non-zero in every directory on the machine — a file outside the repository,
+ * outside `.git`, and invisible to any diff of the project. Repo-local `.git/config` still applies;
+ * that one is inside `.git`, which `SECURITY.md` already places outside what this can defend.
+ *
+ * The consequence is user-visible and is documented: a global `include`, a custom `core.*`, a
+ * commit-signing setting — none of them apply to these four invocations.
+ */
+const gitEnvironment = (): Record<string, string | undefined> => {
+  const inherited: Record<string, string | undefined> = { ...process.env }
+  for (const name of GIT_LOCATION_VARIABLES) {
+    delete inherited[name]
+  }
+  inherited['GIT_CONFIG_GLOBAL'] = '/dev/null'
+  inherited['GIT_CONFIG_SYSTEM'] = '/dev/null'
+  return inherited
+}
+
+/**
  * One `git` invocation, with its output kept as BYTES.
  *
  * `encoding` is left unset on purpose: `cat-file --batch` frames objects by a byte count, and
  * decoding before slicing corrupts every document with a non-ASCII character.
  *
  * `--no-optional-locks` rather than `GIT_OPTIONAL_LOCKS=0`, which is what git's own documentation
- * calls the equivalent of: a judged write must not take a repository lock, and reading `process.env`
- * to build one would be the untracked, untyped global this repo's own rules forbid.
+ * calls the equivalent of: a judged write must not take a repository lock.
  */
 const runGit = (args: readonly string[], input?: string): GitAnswer => {
   const result = spawnSync('git', ['--no-optional-locks', ...args], {
+    env: gitEnvironment(),
     maxBuffer: 64 * 1024 * 1024,
     ...(input === undefined ? {} : { input }),
   })
@@ -164,9 +207,9 @@ const decoder = new TextDecoder()
  * Never from the rules directory. git honours a `.git` gitfile, so running it with a cwd inside a
  * directory an agent can write hands the agent the choice of repository — one `Write`, no shell.
  */
-const toplevelOf = (directory: string): string | undefined => {
+const toplevelOf = (directory: string): GitAnswer & { readonly toplevel: string | undefined } => {
   const answered = runGit(['-C', directory, 'rev-parse', '--show-toplevel'])
-  return answered.failed ? undefined : decoder.decode(answered.stdout).trim()
+  return { ...answered, toplevel: answered.failed ? undefined : decoder.decode(answered.stdout).trim() }
 }
 
 /**
@@ -197,11 +240,26 @@ const resolveFreeze = (options: {
     const projectReal = yield* real(projectDirectory)
 
     // `off` asks git nothing at all, including this.
-    const located = mode === 'off' ? undefined : toplevelOf(projectDirectory)
+    const asked = mode === 'off' ? undefined : toplevelOf(projectDirectory)
+    const located = asked?.toplevel
     const anchored =
       located === undefined
         ? { anchor: 'unverified' as const, toplevel: projectReal }
-        : yield* resolveAnchor(located, (directory) => toplevelOf(directory))
+        : yield* resolveAnchor(located, (directory) => toplevelOf(directory).toplevel)
+
+    /**
+     * git failing to name the repository is not evidence that there is none.
+     *
+     * Which of the two it is comes from the filesystem — is there a `.git` DIRECTORY between here
+     * and the root — rather than from git's own words, which are another program's prose and would
+     * make this a content match.
+     */
+    const workTree: WorkTree =
+      asked === undefined || located !== undefined
+        ? { _tag: 'Inside' }
+        : (yield* enclosingGitDirectory(projectDirectory)) === undefined
+          ? { _tag: 'Absent' }
+          : { _tag: 'Unreadable', stderr: asked.stderr }
 
     const toplevelReal = yield* real(anchored.toplevel)
     const at = (args: readonly string[], input?: string) => runGit(['-C', anchored.toplevel, ...args], input)
@@ -223,7 +281,6 @@ const resolveFreeze = (options: {
     return yield* freeze({
       anchor: anchored.anchor,
       config,
-      workTree: located === undefined ? { _tag: 'Absent' } : { _tag: 'Inside' },
       isDocument: isRuleDocument,
       listTree: (relative) => at(['ls-tree', '-r', '-z', ref, '--', relative === '' ? '.' : relative]),
       mode,
@@ -236,6 +293,7 @@ const resolveFreeze = (options: {
       rulesDirectory,
       rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
       toplevel: anchored.toplevel,
+      workTree,
     })
   })
 

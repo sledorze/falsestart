@@ -64,7 +64,6 @@ const probeAnswer = (): GitAnswer => answer(bytes(commit(), ...CANDIDATES.map((n
 const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   anchor: 'verified',
   config: { _tag: 'Candidates', names: CANDIDATES, relative: '' },
-  workTree: { _tag: 'Inside' },
   isDocument: (name) => name.endsWith('.yml'),
   listTree: () => answer(''),
   mode: 'auto',
@@ -77,6 +76,7 @@ const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   rulesDirectory: './rules',
   rulesPath: { _tag: 'Contained', relative: 'rules' },
   toplevel: '/p',
+  workTree: { _tag: 'Inside' },
   ...overrides,
 })
 

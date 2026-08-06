@@ -37,6 +37,7 @@ describe('library surface', () => {
       'describeRules',
       'diagnose',
       'divergence',
+      'enclosingGitDirectory',
       'extensionGlobGroup',
       'fallbacks',
       'findDefaultConfigs',

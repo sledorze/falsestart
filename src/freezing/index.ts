@@ -6,7 +6,7 @@
  * areas are drawn this way is explained in `docs/architecture.md`.
  */
 export type { AnchorResolution, RulesPath, RulesPathOptions } from './anchor.ts'
-export { MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
+export { enclosingGitDirectory, MAX_ANCHOR_WALK, resolveAnchor, resolveRulesPath } from './anchor.ts'
 export type {
   Anchor,
   ClassifyConfigOptions,
@@ -19,6 +19,7 @@ export type {
   FreezeOutcome,
   Frozen,
   GitAnswer,
+  WorkTree,
 } from './freeze.ts'
 export { classifyConfig, classifyRules, containedPath, divergence, freeze, FREEZE_MODES } from './freeze.ts'
 export type { Absent, TreeEntry } from './listing.ts'

@@ -89,7 +89,6 @@ export type WorkTree =
 export interface FreezeInput {
   readonly anchor: Anchor
   readonly config: ConfigSource
-  readonly workTree: WorkTree
   readonly isDocument: (name: string) => boolean
   readonly listTree: (relative: string) => GitAnswer
   readonly mode: FreezeMode
@@ -104,6 +103,7 @@ export interface FreezeInput {
   readonly rulesDirectory: string
   readonly rulesPath: RulesPath
   readonly toplevel: string
+  readonly workTree: WorkTree
 }
 
 export interface Divergence {
@@ -333,9 +333,20 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
       return both(unfrozen('--freeze=off'))
     }
 
-    // Stub: `Unreadable` is treated as `Absent`, which is today's behaviour.
-    if (input.workTree._tag !== 'Inside') {
+    if (input.workTree._tag === 'Absent') {
       return both(byMode(input.mode, `${input.projectDirectory} is not inside a git work tree`))
+    }
+
+    // git declining to say WHICH repository this is, while a repository demonstrably exists, is a
+    // freeze that could not be completed rather than one there was nothing to complete. Reading it
+    // as an absence made a single write outside the repository — a malformed `~/.gitconfig`, which
+    // git reads before it does anything — enough to hand the working tree back.
+    if (input.workTree._tag === 'Unreadable') {
+      return both(
+        broken(
+          `git would not say which repository ${input.projectDirectory} is in, and one exists: ${input.workTree.stderr.trim()}`,
+        ),
+      )
     }
 
     if (input.anchor === 'unverified' && input.mode === 'require') {
