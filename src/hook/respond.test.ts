@@ -1,6 +1,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
+import type { Frozen } from '../freezing/index.ts'
 import { respond } from './respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -535,6 +536,171 @@ layer(platform)('hook response', (it) => {
 
         expect(response.exitCode).toBe(0)
         expect(response.stderr).toBeUndefined()
+      }),
+    ),
+  )
+})
+
+/**
+ * The crux: a frozen source that cannot be honoured denies. It does not report and allow.
+ *
+ * Every assertion here is on the RESPONSE rather than on an error value, because the failure being
+ * guarded against is precisely that a `ConfigError` reaches `problem()` — exit 1, non-blocking, and
+ * the write proceeds. An assertion on the error would pass either way.
+ */
+const frozenWith = (documents: Readonly<Record<string, string>>): Frozen => ({
+  _tag: 'Frozen',
+  anchor: 'verified',
+  documents: new Map(Object.entries(documents)),
+  ref: 'HEAD',
+})
+
+const nothingToFreeze: Frozen = { _tag: 'Unfrozen', reason: 'x is not tracked at HEAD' }
+
+const BLOCKING = `
+id: block-any
+language: tsx
+message: 'FROZEN MESSAGE'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.ts'
+`
+
+const NARROWED = `
+id: block-any
+language: tsx
+message: 'WORKTREE MESSAGE'
+rule:
+  pattern: $X as any
+files:
+  - '**/never-matches/**'
+`
+
+const BROKEN_REASONS = [
+  { reason: 'could not list ./rules at HEAD: fatal: bad object' },
+  { reason: 'HEAD does not resolve in a repository that has refs' },
+]
+
+layer(platform)('a freeze the hook cannot honour', (it) => {
+  // T43 — the mandatory negative test. The two copies carry DIFFERENT messages, so an
+  // implementation that loads the right rule from the wrong bytes is caught: matching on `files`
+  // alone would pass against a rule that blocks for an unrelated reason.
+  it.effect('judges the committed rule, not the one the working tree was narrowed to', () =>
+    withRules({ 'block-any.yml': NARROWED }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => ({ config: frozenWith({}), rules: frozenWith({ 'block-any.yml': BLOCKING }) }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        // Asserted before the content: reading the working tree makes this `silent()`, and a
+        // `toContain` against `undefined` reports an argument-type complaint rather than the fact.
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('FROZEN MESSAGE')
+        expect(response.stdout).not.toContain('WORKTREE MESSAGE')
+      }),
+    ),
+  )
+
+  // T44 — the control, and what proves T43 measures the freeze rather than a rule that blocks
+  // anyway. Same fixture, no freeze: the working tree's narrowing takes effect and nothing happens.
+  it.effect('reads the working tree when there is no freeze, and is then disarmed', () =>
+    withRules({ 'block-any.yml': NARROWED }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T45
+  describe.each(BROKEN_REASONS)('when the freeze reports $reason', ({ reason }) => {
+    effect('denies the write instead of letting it through with a notice', () =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => ({ config: { _tag: 'Broken', reason }, rules: { _tag: 'Broken', reason } }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: '/no/such/place',
+          rulesDirectory: '/no/such/place',
+        }).pipe(Effect.provide(platform))
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain(reason)
+        expect(response.stdout).toContain('--freeze=off')
+      }),
+    )
+  })
+
+  // T46 — F3. `respond.ts` turns any ConfigError into a non-blocking notice, so without this a
+  // committed config that will not parse is a disarm through the path this change exists to close.
+  it.effect('denies when the committed config will not parse', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => ({
+            config: frozenWith({ 'falsestart.config.json': '{oops' }),
+            rules: nothingToFreeze,
+          }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('--freeze=off')
+      }),
+    ),
+  )
+
+  // T47 — the same for the rules half. A COMMITTED rule that does not load is a repository-wide
+  // problem a commit introduced, which is exactly what `scan` already fails closed on.
+  it.effect('denies when the committed rule tree will not load', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => ({ config: frozenWith({}), rules: frozenWith({ 'broken.yml': 'id: 7\nlanguage: tsx' }) }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('broken.yml')
+      }),
+    ),
+  )
+
+  // Not in the design's catalogue. An override naming a rule the frozen tree does not load is a
+  // deliberate hard error, and it reaches the same fail-open path as the two above.
+  it.effect('denies when a committed override names a rule the committed tree does not load', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => ({
+            config: frozenWith({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}' }),
+            rules: frozenWith({ 'block-any.yml': BLOCKING }),
+          }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('typo')
       }),
     ),
   )

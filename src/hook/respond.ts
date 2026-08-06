@@ -15,6 +15,7 @@ import { Effect, Schema } from 'effect'
 import type { FileSystem, Path } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
 import { loadRules } from '../checking/index.ts'
+import type { FreezeOutcome } from '../freezing/index.ts'
 import { decide, judgesPayload } from './decide.ts'
 
 export interface HookResponse {
@@ -76,6 +77,8 @@ export interface RespondOptions {
    */
   readonly projectDirectory: string
   readonly rulesDirectory: string
+  /** Stub: slice 4's tests need the option to exist before anything consumes it. */
+  readonly freeze?: (() => FreezeOutcome) | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
