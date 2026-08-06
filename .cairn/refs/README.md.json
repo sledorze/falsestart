@@ -2,7 +2,7 @@
   "refs": [
     {
       "anchor": "when-falsestart-itself-cannot-run",
-      "hash": "8a64d9fa1a65b79568e1ef00506cf6c64ce6be7d068a08e97f79b5de2d90ecce",
+      "hash": "16dead70c149f60faf209d6d0d267f3ab6ae27ea9b4beff488570dde306ccde0",
       "target": "./docs/reference.md"
     },
     {
@@ -10,15 +10,15 @@
       "target": "./docs/overview.md"
     },
     {
-      "hash": "543bd7f5e1a5a9b81574aeeffa4ba60e8fea02791eaea3592903969a88cfbd4d",
+      "hash": "6be01b82930c68290a56d37082f6d06f446769c6116f1c76b8a953ff8f0b7eb2",
       "target": "./docs/using-the-hook.md"
     },
     {
-      "hash": "cb05e0f078b6d3e64dcc3a70abb21ce711967e62298fbace6509121e9e7af1df",
+      "hash": "5be0a23af037f9771bf3ee3ba13accbdaa2eadb78c00c9b6cd0dae6ff6ae0140",
       "target": "./docs/architecture.md"
     },
     {
-      "hash": "8a64d9fa1a65b79568e1ef00506cf6c64ce6be7d068a08e97f79b5de2d90ecce",
+      "hash": "16dead70c149f60faf209d6d0d267f3ab6ae27ea9b4beff488570dde306ccde0",
       "target": "./docs/reference.md"
     },
     {

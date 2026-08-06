@@ -222,8 +222,10 @@ rather have the opposite, add `--fail closed` to the hook command:
 What changes: a rule tree or a `pkg:` rules package that will not load, a config that will not load
 or whose override names a rule that is not loaded, and a rule that cannot run at match time all deny
 the write instead of reporting it. What does not: a malformed hook payload and a refused command line
-stay non-blocking, a tool call falsestart does not judge stays silent, and a freeze refusal denies
-either way — `--fail open` is not an off switch for `--freeze`. The full table is in
+are never the reason to deny, a tool call falsestart does not judge stays silent, and a freeze refusal
+denies either way — `--fail open` is not an off switch for `--freeze`. "Never the reason" is the exact
+claim: a broken rule tree denies whatever payload arrives, malformed ones included, naming the rule
+tree and not the payload, as the freeze has always done. The full table is in
 [When falsestart itself cannot run](./reference.md#when-falsestart-itself-cannot-run).
 
 **Know the repair trap before you turn it on.** falsestart answers a load-time failure before it

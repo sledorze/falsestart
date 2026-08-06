@@ -861,6 +861,10 @@ layer(platform)('a guard failure under --fail closed', (it) => {
   // rather than this repository's. Nothing in the project is wrong, so a denial leaves an agent one
   // move — rewriting code that was never judged. `WRITE_TOOLS` hard-codes another product's field
   // names, so governing this would make availability depend on their release cadence.
+  //
+  // The rule tree here LOADS, and that is the whole scope of the claim: the payload is never the
+  // REASON. A guard failure hit first denies on its own terms — T25 pins that, and pins why moving
+  // this check earlier would be wrong.
   it.effect('never denies a malformed hook payload, even under --fail closed', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
@@ -893,6 +897,58 @@ layer(platform)('a guard failure under --fail closed', (it) => {
         expect(response.exitCode).toBe(1)
         expect(response.stdout).toBeUndefined()
         expect(response.stderr).toContain('JSON')
+      }),
+    ),
+  )
+
+  /**
+   * T25 — the pair T11 is only half of, and the reason the malformed check is where it is.
+   *
+   * "A malformed payload is never denied" is too strong, and was already too strong before this flag
+   * existed: a COMMITTED rule tree that will not load denies every judged tool call under the freeze
+   * alone, and a malformed payload is one of them. Verified against `dist/cli.js` built from
+   * `origin/main`, with no `--fail` in existence.
+   *
+   * What is true is narrower and is what these two assert: the payload is never the REASON. Both
+   * denials name the rule tree, which is a fact about the repository and is fixable; neither says
+   * anything about the payload, which falsestart never reached.
+   *
+   * Answering `Malformed` earlier — the obvious repair — is what these forbid. It would turn the
+   * first case back into exit 1, which is the fail-open disarm the freeze was built to close.
+   */
+  it.effect('denies a malformed payload for the FROZEN tree it could not load, not for the payload', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () =>
+            Effect.succeed({ config: frozenWith({}), rules: frozenWith({ 'broken.yml': 'id: 7\nlanguage: tsx' }) }),
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('broken.yml')
+        expect(response.stdout).not.toContain('carried no content/file_path')
+      }),
+    ),
+  )
+
+  it.effect('denies a malformed payload under --fail closed for the guard failure it hit first', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('broken.yml')
+        expect(response.stdout).not.toContain('carried no content/file_path')
       }),
     ),
   )

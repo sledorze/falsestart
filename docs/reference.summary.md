@@ -34,8 +34,10 @@ there is no `--json` flag.
 `--fail closed|open` decides what a failure of falsestart ITSELF costs; `open` is the default and is
 the 0.2.0 behaviour. `closed` denies on a rule tree or `pkg:` package that will not load, a config
 that will not load, an override naming a rule that is not loaded, and a rule that cannot run at match
-time. It never denies a malformed hook payload or a refused command line — neither is a fact about
-the repository, and neither is fixable from inside it — it applies to a judged write only, and it is
+time. It is never the REASON to deny a malformed hook payload or a refused command line — neither is a
+fact about the repository, and neither is fixable from inside it; a guard failure hit first still
+denies whatever payload arrives, naming that failure and not the payload, as the freeze already
+does — it applies to a judged write only, and it is
 a policy about failures rather than a claim that any rule covers what you write. `--fail open` does
 not re-open a freeze refusal. Command line only, for the reason `--freeze` is: one of the failures it
 denies on is a config that will not load. Refused with `scan` and `--list-rules`, which already exit

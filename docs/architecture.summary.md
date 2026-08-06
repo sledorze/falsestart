@@ -28,8 +28,8 @@ narrow check — modelled on measured CLI behaviour — rejects them.
 
 **Five failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
 guard could not run (say so loudly, do not block BY DEFAULT), the rule source could not be read AS
-COMMITTED (refuse to judge; never fall back), and the hook payload is malformed (say so loudly; never
-block, in any policy). A rule that cannot run is never reported as "found nothing", but a typo in a
+COMMITTED (refuse to judge; never fall back), and the hook payload is malformed (say so loudly; never the
+REASON to block, in any policy). A rule that cannot run is never reported as "found nothing", but a typo in a
 rule file must not hold a repository hostage. The fourth amends the third in the safe direction:
 under a freeze a working-tree typo never reaches the loader at all, so what refuses is a COMMITTED
 rule set that will not load — falling back there would make breaking git the cheapest disarm

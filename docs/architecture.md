@@ -122,13 +122,13 @@ against the actual CLI rather than reasoned about.
 
 ## Five failures that must not be confused
 
-| Situation                                        | Answer                                    |
-| ------------------------------------------------ | ----------------------------------------- |
-| The code breaks a rule                           | Block, with the rule's message            |
-| A rule matched at a softer severity              | Show it; do not block                     |
-| The guard could not do its job                   | Say so loudly; do not block by default    |
-| The rule source could not be read _as committed_ | Refuse to judge; do not fall back         |
-| The hook payload is malformed                    | Say so loudly; never block, in any policy |
+| Situation                                        | Answer                                   |
+| ------------------------------------------------ | ---------------------------------------- |
+| The code breaks a rule                           | Block, with the rule's message           |
+| A rule matched at a softer severity              | Show it; do not block                    |
+| The guard could not do its job                   | Say so loudly; do not block by default   |
+| The rule source could not be read _as committed_ | Refuse to judge; do not fall back        |
+| The hook payload is malformed                    | Say so loudly; never the REASON to block |
 
 The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
 conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
@@ -155,6 +155,13 @@ the runtime on the other end of the pipe sent an unexpected shape, there is noth
 fix, and an agent told "denied" would rewrite code that was never judged. It would also make
 availability depend on another product's release cadence, since the fields falsestart reads are that
 product's.
+
+"Never the reason" is the whole claim, and it is narrower than "never denied". The failures are
+answered in order and a malformed payload is discovered last, so a broken rule tree denies whatever
+payload arrives — naming the tree, which the repository owns and can fix, and never the payload. The
+freeze has done this since it shipped. Answering the malformed payload earlier would buy the stronger
+sentence at the cost of the freeze: a committed rule set that will not load would go back to exit 1
+on that payload, which is the fail-open disarm the freeze exists to close.
 
 None of this adds a fifth `Decision` tag. What a guard failure COSTS is a fact about the invocation
 rather than about the code, so it is a rendering policy in `hook/respond.ts` — where the protocol's

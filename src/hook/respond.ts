@@ -352,10 +352,15 @@ export const respond = (
         return denial(join(decision.reason, note))
       }
       case 'Report': {
-        // A malformed payload never denies, in any policy: it is the agent runtime's shape, not this
-        // repository's, so there is nothing here to fix and an agent told "denied" would rewrite
-        // code that was never judged. See docs/architecture.md, "Five failures that must not be
-        // confused".
+        // A malformed payload is never the REASON to deny, in any policy: it is the agent runtime's
+        // shape, not this repository's, so there is nothing here to fix and an agent told "denied"
+        // would rewrite code that was never judged. See docs/architecture.md, "Five failures that
+        // must not be confused".
+        //
+        // The reason, not the outcome. Every guard failure above this line is answered first, so a
+        // broken rule tree denies whatever payload arrives — naming the tree, which IS fixable, and
+        // never the payload. Answering `Malformed` earlier would repair the wording at the cost of
+        // the freeze: a committed tree that will not load would go back to exit 1 on that payload.
         //
         // The discriminator is STRUCTURAL and never the text of the problem: `decide` can only reach
         // `Report` from a malformed target or from a rule that could not run, and `judgedTarget` has

@@ -13,10 +13,12 @@ behaviour byte for byte.
 
 What `--fail closed` covers: a rule tree or a `--rules pkg:` rules package that will not load, a
 config that will not load, an override naming a rule the loaded set does not contain, and a rule that
-cannot run at match time. What it does not: a **malformed hook payload**, because it is the agent
-runtime's shape rather than your repository's and there is nothing in your project to fix; and a
-**refused command line**, because `--fail` is on the very line the parser just declined to
-understand. It applies to a **judged write** only — a tool call falsestart does not judge is silent
+cannot run at match time. What it never denies FOR: a **malformed hook payload**, because it is the
+agent runtime's shape rather than your repository's and there is nothing in your project to fix; and
+a **refused command line**, because `--fail` is on the very line the parser just declined to
+understand. Never the reason, not never the outcome — a run whose rule tree will not load denies
+whatever payload arrives, malformed ones included, naming the rule tree and not the payload, exactly
+as the freeze already does. It applies to a **judged write** only — a tool call falsestart does not judge is silent
 in either policy — and it is a policy about failures, not a claim that any rule covers what you
 write. For that, read `--doctor`'s scope block and `--warn-unscoped`.
 

@@ -128,28 +128,36 @@ code. `open` is the default and is the 0.2.0 behaviour: the failure is reported 
 process exits `1`, and the write proceeds. `closed` denies the write instead, for a repository where
 an edit that cannot be verified must not land.
 
-| Failure                                                                              | `--fail open` (default) | `--fail closed`  |
-| ------------------------------------------------------------------------------------ | ----------------------- | ---------------- |
-| The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`        | **deny**         |
-| `--rules pkg:<name>` will not resolve                                                | report, exit `1`        | **deny**         |
-| The config will not load, parse or import                                            | report, exit `1`        | **deny**         |
-| An override names a rule the loaded set does not contain                             | report, exit `1`        | **deny**         |
-| A rule cannot run at match time                                                      | report, exit `1`        | **deny**         |
-| The hook payload is malformed, or stdin is not JSON                                  | report, exit `1`        | report, exit `1` |
-| The command line was refused                                                         | report, exit `1`        | report, exit `1` |
-| A frozen source could not be read                                                    | **already denies**      | already denies   |
-| The rule tree loads and yields **zero** rules                                        | silent, exit `0`        | silent, exit `0` |
+| Failure                                                                              | `--fail open` (default) | `--fail closed`                                          |
+| ------------------------------------------------------------------------------------ | ----------------------- | -------------------------------------------------------- |
+| The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`        | **deny**                                                 |
+| `--rules pkg:<name>` will not resolve                                                | report, exit `1`        | **deny**                                                 |
+| The config will not load, parse or import                                            | report, exit `1`        | **deny**                                                 |
+| An override names a rule the loaded set does not contain                             | report, exit `1`        | **deny**                                                 |
+| A rule cannot run at match time                                                      | report, exit `1`        | **deny**                                                 |
+| The hook payload is malformed, or stdin is not JSON                                  | report, exit `1`        | report, exit `1` — never the reason to deny, but read on |
+| The command line was refused                                                         | report, exit `1`        | report, exit `1`                                         |
+| A frozen source could not be read                                                    | **already denies**      | already denies                                           |
+| The rule tree loads and yields **zero** rules                                        | silent, exit `0`        | silent, exit `0`                                         |
 
 **`--fail open` does not re-open a freeze refusal.** A source the ref established as freezable and
 could not be read denies in either policy — that denial is about which bytes are authoritative, not
 about the guard erroring, and its reason names `--freeze off` rather than `--fail open`.
 
-**A malformed hook payload is never denied, in any policy.** It is not a fact about your repository:
-the agent runtime sent a shape falsestart did not expect, and there is nothing in the project to fix.
-An agent told "denied" would have exactly one move — rewriting code that was never judged. It would
-also make availability depend on another product's release cadence, since the fields falsestart reads
-are that product's, and a rename there would turn every write in every opted-in repository into a
-denial.
+**A malformed hook payload is never the REASON falsestart denies.** It is not a fact about your
+repository: the agent runtime sent a shape falsestart did not expect, and there is nothing in the
+project to fix. An agent told "denied" would have exactly one move — rewriting code that was never
+judged. It would also make availability depend on another product's release cadence, since the fields
+falsestart reads are that product's, and a rename there would turn every write in every opted-in
+repository into a denial.
+
+That is a claim about the reason, not about the outcome, and the difference is reachable. falsestart
+answers the failures above in order and discovers a malformed payload last, so a run whose rule tree
+will not load denies that payload for the RULE TREE — naming it, and never mentioning the payload.
+The freeze has always behaved this way: a committed rule tree that will not load denies every judged
+tool call, malformed ones included, with no `--fail` involved. Both denials are actionable, because
+both name something the repository owns. Where the payload is the only thing wrong, falsestart reports
+it and the write proceeds — in either policy.
 
 **It is a policy about failures, not a claim of coverage.** A rule set that loads and matches nothing
 is not a failure, and `--fail closed` says nothing about it. Read `--doctor`'s scope block and

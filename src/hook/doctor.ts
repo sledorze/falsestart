@@ -177,7 +177,7 @@ export const diagnose = (
     if (failure !== undefined) {
       lines.push(
         failure === 'closed'
-          ? 'policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload still proceeds.'
+          ? 'policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload is never the reason.'
           : 'policy   --fail open — a write falsestart cannot check is reported on stderr and proceeds.',
       )
     }

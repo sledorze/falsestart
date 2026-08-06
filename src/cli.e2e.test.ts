@@ -651,11 +651,14 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
     ),
   )
 
-  // T22 — the reproduction that corrected this design, end to end. Package resolution happens
-  // before stdin is read, so answering it there denied `Bash`, `Read`, `Grep` and an empty payload
-  // — a full agent lockup over calls that write nothing. Silence in EITHER policy is the fix, and
-  // that makes this a behaviour change independent of the flag: it is exit 1 with a stderr notice
-  // today.
+  // T22 — the reproduction that corrected this design, end to end. Package resolution happens before
+  // stdin is read, so answering it there denied `Bash`, `Read` and `Grep` — a full agent lockup over
+  // calls that write nothing. Silence in EITHER policy is the fix, and that makes this a behaviour
+  // change independent of the flag: it is exit 1 with a stderr notice today.
+  //
+  // A payload that is merely MALFORMED is not in that set and is not silenced: `judgesPayload` says
+  // it is a candidate, so it reaches the guard and is denied for the package, exactly as a broken
+  // rule tree already denies it. See `respond.test.ts`'s T25 pair.
   it.effect('says nothing about a tool call it does not judge, even when the rules package will not resolve', () =>
     withRules({}, (directory) =>
       Effect.gen(function* () {
