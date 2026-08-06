@@ -1,0 +1,338 @@
+/**
+ * Which repository the freeze will trust, and which path it will ask that repository about.
+ *
+ * Both answers are decided before any content is read, and neither is decided by anything an agent
+ * can write in one step. That is the whole of this module, and it exists because getting either one
+ * wrong makes every verdict downstream confidently wrong.
+ *
+ * ## The anchor
+ *
+ * git honours a `.git` that is an ordinary one-line text file containing `gitdir: <path>`, which a
+ * `Write` tool call produces without a shell. Planting one at `packages/app/.git` moves that
+ * directory's toplevel to `packages/app` — so a freeze anchored on whatever `rev-parse` answers
+ * reads the attacker's object database while every containment check it performs still passes,
+ * because the path being checked is the one that moved.
+ *
+ * So an anchor counts as verified only when `<toplevel>/.git` is a real DIRECTORY, and when it is
+ * not, the walk steps outward to the nearest enclosing toplevel that is. The walk is what turns the
+ * check from a report into a closure: an attacker's own move creates the condition that triggers it,
+ * and it terminates at a repository root whose `.git` a write tool cannot replace — `writeFileSync`
+ * on a directory fails EISDIR.
+ *
+ * `lstat`, not `stat`. A symlinked `.git` stats as a directory, and `unlink` followed by a write
+ * replaces the link without touching its target, which puts it squarely inside the escapes this
+ * design already assumes. Node's own `lstatSync` is used because Effect's `FileSystem` models only
+ * `stat`, which follows links — the same reason `config-file.ts` reaches for `node:module`.
+ *
+ * ## The path
+ *
+ * The ref is asked about the path the COMMAND LINE named, resolved lexically. Deriving it by
+ * `realpath`ing the working-tree directory hands the choice back to the working tree, which is
+ * exactly what the freeze exists to take away: `ln -s .weak rules` then makes falsestart ask the ref
+ * about a directory the agent chose, and `rm -rf rules` makes the derivation fail outright. Under a
+ * lexical derivation the first is a refusal and the second is simply frozen — the committed tree is
+ * a fact about the ref, not about the disk.
+ */
+import { lstatSync } from 'node:fs'
+import { Effect, FileSystem, Path } from 'effect'
+import type { Anchor, GitAnswer } from './freeze.ts'
+import { containedPath } from './freeze.ts'
+
+/**
+ * How far outward the walk may look before it reports the anchor unverified.
+ *
+ * Deeper than any real repository nesting, and present so that a pathological arrangement of
+ * gitfiles cannot turn a judged write into an unbounded walk. Hitting it is itself reported as
+ * unverified rather than as an error: the answer "this cannot be verified" is already the right one.
+ */
+export const MAX_ANCHOR_WALK = 16
+
+/**
+ * Whether this exact path is a directory, without following a link to one.
+ *
+ * A path that cannot be `lstat`ed at all — no `.git` there, an externally-set `GIT_DIR`, a
+ * `core.worktree` arrangement — answers the same "no". The condition is stated positively so that
+ * absence lands in the unverified arm rather than in a third branch no fixture can reach.
+ */
+/** What sits at `<directory>/.git`, without following a link to it. */
+export type GitEntry = 'directory' | 'other' | 'none'
+
+/**
+ * `lstat`, not `stat`. A symlinked `.git` stats as a directory, and `unlink` followed by a write
+ * replaces the link without touching its target — squarely inside the escapes this design already
+ * assumes. Node's own `lstatSync` because Effect's `FileSystem` models only `stat`, which follows
+ * links; the same "no service exposes this at all" that `config-file.ts` reaches for `node:module`
+ * under.
+ */
+const gitEntryAt = (directory: string): GitEntry =>
+  Effect.runSync(
+    Effect.try(() => (lstatSync(`${directory}/.git`).isDirectory() ? 'directory' : 'other')).pipe(
+      Effect.orElseSucceed((): GitEntry => 'none'),
+    ),
+  )
+
+/**
+ * The nearest enclosing repository whose `.git` is a directory, or the caller's own toplevel.
+ *
+ * `revParse` is supplied rather than performed: only `cli.ts` may spawn, and reading git's answer is
+ * this module's job precisely so it can be tested. It answers `undefined` when git declined.
+ *
+ * On every failure the walk returns the toplevel it started from, never a partial result — an
+ * unverified anchor must still freeze against the repository the project is actually in, rather than
+ * silently starting to read a different one because the walk gave up.
+ */
+/** `gitdir: <path>` is the whole of a gitfile. Anything else at `.git` is not one. */
+const GITFILE_PREFIX = 'gitdir: '
+
+/**
+ * Whether `candidate`'s `.git` file is the one a real linked worktree of `anchor` carries.
+ *
+ * The discriminator asks the repository the gitfile NAMES nothing at all: an agent that wrote the
+ * file wrote everything it points at, so corroboration from there is forgeable with three ordinary
+ * writes. What it compares against is `<anchor>/.git/worktrees`, and the anchor is a `.git`
+ * DIRECTORY the walk reached from outside — the one thing a write cannot replace. Trust flows
+ * outward from that directory, never inward from the file.
+ *
+ * The target's PARENT must be exactly that directory, which is where `git worktree add` puts it. A
+ * deeper path under it would be an equally valid containment and a weaker claim.
+ *
+ * What this does not survive is an agent writing INSIDE `<anchor>/.git`, which SECURITY.md already
+ * places outside what falsestart can defend: the directory cannot be replaced, but a process that
+ * can create files in it can create a plausible worktree entry. That is a strictly smaller surface
+ * than "one write anywhere on the filesystem", which is what this replaces.
+ */
+const isLinkedWorktreeOf = (
+  candidate: string,
+  anchor: string,
+): Effect.Effect<boolean, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+
+    const declared = yield* fs
+      .readFileString(path.join(candidate, '.git'))
+      .pipe(Effect.orElseSucceed(() => ''))
+      .pipe(Effect.map((text) => text.trim()))
+    if (!declared.startsWith(GITFILE_PREFIX)) {
+      return false
+    }
+
+    // A gitfile's path may be relative to the worktree, and both sides are resolved before they are
+    // compared so that a symlink cannot make two different places look like one.
+    const real = (target: string) => fs.realPath(target).pipe(Effect.orElseSucceed(() => undefined))
+    const gitdir = yield* real(path.resolve(candidate, declared.slice(GITFILE_PREFIX.length)))
+    const worktrees = yield* real(path.join(anchor, '.git', 'worktrees'))
+
+    return gitdir !== undefined && path.dirname(gitdir) === worktrees
+  })
+
+/**
+ * The nearest directory, starting at `directory` itself, whose `.git` is a real DIRECTORY.
+ *
+ * Used to establish the absence of a repository POSITIVELY. git failing to say which repository this
+ * is proves nothing about whether one exists — a malformed config file it reads before doing
+ * anything makes it fail in every directory on the machine — and reading that failure as "there is
+ * nothing to freeze" hands the working tree back to whoever wrote that file.
+ *
+ * The alternative would be to classify git's stderr, which is another program's prose and a content
+ * match; this asks the filesystem instead.
+ *
+ * Unbounded on purpose, unlike the authority chain: `dirname` is lexical and strictly shortens, so
+ * it reaches the root in as many steps as the path has segments and cannot loop.
+ */
+export const enclosingGitDirectory = (directory: string): Effect.Effect<string | undefined, never, Path.Path> =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+
+    let candidate = directory
+    for (;;) {
+      if (gitEntryAt(candidate) === 'directory') {
+        return candidate
+      }
+      const parent = path.dirname(candidate)
+      if (parent === candidate) {
+        return undefined
+      }
+      candidate = parent
+    }
+  })
+
+export type AnchorResolution =
+  | { readonly _tag: 'Anchored'; readonly anchor: Anchor; readonly toplevel: string }
+  | { readonly _tag: 'Ambiguous'; readonly reason: string }
+
+export interface AnchorOptions {
+  /** `git -C <repository> ls-tree <ref> -- <relative>`. */
+  readonly listTreeAt: (repository: string, relative: string) => GitAnswer
+  readonly projectDirectory: string
+  /** `git -C <repository> rev-parse --verify --quiet <ref>^{commit}`. */
+  readonly refExists: (repository: string) => GitAnswer
+  /** What `rev-parse --show-toplevel` answered for the project directory. */
+  readonly toplevel: string
+}
+
+/** Whether a repository's committed tree accounts for a path, as far as it can be established. */
+type Accounting =
+  { readonly _tag: 'tracked' } | { readonly _tag: 'untracked' } | { readonly _tag: 'unknown'; readonly stderr: string }
+
+const TRACKED = { _tag: 'tracked' } as const
+const UNTRACKED = { _tag: 'untracked' } as const
+
+const accountingFor = (authority: string, relative: string, options: AnchorOptions): Accounting => {
+  // A repository with no commit at the ref has committed nothing and so accounts for nothing. Asked
+  // separately, because `ls-tree` cannot distinguish "no such path" from "no such ref" by its exit
+  // code, and treating the second as an absence is the mistake this whole rule exists to undo.
+  if (options.refExists(authority).failed) {
+    return UNTRACKED
+  }
+
+  const listed = options.listTreeAt(authority, relative)
+  if (listed.failed) {
+    return { _tag: 'unknown', stderr: listed.stderr.trim() }
+  }
+  return new TextDecoder().decode(listed.stdout).trim() === '' ? UNTRACKED : TRACKED
+}
+
+/**
+ * Every directory from `toplevel` up to the filesystem root that carries a `.git` entry of any kind,
+ * outermost first, with each one's path relative to the directory that encloses it.
+ *
+ * `lstat` only: no spawn, and nothing here asks git which repository anything belongs to. That
+ * question is exactly what an inherited variable or a planted entry can answer for it.
+ */
+const repositoryChain = (toplevel: string, path: Path.Path): readonly string[] => {
+  const found: string[] = []
+  let candidate = toplevel
+  for (;;) {
+    if (gitEntryAt(candidate) !== 'none') {
+      found.push(candidate)
+    }
+    const parent = path.dirname(candidate)
+    if (parent === candidate) {
+      return found.toReversed()
+    }
+    candidate = parent
+  }
+}
+
+/**
+ * Which repository speaks for the project directory.
+ *
+ * **Proximity is not evidence.** The nearest `.git` is a heuristic, and every arrangement that broke
+ * an earlier revision of this rule was reachable by one `Write`: a gitfile pointing anywhere, and
+ * then a whole `.git` DIRECTORY created where none was — the EISDIR that makes a directory
+ * unreplaceable says nothing about creating one. "Outermost" is not the answer either; it only moves
+ * the plant site up to `$HOME`, which an agent can usually write too.
+ *
+ * So authority is established from the OUTSIDE IN. The outermost enclosing repository speaks first,
+ * and each repository nested below it is trusted only where the authority already established
+ * either has nothing at that path — an independent checkout that merely lives there, which is what a
+ * dotfiles repository in `$HOME` makes of every project inside it — or accounts for it as one of its
+ * own linked worktrees. Where the authority DOES hold that path, an inner repository is shadowing
+ * content the authority accounts for, and the authority keeps speaking.
+ *
+ * No question is ever put to the candidate repository itself. An agent that created it wrote every
+ * answer it could give, which is why corroboration from a repository under suspicion is worthless.
+ *
+ * Where the authority cannot be asked, or the chain is longer than `MAX_ANCHOR_WALK`, the answer is
+ * `Ambiguous` — falsestart cannot say what it would be enforcing, which is the same class as a
+ * frozen source that cannot be honoured, and gets the same refusal.
+ */
+export const resolveAnchor = (
+  options: AnchorOptions,
+): Effect.Effect<AnchorResolution, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path
+    const chain = repositoryChain(options.toplevel, path)
+
+    const [outermost, ...nested] = chain
+    if (outermost === undefined) {
+      // git named a toplevel with no `.git` entry anywhere above it. Nothing can account for it.
+      return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
+    }
+    if (nested.length > MAX_ANCHOR_WALK) {
+      return {
+        _tag: 'Ambiguous',
+        reason: `more than ${MAX_ANCHOR_WALK} nested repositories between ${outermost} and ${options.toplevel}`,
+      }
+    }
+
+    const verificationOf = (repository: string): Anchor =>
+      gitEntryAt(repository) === 'directory' ? 'verified' : 'unverified'
+
+    let authority = outermost
+    let anchor = verificationOf(outermost)
+    for (const candidate of nested) {
+      // A linked worktree INHERITS its authority's verification: the trust came from outside, from
+      // the `.git` directory that accounts for it, and not from the gitfile the worktree carries.
+      if (yield* isLinkedWorktreeOf(candidate, authority)) {
+        authority = candidate
+        continue
+      }
+
+      // Both come from the same `dirname` chain and the chain is walked outermost first, so the
+      // authority is always a strict ancestor of the candidate: the slice is exact and cannot fail.
+      const relative = candidate.slice(authority.length + 1)
+      const accounting = accountingFor(authority, relative, options)
+      if (accounting._tag === 'unknown') {
+        return {
+          _tag: 'Ambiguous',
+          reason: `could not establish whether ${authority} accounts for ${candidate}: ${accounting.stderr}`,
+        }
+      }
+      // 'tracked' means the authority holds that path itself, so an inner repository there is
+      // shadowing it and the authority keeps speaking. 'untracked' means the authority has nothing
+      // to say, and the inner one speaks for itself.
+      if (accounting._tag === 'untracked') {
+        authority = candidate
+        anchor = verificationOf(candidate)
+      }
+    }
+
+    return { _tag: 'Anchored', anchor, toplevel: authority }
+  })
+
+export type RulesPath =
+  /** Inside the repository, at the path the command line named. `''` means the toplevel itself. */
+  | { readonly _tag: 'Contained'; readonly relative: string }
+  /** On disk at a different place than the command line named — a swapped symlink, and nothing else. */
+  | { readonly _tag: 'Diverged'; readonly real: string }
+  | { readonly _tag: 'Outside' }
+
+export interface RulesPathOptions {
+  /** The path the command line named, as written. */
+  readonly named: string
+  /** The process's own working directory, already `realPath`ed: it exists by construction. */
+  readonly projectReal: string
+  readonly toplevelReal: string
+}
+
+/**
+ * Where the ref will be asked to look.
+ *
+ * The real form is computed too, and lexical ≠ real is a refusal rather than a redirection. A
+ * directory that is not on disk at all is NOT a refusal: `git ls-tree -r HEAD -- rules` still
+ * answers after `rm -rf rules`, and answering is the point.
+ */
+export const resolveRulesPath = (
+  options: RulesPathOptions,
+): Effect.Effect<RulesPath, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+
+    const lexical = path.resolve(options.projectReal, options.named)
+    const relative = containedPath(options.toplevelReal, lexical)
+    if (relative === undefined) {
+      return { _tag: 'Outside' }
+    }
+
+    const real = yield* fs.realPath(lexical).pipe(Effect.orElseSucceed(() => undefined))
+    if (real === undefined) {
+      return { _tag: 'Contained', relative }
+    }
+
+    return containedPath(options.toplevelReal, real) === relative
+      ? { _tag: 'Contained', relative }
+      : { _tag: 'Diverged', real }
+  })

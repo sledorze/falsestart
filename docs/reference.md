@@ -14,6 +14,8 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                      |
 | `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Reads no stdin; exits 1 if anything did not resolve.                              |
 | `--list-rules`       | Print the resolved rule set as JSON on stdout and exit. Reads no stdin. Exits `0` with the document or `2` if it could not be produced; a refused hook command line still exits `1`. Refused with `scan`, `--doctor`, `--version` and `--warn-unscoped`. |
+| `--freeze <mode>`    | Where rules and config are read from: `auto` (the default), `off`, `require`. See [Freezing the rule set](#freezing-the-rule-set). Command line only — never read from `falsestart.config.*` or from the environment.                                    |
+| `--freeze-ref <ref>` | Which ref to freeze against. Defaults to `HEAD`. A ref named here that does not resolve is an error in every mode.                                                                                                                                       |
 | `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                                |
 | `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                        |
 | `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                                    |
@@ -55,6 +57,67 @@ This also inverts the hook's policy deliberately. The hook fails **open** — a 
 must not hold every write in the repo hostage. A scan is a gate and fails **closed**: one that
 cannot run has to stop, or it passes everything while looking healthy.
 
+### Freezing the rule set
+
+By default falsestart resolves its rule documents and its config from a git ref rather than from the
+working tree. An uncommitted edit to a rule, a config file the repository never committed, a deleted
+config, and a corrupted rule document all stop changing what is enforced.
+
+Every judged tool call resolves the freeze into one of three states, per source — rules and config
+are classified **independently**, because `--preset` puts rules in `node_modules` where freezing is
+meaningless while the project's own config is perfectly freezable.
+
+| State      | What it means                                                            | `--freeze auto`                   | `--freeze require` |
+| ---------- | ------------------------------------------------------------------------ | --------------------------------- | ------------------ |
+| `Frozen`   | The ref holds these bytes, and they are what runs.                       | judge with them                   | same               |
+| `Unfrozen` | There is nothing to freeze — no committed version of these bytes exists. | read the working tree, and say so | refuse to judge    |
+| `Broken`   | A freeze that git established as possible did not complete.              | refuse to judge                   | same               |
+
+`Unfrozen` is a stated policy rather than a failure, and `--doctor` names which case applies: the
+project is not a git repository, the repository has no commit yet, the rules directory is outside the
+project repository, git does not track it (which includes `--preset` and `--rules pkg:`, both inside
+`node_modules`), it is a submodule, or the ref holds it as a symlink.
+
+"It is not a git repository" is established by looking for a `.git` **directory** between the project
+and the filesystem root, not by git declining to answer. git failing is not evidence that there is no
+repository, and treating it as such made one file outside the repository enough to disarm the guard.
+
+The submodule case is reported by name only when `--rules` names the submodule's own root, which is
+where the gitlink sits. With `--rules ./vendor/rules` inside a submodule at `vendor/`, the ref simply
+does not track that path and the reason is the more general "is not tracked at HEAD". Same verdict,
+less specific message.
+
+`Broken` needs positive prior evidence — a work tree, a ref that resolves or demonstrably does not in
+a repository that has refs, a tracked tree with at least one document — and it **never falls back to
+the working tree**, because a freeze that falls back on a git failure is one an agent defeats by
+breaking git. It is reached by: a committed rule tree or config that will not load, a corrupt object
+store, `HEAD` not resolving in a repository that has refs, a ref named with `--freeze-ref` that does
+not resolve, a rule document committed as a symlink or a gitlink, and a rules directory that is a
+symlink on disk pointing somewhere other than the path the command line named.
+
+What `Broken` costs depends on who is asking: the hook denies the write (exit `0` with a deny
+document whose reason names git's own error and `--freeze off`), `scan` and `--list-rules` exit `2`,
+and `--doctor` reports `healthy: false` and exits `1`.
+
+Reading the ref costs four `git` invocations, fixed and independent of the rule count: `rev-parse`,
+one `cat-file --batch` carrying the ref probe and every config candidate, `ls-tree`, and one
+`cat-file --batch` carrying the rule blobs. That is about 4% of a judged write at both 23 and 168
+rules. A tool call falsestart does not judge never spawns git at all.
+
+#### When the anchor cannot be verified
+
+git honours a `.git` that is an ordinary one-line file containing `gitdir: <path>`, which a write
+tool produces without a shell — and replacing it substitutes the entire object database while the
+repository's top-level path does not change. falsestart therefore resolves the repository by walking
+outward from the project until it finds a `.git` that is a real **directory**, which a write tool
+cannot replace. A planted `.git` anywhere below a real repository root is stepped over.
+
+Two legitimate setups have no enclosing `.git` directory at all: a linked worktree placed outside its
+main repository, and a repository created with `git init --separate-git-dir`. There, `--freeze auto`
+freezes as usual and `--doctor` prints an `anchor UNVERIFIED` line naming the condition;
+`--freeze require` refuses to judge instead. A submodule's working tree resolves outward to its
+superproject and is reported as a submodule rather than as an unverified anchor.
+
 ### `falsestart --list-rules`
 
 Prints the rule set falsestart resolved, as JSON on stdout, and exits without reading stdin. It
@@ -64,7 +127,9 @@ internals are reformatted.
 
 Resolved, not raw: `--preset` and `--rules pkg:` are resolved first, then the scope overrides from
 `falsestart.config.ts` are applied, so `files` and `ignores` are the globs that will actually decide
-what gets judged.
+what gets judged. Resolution starts from the ref by default (see
+[Freezing the rule set](#freezing-the-rule-set)), which is what makes a CI assertion compare the
+rules that block writes with the rules that were committed rather than with whatever is on disk.
 
 **Read this before you write the assertion:** the document describes RULES, and a config's top-level
 `exclude` is not one. `exclude` applies to `scan` and moves whole paths out of the gate without
@@ -166,6 +231,9 @@ commands would mean predicting what they do.
 | `0` + no output            | No decision; the normal permission flow applies.                   |
 | `1`                        | falsestart could not do its job. Reported, and the write proceeds. |
 
+`0` + `hookSpecificOutput` also carries a freeze refusal: a source the ref established as freezable
+that could not be read denies rather than reporting, and its reason names `--freeze off`.
+
 The first two are separate rows because they are separate documents, not one document carrying a
 different verdict: advice has no `permissionDecision` field at all, and a reader that looks only for
 one sees nothing to act on — which is exactly what advice means here.
@@ -219,7 +287,12 @@ An override naming a rule that is not loaded is an error, not a no-op. Use a **t
 the config type in a `.ts` config — it is type-stripped and imported from a `data:` URL with no
 filesystem location, so a **package or relative** value import cannot resolve; `node:` builtins need
 no location and do, which is enough to compute a rule's scope at load time. `.mjs` configs are
-imported from their real path and may import anything, including `makeConfigUnsafe`.
+imported from their real path and may import anything, including `makeConfigUnsafe` — **unless the
+freeze is on**, which is the default. Under a freeze every format is imported from a `data:` URL
+built from the committed bytes, so the restrictions above apply to `.js`/`.mjs` too and
+`makeConfigUnsafe` cannot be imported from one. Config **discovery** is frozen as well: a config file
+the repository has not committed is not picked up, and one deleted from the working tree still
+applies.
 
 **An override replaces a rule's `files`; it does not merge into them.** That is deliberate — a merge
 could never remove anything — but it means an override written to add one exemption has to restate
@@ -357,6 +430,20 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `samplePath`                | function    | checking |
 | `toScopingPath`             | function    | checking |
 | `validateConfig`            | function    | config   |
+| `FREEZE_MODES`              | constant    | freezing |
+| `MAX_ANCHOR_WALK`           | constant    | freezing |
+| `classifyConfig`            | function    | freezing |
+| `classifyRules`             | function    | freezing |
+| `containedPath`             | function    | freezing |
+| `divergence`                | function    | freezing |
+| `freeze`                    | function    | freezing |
+| `isAbsent`                  | function    | freezing |
+| `parseBatchObjects`         | function    | freezing |
+| `parseTreeListing`          | function    | freezing |
+| `resolveAnchor`             | function    | freezing |
+| `resolveRulesPath`          | function    | freezing |
+| `isRuleDocument`            | function    | checking |
+| `readRuleDocuments`         | function    | checking |
 
 The extension lists `TYPESCRIPT_EXTENSIONS`, `JAVASCRIPT_EXTENSIONS` and `SOURCE_EXTENSIONS` are
 exported too, with `extensionGlobGroup` to build the `{ts,tsx,…}` alternation from one of them. A
@@ -369,10 +456,14 @@ Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, 
 `Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
 `ScanError`, `ScanExit`, `DEFAULT_EXCLUSIONS` and `BaselineUnreadable` are exported alongside them.
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,
-`RuleExpectation`, `CaseResult`, `Identified`, `RuleDescription`.
+`RuleExpectation`, `CaseResult`, `Identified`, `RuleDescription`, `Anchor`, `AnchorResolution`,
+`ClassifyConfigOptions`, `ClassifyRulesOptions`, `ConfigSource`, `Divergence`, `FreezeEvidence`,
+`FreezeInput`, `FreezeMode`, `FreezeOutcome`, `Frozen`, `GitAnswer`, `RulesPath`, `RulesPathOptions`,
+`TreeEntry` and `Absent`.
 
 `Options` and `Preset` are **not** exported: `src/index.ts` re-exports the `checking`, `config`,
-`hook` and `testing` entry points, and argument parsing is the CLI's own business.
+`freezing`, `hook`, `scanning` and `testing` entry points, and argument parsing is the CLI's own
+business.
 
 `effect` is a required peer dependency; `@effect/platform-node` is optional, needed only for the
 helpers that touch the filesystem.

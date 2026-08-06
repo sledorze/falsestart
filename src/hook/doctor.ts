@@ -16,8 +16,7 @@
  * when a step did not resolve. It reads no stdin: it is a question about the installation, not about
  * a tool call.
  */
-import { Effect, FileSystem } from 'effect'
-import type { Path } from 'effect'
+import { Effect, FileSystem, Path } from 'effect'
 import {
   applyScopeOverrides,
   findDefaultConfigs,
@@ -25,7 +24,9 @@ import {
   loadConfigFile,
   loadDefaultConfig,
 } from '../config/index.ts'
-import { appliesTo, fallbacks, loadRules } from '../checking/index.ts'
+import { appliesTo, fallbacks, loadRules, readRuleDocuments } from '../checking/index.ts'
+import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
+import { divergence } from '../freezing/index.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
 export interface Diagnosis {
@@ -46,6 +47,13 @@ export interface DiagnoseOptions {
    */
   readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
+  /**
+   * What a git ref committed, when the caller resolved one.
+   *
+   * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published, and a required field
+   * here is a compile error in every caller that predates it.
+   */
+  readonly freeze?: FreezeOutcome | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
   readonly version: string
@@ -66,12 +74,61 @@ const PROBE_PATHS = ['src/a.ts', 'src/nested/deep/a.ts', 'src/a.mts', 'src/a.tes
 const SAMPLE_PATH = 'src/nested/example.ts'
 const SAMPLE_SOURCE = 'const widget = payload as any'
 
+/**
+ * A block of `label  text` rows under one heading, in the report's existing shape.
+ *
+ * The heading is on the first row and the rest are indented under it, which is what makes `rules`,
+ * `config` and `scope` read as one report rather than as a list of unrelated lines.
+ */
+const block = (heading: string, rows: readonly (readonly [string, string])[]): readonly string[] =>
+  rows.map(([label, text], index) => `${(index === 0 ? heading : '').padEnd(9)}${label.padEnd(8)}${text}`)
+
+const documentsOf = (source: Frozen | undefined): ReadonlyMap<string, string> | undefined =>
+  source?._tag === 'Frozen' ? source.documents : undefined
+
+/** How many documents a frozen source holds; nothing, when it is not frozen. */
+const countOf = (source: Frozen): number => (source._tag === 'Frozen' ? source.documents.size : 0)
+
+const describeFrozen = (source: Frozen, held: string): string => {
+  switch (source._tag) {
+    case 'Frozen': {
+      return `frozen — ${held}`
+    }
+    case 'Unfrozen': {
+      // A stated policy rather than a fault: there was no committed version of these bytes.
+      return `not frozen — ${source.reason}`
+    }
+    default: {
+      return `COULD NOT BE READ — ${source.reason}`
+    }
+  }
+}
+
+/**
+ * The one line a linked-worktree user has to see, because for them it is the difference between what
+ * this feature claims and what it delivers.
+ *
+ * Printed ONLY when the anchor is unverified. A line that appears on every healthy run is one readers
+ * stop seeing, and this is precisely the fact that must not be skimmed past.
+ */
+const anchorWarning = (projectDirectory: string): string =>
+  `UNVERIFIED — no directory between ${projectDirectory} and / has a .git DIRECTORY, so replacing ` +
+  `one file repoints this repository and everything below would still read as frozen. Expected in a ` +
+  `linked worktree outside its main repository, or with --separate-git-dir. --freeze require refuses ` +
+  `to judge here instead.`
+
 export const diagnose = (
   options: DiagnoseOptions,
 ): Effect.Effect<Diagnosis, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { changelogPath, configPath, projectDirectory, rulesDirectory, version } = options
+    const { changelogPath, configPath, freeze, projectDirectory, rulesDirectory, version } = options
     const lines: string[] = [`falsestart ${version}`]
+
+    // Every step below reads the FROZEN bytes where there are any. A report that resolved the
+    // working tree while the hook enforced the ref would describe a rule set nobody is running,
+    // which is the failure this whole command exists to prevent, wearing a new hat.
+    const frozenRules = documentsOf(freeze?.rules)
+    const frozenConfig = documentsOf(freeze?.config)
 
     // The version alone does not answer the question someone runs `--doctor` after an upgrade to
     // ask, which is "what is newly going to block me". A minor bump can add an `error`-severity rule
@@ -85,8 +142,9 @@ export const diagnose = (
     // claim being made, and a filesystem that cannot answer at all gets the same answer as "no": the
     // reader's next step is identical, and this is the one report still available when things break.
     const fs = yield* FileSystem.FileSystem
-    const isReadableFile = (path: string) =>
-      fs.stat(path).pipe(
+    const paths = yield* Path.Path
+    const isReadableFile = (candidate: string) =>
+      fs.stat(candidate).pipe(
         Effect.map((info) => info.type === 'File'),
         Effect.orElseSucceed(() => false),
       )
@@ -96,7 +154,7 @@ export const diagnose = (
     }
     lines.push('')
 
-    const loaded = yield* Effect.result(loadRules(rulesDirectory))
+    const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
     if (loaded._tag === 'Failure') {
       lines.push(`rules    ${rulesDirectory}`, `         COULD NOT LOAD — ${loaded.failure.reasons.join('; ')}`)
       return { healthy: false, lines }
@@ -112,8 +170,11 @@ export const diagnose = (
       `rules    ${rulesDirectory} — ${loaded.success.length} loaded (${blocking} block, ${loaded.success.length - blocking} advise)`,
     )
 
+    const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(paths.basename(configPath))
     const configured = yield* Effect.result(
-      configPath === undefined ? loadDefaultConfig(projectDirectory) : loadConfigFile(configPath),
+      configPath === undefined
+        ? loadDefaultConfig(projectDirectory, frozenConfig)
+        : loadConfigFile(configPath, namedConfig),
     )
     if (configured._tag === 'Failure') {
       lines.push(`config   COULD NOT LOAD — ${configured.failure.reasons.join('; ')}`)
@@ -126,7 +187,7 @@ export const diagnose = (
     const named = overrides.length === 0 ? '' : `: ${overrides.join(', ')}`
     // "Did you pick up my config?" is the question this line exists to answer, and reporting only
     // where it LOOKED made a project with a config and one without print the same thing.
-    const found = yield* findDefaultConfigs(projectDirectory)
+    const found = yield* findDefaultConfigs(projectDirectory, frozenConfig)
     const where = configPath ?? (found.length === 0 ? `no config file in ${projectDirectory}` : found.join(', '))
     lines.push(`config   ${where} — ${overrides.length} override(s)${named}`)
 
@@ -152,6 +213,56 @@ export const diagnose = (
       lines.push(
         `         ${fallback.ruleId} falls back to ${fallback.declared} for .${fallback.extension} — its pattern does not compile under that file's grammar`,
       )
+    }
+
+    // Between `config` and `tools`, because it is a fact about WHICH bytes the two lines above
+    // describe. `healthy` follows the same split the classification does: `Unfrozen` is a stated
+    // policy and stays healthy; `Broken` is a guard that could not do its job and does not.
+    if (freeze !== undefined) {
+      const frozenRef = [freeze.rules, freeze.config].flatMap((source) =>
+        source._tag === 'Frozen' ? [source.ref] : [],
+      )[0]
+      const unverified = [freeze.rules, freeze.config].some(
+        (source) => source._tag === 'Frozen' && source.anchor === 'unverified',
+      )
+      const committedConfig =
+        freeze.config._tag === 'Frozen' && freeze.config.documents.size > 0
+          ? [...freeze.config.documents.keys()].join(', ')
+          : `no falsestart config at ${frozenRef}`
+
+      const rows: (readonly [string, string])[] = [
+        ...(frozenRef === undefined ? [] : [['ref', frozenRef] as const]),
+        ...(unverified ? [['anchor', anchorWarning(projectDirectory)] as const] : []),
+        ['rules', describeFrozen(freeze.rules, `${countOf(freeze.rules)} document(s) from ${rulesDirectory}`)],
+        ['config', describeFrozen(freeze.config, committedConfig)],
+      ]
+      lines.push(...block('freeze', rows))
+
+      // The entire answer to "I edited a rule and nothing happened", and it costs one working-tree
+      // read plus a pure comparison — here, in a report someone asked for, and never on a judged
+      // write. A rules directory that is not there is not an error: the ref is what is in effect,
+      // so every committed document simply reads as removed.
+      //
+      // Printed only where the anchor is VERIFIED. "N working-tree change(s) are NOT in effect" is a
+      // claim about which side is authoritative, and where that cannot be positively established the
+      // claim was wrong in the direction that reassures — it named the project's own committed rule
+      // as the change that had not landed.
+      if (freeze.rules._tag === 'Frozen' && freeze.rules.anchor === 'verified') {
+        const working = yield* readRuleDocuments(rulesDirectory).pipe(Effect.orElseSucceed(() => new Map()))
+        const drift = divergence(freeze.rules.documents, working)
+        if (drift.length > 0) {
+          lines.push(
+            `         ${drift.length} working-tree change(s) are NOT in effect — commit them, or pass --freeze off:`,
+          )
+          for (const entry of drift) {
+            lines.push(`           ${entry.kind.padEnd(8)} ${entry.path}`)
+          }
+        }
+      }
+
+      if ([freeze.rules, freeze.config].some((source) => source._tag === 'Broken')) {
+        return { healthy: false, lines }
+      }
     }
 
     lines.push(`tools    ${Object.keys(WRITE_TOOLS).toSorted().join(', ')} — any other tool call is ignored`)

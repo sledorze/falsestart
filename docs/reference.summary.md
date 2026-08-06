@@ -69,5 +69,17 @@ though `node:` builtins do resolve — which is enough to compute a scope at loa
 **Shipped rules:** twenty-three, all `error` severity; `clean-code` assumes no framework and now reaches JavaScript too, `effect`
 assumes Effect, and `no-vi-mocking`, `no-test-lifecycle-hooks` and `no-manual-effect-run-in-tests` apply only to test files. `Schema.Class` constructors throw but are deliberately not ruled — that would contradict `prefer-smart-constructor`.
 
+**Freezing the rule set:** `--freeze auto|off|require` (default `auto`) and `--freeze-ref <ref>`
+(default `HEAD`), on the command line only — never from `falsestart.config.*` or the environment,
+because the thing being frozen must not carry its own off switch. Rules and config are classified
+INDEPENDENTLY into `Frozen` (the ref's bytes run), `Unfrozen` (nothing to freeze: no repository, no
+commit, an out-of-repository or untracked tree including `--preset` and `pkg:`, a submodule, a
+committed symlink — read the working tree and say so) and `Broken` (git said it was readable and then
+was not — refuse, and never fall back). `Broken` denies at the hook, exits 2 for `scan` and
+`--list-rules`, and fails `--doctor`. `require` extends `Broken` to every `Unfrozen` row. Four fixed
+`git` invocations, about 4% of a judged write at 23 and at 168 rules; a call falsestart does not judge
+spawns git not at all. Where no enclosing `.git` DIRECTORY exists — a linked worktree outside its main
+repository, `--separate-git-dir` — `--doctor` prints `anchor UNVERIFIED` and `require` refuses.
+
 **Library:** the exported functions, error classes and constants, with the area each belongs to,
 plus the exported types. `effect` is a required peer; `@effect/platform-node` is optional.

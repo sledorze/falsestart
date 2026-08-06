@@ -6,11 +6,18 @@
  * them to the process, and is deliberately the only place that names a runtime or a process.
  */
 import { spawnSync } from 'node:child_process'
+import { basename } from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
-import { Data, Effect, Layer, Stdio, Stream } from 'effect'
-import { isBrokenPipe, packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
+import { Data, Effect, FileSystem, Layer, Path, Stdio, Stream } from 'effect'
+import {
+  DEFAULT_FREEZE_REF,
+  isBrokenPipe,
+  packageRulesDirectory,
+  parseArguments,
+  presetDirectory,
+} from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
 import {
@@ -22,8 +29,17 @@ import {
   ScanExit,
   writeBaseline,
 } from './scanning/index.ts'
-import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from './config/index.ts'
-import { loadRules, ruleListText } from './checking/index.ts'
+import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
+import { isRuleDocument, loadRules, ruleListText } from './checking/index.ts'
+import type {
+  AnchorResolution,
+  ConfigSource,
+  FreezeMode,
+  FreezeOutcome,
+  GitAnswer,
+  WorkTree,
+} from './freezing/index.ts'
+import { containedPath, enclosingGitDirectory, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
@@ -124,6 +140,178 @@ const gitIgnored = (paths: readonly string[], projectDirectory: string): Readonl
     : parseIgnoredPaths(result.stdout)
 }
 
+/**
+ * The location variables git honours before it looks at any path.
+ *
+ * Cleared, because falsestart decides which repository is authoritative by walking the filesystem
+ * outward to a `.git` DIRECTORY, and an inherited variable that overrides that decision is the
+ * environment disarming the guard. Measured: `GIT_DIR=<other>/.git GIT_WORK_TREE=<other>` made the
+ * freeze read a different repository entirely and report the project's own rules as "outside the
+ * project repository".
+ */
+const GIT_LOCATION_VARIABLES = [
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+  'GIT_CEILING_DIRECTORIES',
+  'GIT_COMMON_DIR',
+  'GIT_DIR',
+  'GIT_INDEX_FILE',
+  'GIT_NAMESPACE',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_WORK_TREE',
+]
+
+/**
+ * The environment every freeze spawn runs in: the caller's, minus everything that could decide for
+ * it which repository this is.
+ *
+ * Global and system configuration are pointed at `/dev/null` as well. Not because config is
+ * dangerous, but because git reads it BEFORE it does anything: one malformed line in `~/.gitconfig`
+ * makes `rev-parse` exit non-zero in every directory on the machine — a file outside the repository,
+ * outside `.git`, and invisible to any diff of the project. Repo-local `.git/config` still applies;
+ * that one is inside `.git`, which `SECURITY.md` already places outside what this can defend.
+ *
+ * The consequence is user-visible and is documented: a global `include`, a custom `core.*`, a
+ * commit-signing setting — none of them apply to these four invocations.
+ */
+const gitEnvironment = (): Record<string, string | undefined> => {
+  const inherited: Record<string, string | undefined> = { ...process.env }
+  for (const name of GIT_LOCATION_VARIABLES) {
+    delete inherited[name]
+  }
+  inherited['GIT_CONFIG_GLOBAL'] = '/dev/null'
+  inherited['GIT_CONFIG_SYSTEM'] = '/dev/null'
+  return inherited
+}
+
+/**
+ * One `git` invocation, with its output kept as BYTES.
+ *
+ * `encoding` is left unset on purpose: `cat-file --batch` frames objects by a byte count, and
+ * decoding before slicing corrupts every document with a non-ASCII character.
+ *
+ * `--no-optional-locks` rather than `GIT_OPTIONAL_LOCKS=0`, which is what git's own documentation
+ * calls the equivalent of: a judged write must not take a repository lock.
+ */
+const runGit = (args: readonly string[], input?: string): GitAnswer => {
+  const result = spawnSync('git', ['--no-optional-locks', ...args], {
+    env: gitEnvironment(),
+    maxBuffer: 64 * 1024 * 1024,
+    ...(input === undefined ? {} : { input }),
+  })
+
+  // A spawn error — `maxBuffer` exceeded, git not on PATH — leaves stderr empty, so it has to be
+  // carried explicitly or the refusal says nothing to the person it just blocked.
+  return {
+    failed: result.error !== undefined || result.status !== 0,
+    stderr: result.error === undefined ? (result.stderr?.toString() ?? '') : result.error.message,
+    stdout: result.stdout ?? new Uint8Array(),
+  }
+}
+
+const decoder = new TextDecoder()
+
+/**
+ * P1: which repository the project is in, asked from the PROJECT.
+ *
+ * Never from the rules directory. git honours a `.git` gitfile, so running it with a cwd inside a
+ * directory an agent can write hands the agent the choice of repository — one `Write`, no shell.
+ */
+const toplevelOf = (directory: string): GitAnswer & { readonly toplevel: string | undefined } => {
+  const answered = runGit(['-C', directory, 'rev-parse', '--show-toplevel'])
+  return { ...answered, toplevel: answered.failed ? undefined : decoder.decode(answered.stdout).trim() }
+}
+
+/**
+ * Everything the freeze needs, resolved when — and only when — someone asks for it.
+ *
+ * Four spawns, fixed, independent of the rule count: `rev-parse`, one `cat-file --batch` carrying
+ * the ref probe and every config candidate, `ls-tree`, and one `cat-file --batch` carrying the rule
+ * blobs. Never `git show` per document, which measured at nearly a whole judged write again at 168
+ * rules and grows linearly where this shape does not.
+ *
+ * Only the SPAWNS live here. Deciding what git's answers MEAN is `src/freezing/`, where it can be
+ * tested — this file is excluded from the coverage ratchet and from mutation testing.
+ */
+const resolveFreeze = (options: {
+  readonly configPath: string | undefined
+  readonly mode: FreezeMode
+  readonly projectDirectory: string
+  readonly ref: string
+  readonly refExplicit: boolean
+  readonly rulesDirectory: string
+}): Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { configPath, mode, projectDirectory, ref, refExplicit, rulesDirectory } = options
+
+    const real = (candidate: string) => fs.realPath(candidate).pipe(Effect.orElseSucceed(() => candidate))
+    const projectReal = yield* real(projectDirectory)
+
+    // `off` asks git nothing at all, including this.
+    const asked = mode === 'off' ? undefined : toplevelOf(projectDirectory)
+    const located = asked?.toplevel
+    const repository: AnchorResolution =
+      located === undefined
+        ? { _tag: 'Anchored', anchor: 'unverified', toplevel: projectReal }
+        : yield* resolveAnchor({
+            listTreeAt: (repo, relative) => runGit(['-C', repo, 'ls-tree', ref, '--', relative]),
+            projectDirectory,
+            refExists: (repo) => runGit(['-C', repo, 'rev-parse', '--verify', '--quiet', `${ref}^{commit}`]),
+            toplevel: located,
+          })
+    const anchored =
+      repository._tag === 'Anchored' ? repository : { anchor: 'unverified' as const, toplevel: projectReal }
+
+    /**
+     * git failing to name the repository is not evidence that there is none.
+     *
+     * Which of the two it is comes from the filesystem — is there a `.git` DIRECTORY between here
+     * and the root — rather than from git's own words, which are another program's prose and would
+     * make this a content match.
+     */
+    const workTree: WorkTree =
+      asked === undefined || located !== undefined
+        ? { _tag: 'Inside' }
+        : (yield* enclosingGitDirectory(projectDirectory)) === undefined
+          ? { _tag: 'Absent' }
+          : { _tag: 'Unreadable', stderr: asked.stderr }
+
+    const toplevelReal = yield* real(anchored.toplevel)
+    const at = (args: readonly string[], input?: string) => runGit(['-C', anchored.toplevel, ...args], input)
+
+    const config: ConfigSource =
+      configPath === undefined
+        ? {
+            _tag: 'Candidates',
+            names: DEFAULT_CONFIG_CANDIDATES,
+            relative: containedPath(toplevelReal, projectReal) ?? '',
+          }
+        : {
+            _tag: 'Explicit',
+            name: path.basename(configPath),
+            origin: configPath,
+            relative: containedPath(toplevelReal, path.resolve(projectReal, configPath)),
+          }
+
+    return yield* freeze({
+      config,
+      isDocument: isRuleDocument,
+      listTree: (relative) => at(['ls-tree', '-r', '-z', ref, '--', relative === '' ? '.' : relative]),
+      mode,
+      namedRefs: () => at(['for-each-ref', '--count=1', '--format=%(refname)']),
+      probe: (requests) => at(['cat-file', '--batch', '--buffer'], `${requests.join('\n')}\n`),
+      projectDirectory,
+      readBlobs: (oids) => at(['cat-file', '--batch', '--buffer'], `${oids.join('\n')}\n`),
+      ref,
+      refExplicit,
+      repository,
+      rulesDirectory,
+      rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
+      workTree,
+    })
+  })
+
 const program = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio
   const args = yield* stdio.args
@@ -191,6 +379,31 @@ const program = Effect.gen(function* () {
     return yield* new Exit({ code: failureCode })
   }
 
+  /**
+   * The freeze for whichever mode is running, built from the same command line every time.
+   *
+   * `--doctor`, `--list-rules` and `scan` invoke it immediately, having no payload to gate on; the
+   * hook hands it over as a thunk, so a tool call it does not judge never spawns git at all.
+   */
+  const freezeFor = () =>
+    resolveFreeze({
+      configPath: options.configPath,
+      mode: options.freeze,
+      projectDirectory,
+      ref: options.freezeRef,
+      // A ref the caller NAMED is a statement that it exists, so failing to resolve it is
+      // unambiguously broken rather than a fresh-repository special case.
+      refExplicit: options.freezeRef !== DEFAULT_FREEZE_REF,
+      rulesDirectory: located.success,
+    })
+
+  /** The documents a frozen source holds, or nothing when the working tree is what is in effect. */
+  const heldBy = (source: FreezeOutcome[keyof FreezeOutcome]) =>
+    source._tag === 'Frozen' ? source.documents : undefined
+
+  const brokenFreeze = (outcome: FreezeOutcome): string | undefined =>
+    [outcome.rules, outcome.config].flatMap((source) => (source._tag === 'Broken' ? [source.reason] : []))[0]
+
   if (options._tag === 'Scan') {
     // Paths on stdin only when asked for. Reading it unconditionally is how `--rules --doctor`
     // once hung with no output: a mode that waits on input nobody is sending looks identical to a
@@ -205,13 +418,22 @@ const program = Effect.gen(function* () {
         .filter((line) => line.length > 0),
     ]
 
+    // `scan` already fails closed, so a freeze it cannot honour keeps that policy rather than
+    // silently gating against the working tree.
+    const frozen = yield* freezeFor()
+    const refused = brokenFreeze(frozen)
+    if (refused !== undefined) {
+      yield* write(`falsestart: ${refused}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+
     const prepared = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(located.success)
+        const loaded = yield* loadRules(located.success, heldBy(frozen.rules))
         const configured =
           options.configPath === undefined
-            ? yield* loadDefaultConfig(projectDirectory)
-            : yield* loadConfigFile(options.configPath)
+            ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
+            : yield* loadConfigFile(options.configPath, heldBy(frozen.config)?.get(basename(options.configPath)))
         return { exclude: configured.exclude ?? [], rules: yield* applyScopeOverrides(loaded, configured) }
       }),
     )
@@ -270,13 +492,20 @@ const program = Effect.gen(function* () {
   // Like `--doctor`, this answers a question about the installation, so it must not wait on a
   // payload that will never arrive.
   if (options._tag === 'ListRules') {
+    const frozen = yield* freezeFor()
+    const refused = brokenFreeze(frozen)
+    if (refused !== undefined) {
+      yield* write(`falsestart: ${refused}\n`, stdio.stderr())
+      return yield* new Exit({ code: ScanExit.Broken })
+    }
+
     const resolved = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(located.success)
+        const loaded = yield* loadRules(located.success, heldBy(frozen.rules))
         const configured =
           options.configPath === undefined
-            ? yield* loadDefaultConfig(projectDirectory)
-            : yield* loadConfigFile(options.configPath)
+            ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
+            : yield* loadConfigFile(options.configPath, heldBy(frozen.config)?.get(basename(options.configPath)))
         return yield* applyScopeOverrides(loaded, configured)
       }),
     )
@@ -306,6 +535,7 @@ const program = Effect.gen(function* () {
     const diagnosis = yield* diagnose({
       changelogPath: CHANGELOG_PATH,
       configPath: options.configPath,
+      freeze: yield* freezeFor(),
       projectDirectory,
       rulesDirectory: located.success,
       version: VERSION,
@@ -320,6 +550,7 @@ const program = Effect.gen(function* () {
 
   const response = yield* respond({
     configPath: options.configPath,
+    freeze: freezeFor,
     input,
     // The process runs in the project, which is where a repo's own config lives — not beside the
     // rules, which `--preset` and `pkg:` both put inside node_modules.

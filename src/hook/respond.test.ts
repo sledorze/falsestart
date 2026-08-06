@@ -1,6 +1,8 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
+import type { Frozen } from '../freezing/index.ts'
+import type { HookResponse } from './respond.ts'
 import { respond } from './respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -535,6 +537,370 @@ layer(platform)('hook response', (it) => {
 
         expect(response.exitCode).toBe(0)
         expect(response.stderr).toBeUndefined()
+      }),
+    ),
+  )
+})
+
+/**
+ * The crux: a frozen source that cannot be honoured denies. It does not report and allow.
+ *
+ * Every assertion here is on the RESPONSE rather than on an error value, because the failure being
+ * guarded against is precisely that a `ConfigError` reaches `problem()` — exit 1, non-blocking, and
+ * the write proceeds. An assertion on the error would pass either way.
+ */
+const frozenWith = (documents: Readonly<Record<string, string>>): Frozen => ({
+  _tag: 'Frozen',
+  anchor: 'verified',
+  documents: new Map(Object.entries(documents)),
+  ref: 'HEAD',
+})
+
+const nothingToFreeze: Frozen = { _tag: 'Unfrozen', reason: 'x is not tracked at HEAD' }
+
+const BLOCKING = `
+id: block-any
+language: tsx
+message: 'FROZEN MESSAGE'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.ts'
+`
+
+const NARROWED = `
+id: block-any
+language: tsx
+message: 'WORKTREE MESSAGE'
+rule:
+  pattern: $X as any
+files:
+  - '**/never-matches/**'
+`
+
+const BROKEN_REASONS = [
+  { reason: 'could not list ./rules at HEAD: fatal: bad object' },
+  { reason: 'HEAD does not resolve in a repository that has refs' },
+]
+
+layer(platform)('a freeze the hook cannot honour', (it) => {
+  // T43 — the mandatory negative test. The two copies carry DIFFERENT messages, so an
+  // implementation that loads the right rule from the wrong bytes is caught: matching on `files`
+  // alone would pass against a rule that blocks for an unrelated reason.
+  it.effect('judges the committed rule, not the one the working tree was narrowed to', () =>
+    withRules({ 'block-any.yml': NARROWED }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => Effect.succeed({ config: frozenWith({}), rules: frozenWith({ 'block-any.yml': BLOCKING }) }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        // Asserted before the content: reading the working tree makes this `silent()`, and a
+        // `toContain` against `undefined` reports an argument-type complaint rather than the fact.
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('FROZEN MESSAGE')
+        expect(response.stdout).not.toContain('WORKTREE MESSAGE')
+      }),
+    ),
+  )
+
+  // T44 — the control, and what proves T43 measures the freeze rather than a rule that blocks
+  // anyway. Same fixture, no freeze: the working tree's narrowing takes effect and nothing happens.
+  it.effect('reads the working tree when there is no freeze, and is then disarmed', () =>
+    withRules({ 'block-any.yml': NARROWED }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T45
+  describe.each(BROKEN_REASONS)('when the freeze reports $reason', ({ reason }) => {
+    effect('denies the write instead of letting it through with a notice', () =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () => Effect.succeed({ config: { _tag: 'Broken', reason }, rules: { _tag: 'Broken', reason } }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: '/no/such/place',
+          rulesDirectory: '/no/such/place',
+        }).pipe(Effect.provide(platform))
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain(reason)
+        expect(response.stdout).toContain('--freeze off')
+      }),
+    )
+  })
+
+  // T46 — F3. `respond.ts` turns any ConfigError into a non-blocking notice, so without this a
+  // committed config that will not parse is a disarm through the path this change exists to close.
+  it.effect('denies when the committed config will not parse', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () =>
+            Effect.succeed({ config: frozenWith({ 'falsestart.config.json': '{oops' }), rules: nothingToFreeze }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('--freeze off')
+      }),
+    ),
+  )
+
+  // T47 — the same for the rules half. A COMMITTED rule that does not load is a repository-wide
+  // problem a commit introduced, which is exactly what `scan` already fails closed on.
+  it.effect('denies when the committed rule tree will not load', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () =>
+            Effect.succeed({ config: frozenWith({}), rules: frozenWith({ 'broken.yml': 'id: 7\nlanguage: tsx' }) }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('broken.yml')
+      }),
+    ),
+  )
+
+  // Not in the design's catalogue. An override naming a rule the frozen tree does not load is a
+  // deliberate hard error, and it reaches the same fail-open path as the two above.
+  it.effect('denies when a committed override names a rule the committed tree does not load', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: () =>
+            Effect.succeed({
+              config: frozenWith({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}' }),
+              rules: frozenWith({ 'block-any.yml': BLOCKING }),
+            }),
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('typo')
+      }),
+    ),
+  )
+})
+
+/**
+ * The moment the confusion happens: a judged write INTO the frozen rules directory.
+ *
+ * Scoped by two structural tests and never by content — segment containment of the destination
+ * directory, and `isRuleDocument` on the name. The negative cases are the point. A note saying "this
+ * does not take effect until it is committed" is actively wrong about a file that took effect
+ * immediately, and telling someone that about `<rules>/.git` would be telling them it about the one
+ * write this whole design exists to defeat.
+ */
+const noteOf = (response: HookResponse): string => {
+  const payload: unknown = JSON.parse(response.stdout ?? '{}')
+  return typeof payload === 'object' && payload !== null && 'systemMessage' in payload
+    ? String(payload.systemMessage)
+    : ''
+}
+
+const writeTo = (filePath: string, content = 'name: not a rule\n') =>
+  JSON.stringify({ hook_event_name: 'PreToolUse', tool_input: { content, file_path: filePath }, tool_name: 'Write' })
+
+const frozenRules = (documents: Readonly<Record<string, string>>) => () =>
+  Effect.succeed({ config: frozenWith({}), rules: frozenWith(documents) })
+
+layer(platform)('editing a rule while the freeze is on', (it) => {
+  // T48
+  it.effect('says why editing a rule document changed nothing', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'new.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(noteOf(response)).toContain('does not take effect until it is committed')
+      }),
+    ),
+  )
+
+  // T49 — nothing to explain when nothing is frozen.
+  it.effect('says nothing when the rules are not frozen', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          input: writeTo(path.join(rules, 'new.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T50 — a sibling `rulesx/` shares a prefix with `rules/` and is a different directory.
+  it.effect('leaves a sibling directory whose name merely starts the same alone', () =>
+    withRules({ 'rules/block-any.yml': BLOCKING, 'rulesx/new.yml': 'id: x\n' }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'rulesx', 'new.yml')),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T51 — the F1 payload itself. `<rules>/.git` takes effect the instant it is written, and telling
+  // its author it will not is the worst possible thing to say about it.
+  it.effect('says nothing about a .git gitfile written into the rules directory', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, '.git'), 'gitdir: /elsewhere/.git\n'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T52 — the adjacent-file negative test. A REAL rule document, correct extension, refused by its
+  // LOCATION alone. A `.md` here would be unfalsifiable: no implementation could treat one as a rule.
+  it.effect('leaves a real rule document outside the rules directory alone', () =>
+    withRules({ 'examples/sample-rule.yml': BLOCKING, 'rules/block-any.yml': BLOCKING }, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'examples', 'sample-rule.yml'), BLOCKING),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // T53 — containment alone is not enough; a README in the rules directory is not a rule.
+  it.effect('says nothing about a document in the rules directory that is not a rule', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'NOTES.md'), '# how these work\n'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  // Not in the design's catalogue, and all three are reachable. The rules directory can be gone
+  // entirely — that is the case the lexical path derivation exists to keep frozen — the destination
+  // directory need not exist yet, and a payload can carry no path at all.
+  it.effect('says nothing when there is no rules directory on disk to compare against', () =>
+    withRules({}, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(root, 'deleted-rules', 'new.yml')),
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'deleted-rules'),
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('says nothing when the destination directory does not exist yet', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: writeTo(path.join(rules, 'new', 'nested', 'rule.yml')),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('reports an incomplete payload as before, rather than noting anything about it', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING }),
+          input: JSON.stringify({ tool_input: { content: 'const x = y as any' }, tool_name: 'Write' }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(1)
+        expect(response.stdout).toBeUndefined()
+      }),
+    ),
+  )
+
+  it.effect('appends the note to a denial rather than replacing it', () =>
+    withRules({ 'block-any.yml': BLOCKING }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        // A rule document whose own CONTENT breaks a rule: both things are true at once, and the
+        // decision must win while the explanation still arrives.
+        const response = yield* respond({
+          freeze: frozenRules({ 'block-any.yml': BLOCKING.replace("'**/*.ts'", "'**/*.{ts,yml}'") }),
+          input: writeTo(path.join(rules, 'new.yml'), 'const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('FROZEN MESSAGE')
+        expect(response.stdout).toContain('does not take effect until it is committed')
       }),
     ),
   )

@@ -9,6 +9,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
+import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { diagnose } from './doctor.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -39,12 +40,14 @@ const unstattable = Layer.mergeAll(
 const run = (options: {
   changelogPath?: string
   configPath?: string
+  freeze?: FreezeOutcome
   projectDirectory?: string
   rulesDirectory?: string
 }) =>
   diagnose({
     changelogPath: options.changelogPath ?? 'CHANGELOG.md',
     configPath: options.configPath,
+    freeze: options.freeze,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
     version: '0.0.0-test',
@@ -359,5 +362,195 @@ layer(platform)('the doctor', (it) => {
       expect(diagnosis.healthy).toBeFalsy()
       expect(diagnosis.lines.join('\n')).toContain('no/such/config.json')
     }),
+  )
+})
+
+/**
+ * The freeze block, which is the entire answer to "I edited a rule and nothing happened".
+ *
+ * The divergence list is what makes that answer specific rather than a policy statement, and it is
+ * computed here and nowhere else: reporting it on every judged write would train it away, and a
+ * trained-away signal is worse than none because it still looks like coverage.
+ */
+const frozenWith = (documents: Readonly<Record<string, string>>): Frozen => ({
+  _tag: 'Frozen',
+  anchor: 'verified',
+  documents: new Map(Object.entries(documents)),
+  ref: 'HEAD',
+})
+
+const committed = `
+id: no-as-any
+language: tsx
+message: 'as any erases the type'
+rule:
+  pattern: $X as any
+files:
+  - '**/*.ts'
+`
+
+layer(platform)('the doctor under a freeze', (it) => {
+  // T54
+  it.effect('names the ref and the document count, and reports no drift when there is none', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+
+        expect(report).toContain('freeze   ref     HEAD')
+        expect(report).toContain('1 document(s)')
+        expect(report).not.toContain('NOT in effect')
+      }),
+    ),
+  )
+
+  // T55 — the primary answer. Without this the report says "frozen" and leaves the reader exactly
+  // where they were.
+  it.effect('lists every working-tree change that is not in effect', () =>
+    withTree(
+      { 'a.yml': `${committed}severity: warning\n`, 'b.yml': committed.replace('no-as-any', 'other') },
+      (rules) =>
+        Effect.gen(function* () {
+          const report = (yield* run({
+            freeze: {
+              config: frozenWith({}),
+              rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed.replace('no-as-any', 'gone') }),
+            },
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })).lines.join('\n')
+
+          expect(report).toContain('NOT in effect')
+          expect(report).toContain('changed  a.yml')
+          expect(report).toContain('added    b.yml')
+          expect(report).toContain('removed  gone.yml')
+        }),
+    ),
+  )
+
+  // T56 — a `--preset` user's rules live in node_modules and are not freezable. That is the stated
+  // policy, not a broken installation.
+  it.effect('prints the reason nothing was frozen and stays healthy', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          freeze: {
+            config: { _tag: 'Unfrozen', reason: 'no falsestart config at HEAD' },
+            rules: { _tag: 'Unfrozen', reason: `${rules} is not tracked at HEAD` },
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.healthy).toBeTruthy()
+        expect(diagnosis.lines.join('\n')).toContain('not frozen — ')
+        expect(diagnosis.lines.join('\n')).toContain('is not tracked at HEAD')
+      }),
+    ),
+  )
+
+  // T57 — and a freeze that could not be read is not a clean bill of health.
+  it.effect('fails the diagnosis when the freeze could not be read', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          freeze: {
+            config: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+            rules: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('COULD NOT BE READ')
+      }),
+    ),
+  )
+
+  // T78 — the one line a worktree user must see, because for them it is the difference between what
+  // this feature claims and what it delivers. Not a failure: a linked worktree is a supported git
+  // workflow, and calling it broken by default would be wrong about a correct installation.
+  it.effect('reports an anchor that one write can repoint, without calling it broken', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          freeze: {
+            config: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
+            rules: { _tag: 'Frozen', anchor: 'unverified', documents: new Map([['a.yml', committed]]), ref: 'HEAD' },
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+        const report = diagnosis.lines.join('\n')
+
+        expect(diagnosis.healthy).toBeTruthy()
+        expect(report).toContain('anchor  UNVERIFIED')
+        expect(report).toContain(rules)
+        expect(report).toContain('linked worktree outside its main repository')
+        expect(report).toContain('--separate-git-dir')
+        expect(report).toContain('--freeze require')
+      }),
+    ),
+  )
+
+  // T79 — printed only where it means something. A line that appears on every healthy run is one
+  // readers stop seeing, and this is precisely the fact that must not be skimmed past.
+  it.effect('prints no anchor line at all for an ordinary repository', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+
+        expect(report).not.toContain('anchor')
+      }),
+    ),
+  )
+
+  // Not in the design's catalogue. The rules directory can be gone entirely and the freeze still
+  // holds — that is what the lexical path derivation buys — so the divergence read has to survive it.
+  it.effect('reports every committed document as removed when the rules directory is gone', () =>
+    withTree({}, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'deleted'),
+        })).lines.join('\n')
+
+        expect(report).toContain('removed  a.yml')
+      }),
+    ),
+  )
+
+  // And the config side of the block, which names WHICH config the ref holds.
+  it.effect('names the config the ref committed, and says so when it holds none', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        const named = (yield* run({
+          freeze: {
+            config: frozenWith({ 'falsestart.config.ts': 'export default { rules: {} }\n' }),
+            rules: frozenWith({ 'a.yml': committed }),
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+        const none = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+
+        expect(named).toContain('config  frozen — falsestart.config.ts')
+        expect(none).toContain('config  frozen — no falsestart config at HEAD')
+      }),
+    ),
   )
 })

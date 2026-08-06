@@ -5,15 +5,15 @@
       "target": "./docs/overview.md"
     },
     {
-      "hash": "4256199d7ce6af0b687f3a21306f56c2c36f3985e94df63fa417d368e2e76cee",
+      "hash": "12fd4784782ed5fbf492659716fcd747efb55b434cf71f6be987cdee22df413f",
       "target": "./docs/using-the-hook.md"
     },
     {
-      "hash": "e5bcead5532eb737a9096c1bbb3786c9d998f34352bb50df22eedfffc2c5615b",
+      "hash": "5fa60ee881e586b48a1d6ccc63a23b62000132eedcb2d1c4e39f3e6cb005ee7c",
       "target": "./docs/architecture.md"
     },
     {
-      "hash": "7c265a9dae6340d50e7d3ada5cf0ba9f9674b8581df9331577b85fd12fbba279",
+      "hash": "150016e2f4a25a4e94134c48e6cdee47b06b525cbcb3049c5e1f3a0c5df21e31",
       "target": "./docs/reference.md"
     },
     {
@@ -21,7 +21,7 @@
       "target": "./CONTRIBUTING.md"
     },
     {
-      "hash": "a8ee8cb94122758d6dd6ebe3e292581c8852d870cacb371978d069454a603911",
+      "hash": "5f95029f826bd97bc04950532a669472eae3123c84da954d9d87feba26cf22a8",
       "target": "./SECURITY.md"
     }
   ]

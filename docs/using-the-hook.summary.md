@@ -25,6 +25,14 @@ prose — so a repo can pin that the hook and the CI gate load the same rules; o
 sorted by id, exit 0 with the document and 2 when it could not be produced, and nothing that narrows a scan
 without touching a rule is in it — the config's `exclude`, `--exclude`, or the caller's `.gitignore`.
 
+Rules and config are read from `HEAD` by default rather than from the working tree, so a session that
+can write files cannot disarm its own guard. The cost is one surprise — you edit a rule and nothing
+changes — and falsestart says so at the moment it happens: a judged write of a rule document inside
+the rules directory answers with a `systemMessage`. Widening a rule and expecting a block elsewhere
+stays silent, because a signal that fires on most writes gets trained away; `--doctor` lists every
+working-tree change that is not in effect, and `--freeze off` reads the working tree for a run. It is
+also the other half of pinning the rule set: both gates resolve from the same committed ref.
+
 `--warn-unscoped` answers the same question for the paths the repo actually writes: a judged write
 no rule is scoped to reports itself instead of passing in silence, non-blocking, and it cannot
 pre-empt a block since a rule that could block is a rule that applies. Off by default because the

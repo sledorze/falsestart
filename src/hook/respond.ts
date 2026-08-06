@@ -11,11 +11,12 @@
  * Notably a block is NOT exit 2. Exit 2 does block, but the runtime discards stdout and reads
  * stderr as the reason, which throws away the structured decision.
  */
-import { Effect, Schema } from 'effect'
-import type { FileSystem, Path } from 'effect'
+import { Effect, FileSystem, Path, Schema } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
-import { loadRules } from '../checking/index.ts'
-import { decide, judgesPayload } from './decide.ts'
+import { isRuleDocument, loadRules } from '../checking/index.ts'
+import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
+import { containedPath } from '../freezing/index.ts'
+import { decide, judgedTarget, judgesPayload } from './decide.ts'
 
 export interface HookResponse {
   readonly exitCode: number
@@ -56,6 +57,97 @@ const denial = (reason: string): HookResponse => ({
 })
 
 /**
+ * How to get the previous behaviour back, carried on every refusal.
+ *
+ * The reason a refusal names its own escape hatch is that the alternative is what falsestart does
+ * today: a line on a stderr the agent runtime discards, and the write proceeding.
+ */
+const FREEZE_ESCAPE = 're-run the hook with --freeze off to use the working tree'
+
+const withEscape = (reason: string): string => `${reason}\n${FREEZE_ESCAPE}`
+
+/** Both, when there are both. The freeze note never replaces what a rule had to say. */
+const join = (text: string, extra: string | undefined): string => (extra === undefined ? text : `${text}\n${extra}`)
+
+/** The reasons a source that git established as freezable could not be read. */
+const frozenFailures = (outcome: FreezeOutcome | undefined): readonly string[] =>
+  outcome === undefined
+    ? []
+    : [outcome.rules, outcome.config].flatMap((source) => (source._tag === 'Broken' ? [source.reason] : []))
+
+const documentsOf = (source: Frozen | undefined): ReadonlyMap<string, string> | undefined =>
+  source?._tag === 'Frozen' ? source.documents : undefined
+
+/**
+ * A frozen source that will not load denies rather than reporting.
+ *
+ * That is a deliberate amendment to "a broken guard must not become an outage", not a contradiction
+ * of it. Under a freeze a WORKING-TREE typo never reaches the loader at all, so the case the old
+ * policy protected is strictly better off. What denies is a COMMITTED rule set that does not load —
+ * a repository-wide problem a commit introduced, and the thing `scan` in CI already fails closed on.
+ */
+const refuse = (frozen: boolean, message: string): HookResponse =>
+  frozen ? denial(withEscape(message)) : problem(message)
+
+/**
+ * Why a rule an author just edited did not change anything, said at the moment the confusion happens.
+ *
+ * Default-on freezing has one real cost, and this is it: a rule author edits a rule and nothing
+ * happens. A diagnostic nobody runs mid-iteration does not answer that, so the answer is attached to
+ * the write itself.
+ *
+ * Scoped by two STRUCTURAL tests and never by content: segment containment of the destination
+ * directory inside the rules directory, and `isRuleDocument` on the name. Both matter. `startsWith`
+ * would claim a sibling `rulesx/`, and containment alone would tell the author of `<rules>/.git` —
+ * the payload of the one attack this design is built around — that their write "does not take effect
+ * until it is committed", when it took effect the instant it landed.
+ *
+ * It does NOT cover an author who WIDENS a rule and expects a new block somewhere else; that write
+ * stays silent, and only `--doctor` answers it. Reporting divergence on every judged write was
+ * considered and rejected for the reason `decide.ts` gives about `--warn-unscoped`: a signal that
+ * fires on most writes gets trained away, and a trained-away signal is worse than none because it
+ * still looks like coverage.
+ */
+const frozenRuleNote = (options: {
+  readonly ref: string
+  readonly rulesDirectory: string
+  readonly written: string | undefined
+}): Effect.Effect<string | undefined, never, FileSystem.FileSystem | Path.Path> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { ref, rulesDirectory, written } = options
+
+    if (written === undefined) {
+      return undefined
+    }
+
+    const real = (candidate: string) => fs.realPath(candidate).pipe(Effect.orElseSucceed(() => undefined))
+
+    // Both sides are resolved, so a symlinked rules directory is judged by where it really is. The
+    // destination's DIRECTORY, because the document being written need not exist yet — and neither
+    // need the rules directory, which under a freeze may have been deleted entirely.
+    const rulesReal = yield* real(rulesDirectory)
+    if (rulesReal === undefined) {
+      return undefined
+    }
+    const destination = yield* real(path.dirname(written))
+    if (destination === undefined) {
+      return undefined
+    }
+
+    const relative = containedPath(rulesReal, destination)
+    if (relative === undefined) {
+      return undefined
+    }
+
+    return isRuleDocument(path.join(relative, path.basename(written)))
+      ? `rules are read from ${ref}, so this document does not take effect until it is committed.\n` +
+          '`falsestart --doctor` lists what is not in effect; `--freeze off` reads the working tree.'
+      : undefined
+  })
+
+/**
  * Decides what to emit for one hook invocation.
  *
  * Rules are loaded only once the payload is known to be judgeable, so the common case — a tool
@@ -76,6 +168,17 @@ export interface RespondOptions {
    */
   readonly projectDirectory: string
   readonly rulesDirectory: string
+  /**
+   * What a git ref committed, resolved on demand.
+   *
+   * A THUNK rather than a value, and that is a cost decision. The freeze spawns four git processes;
+   * building it before `judgesPayload` has looked at the payload would move that cost onto every
+   * tool call an agent makes, and most tool calls write nothing. Invoked once, only on the judged
+   * path.
+   *
+   * Absent means unfrozen — the 0.2.0 behaviour — so a library call that predates this is unchanged.
+   */
+  readonly freeze?: (() => Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path>) | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
@@ -84,6 +187,7 @@ export const respond = (
   options: RespondOptions,
 ): Effect.Effect<HookResponse, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
+    const path = yield* Path.Path
     const { configPath, input, projectDirectory, rulesDirectory, warnUnscoped } = options
     // The payload arrives from another process, so a malformed one is an ordinary outcome rather
     // than an exception to catch. `UnknownFromJsonString` keeps it in the error channel and hands
@@ -98,43 +202,77 @@ export const respond = (
       return silent()
     }
 
-    const loaded = yield* Effect.result(loadRules(rulesDirectory))
+    // Invoked here and nowhere earlier: everything above this line runs on every tool call.
+    const outcome = options.freeze === undefined ? undefined : yield* options.freeze()
+
+    // A source that was established as freezable and then could not be read is refused before any
+    // content is looked at. Falling back to the working tree here would make breaking git the
+    // cheapest disarm available, which is the whole reason this exists.
+    const [refused] = frozenFailures(outcome)
+    if (refused !== undefined) {
+      return denial(withEscape(refused))
+    }
+
+    const frozenRules = documentsOf(outcome?.rules)
+    const frozenConfig = documentsOf(outcome?.config)
+    // A failure on EITHER frozen source has to deny, and the overrides step reads both.
+    const eitherFrozen = [frozenRules, frozenConfig].some((documents) => documents !== undefined)
+
+    const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
     if (loaded._tag === 'Failure') {
-      return problem(`could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`)
+      return refuse(
+        frozenRules !== undefined,
+        `could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`,
+      )
     }
 
     // An explicit --config must exist; without one, the default names are looked for in
     // `projectDirectory` — never beside the rules, which `--preset` and `pkg:` both put inside
     // node_modules — and their absence simply means no overrides.
+    const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(path.basename(configPath))
     const configured = yield* Effect.result(
-      configPath === undefined ? loadDefaultConfig(projectDirectory) : loadConfigFile(configPath),
+      configPath === undefined
+        ? loadDefaultConfig(projectDirectory, frozenConfig)
+        : loadConfigFile(configPath, namedConfig),
     )
 
     if (configured._tag === 'Failure') {
-      return problem(configured.failure.reasons.join('\n'))
+      return refuse(frozenConfig !== undefined, configured.failure.reasons.join('\n'))
     }
 
     const scoped = yield* Effect.result(applyScopeOverrides(loaded.success, configured.success))
     if (scoped._tag === 'Failure') {
       // No path prefix: overrides only exist when a config file supplied them, so a `configPath ??`
       // fallback here would be a branch no input can reach. The reasons name the rule themselves.
-      return problem(scoped.failure.reasons.join('\n'))
+      return refuse(eitherFrozen, scoped.failure.reasons.join('\n'))
     }
 
     const decision = yield* decide(scoped.success, parsed.success, { warnUnscoped })
 
+    const target = judgedTarget(parsed.success)
+    const note =
+      outcome?.rules._tag === 'Frozen'
+        ? yield* frozenRuleNote({
+            ref: outcome.rules.ref,
+            rulesDirectory,
+            written: target._tag === 'Write' ? target.path : undefined,
+          })
+        : undefined
+
     switch (decision._tag) {
       case 'Advise': {
-        return advice(decision.note)
+        return advice(join(decision.note, note))
       }
       case 'Deny': {
-        return denial(decision.reason)
+        // The decision wins and the explanation still arrives: a rule document whose own content
+        // breaks a rule is both things at once.
+        return denial(join(decision.reason, note))
       }
       case 'Report': {
         return problem(decision.problem)
       }
       default: {
-        return silent()
+        return note === undefined ? silent() : advice(note)
       }
     }
   })

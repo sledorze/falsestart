@@ -10,6 +10,9 @@
  * author believes it is enforcing something it is not.
  */
 
+import type { FreezeMode } from '../freezing/index.ts'
+import { FREEZE_MODES } from '../freezing/index.ts'
+
 /** Where rules live when the caller does not say. */
 export const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
 
@@ -38,21 +41,37 @@ export const PRESETS = ['all', 'clean-code', 'effect'] as const
  */
 export const PACKAGE_PREFIX = 'pkg:'
 
+/**
+ * What the freeze reads when the caller does not name a ref.
+ *
+ * `HEAD` is mutable state an agent can move without committing anything — `symbolic-ref`,
+ * `reset --soft`, `checkout` — so `--freeze-ref refs/remotes/origin/main` is the stronger setting.
+ * It is not the DEFAULT because a remote-tracking ref does not exist in every repository, and a
+ * default that fails in a fresh clone is a default nobody keeps.
+ */
+export const DEFAULT_FREEZE_REF = 'HEAD'
+
 export type Preset = (typeof PRESETS)[number]
+
+/** Every mode that resolves a rule set carries the freeze, because every one of them can be lied to. */
+interface Freezing {
+  readonly freeze: FreezeMode
+  readonly freezeRef: string
+}
 
 export type Options =
   | { readonly _tag: 'Help'; readonly text: string }
   | { readonly _tag: 'Invalid'; readonly problem: string }
   | { readonly _tag: 'Version' }
-  | {
+  | (Freezing & {
       /** Same resolution as `Run`, but reports what it resolved instead of judging a payload. */
       readonly _tag: 'Doctor'
       readonly configPath: string | undefined
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
-    }
-  | {
+    })
+  | (Freezing & {
       /**
        * Same resolution as `Run`, reported as a document rather than used to judge one. Reads no
        * stdin, for the same reason `--doctor` does not: it is a question about the installation.
@@ -62,8 +81,8 @@ export type Options =
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
-    }
-  | {
+    })
+  | (Freezing & {
       /**
        * Judge files already on disk. A different contract in and out: paths in, a report out, and
        * exit codes a shell can read rather than the hook protocol's.
@@ -79,8 +98,8 @@ export type Options =
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
       readonly writeBaseline: boolean
-    }
-  | {
+    })
+  | (Freezing & {
       readonly _tag: 'Run'
       readonly configPath: string | undefined
       /** Set when `--preset` was used; the caller resolves it against the installed package. */
@@ -90,7 +109,7 @@ export type Options =
       readonly rulesDirectory: string
       /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
       readonly warnUnscoped: boolean
-    }
+    })
 
 const USAGE = `falsestart — block risky code patterns as they are written
 
@@ -127,6 +146,22 @@ Options:
                   --warn-unscoped. It does NOT report anything that narrows
                   a scan without touching a rule: the config's top-level
                   \`exclude\`, --exclude globs, or your .gitignore.
+  --freeze <mode> Where rules and config are read from: auto, off, require.
+                  Defaults to auto — resolve both from a git ref, so an
+                  uncommitted edit to a rule, or a config file the repository
+                  never committed, stops changing what is enforced. Where
+                  there is nothing to freeze (no repository, no commit yet,
+                  a rules tree git does not track, which includes --preset
+                  and pkg:) auto reads the working tree and --doctor says so;
+                  require refuses to judge instead. off restores the 0.2.0
+                  behaviour. Command line only, deliberately: the thing being
+                  frozen must not carry its own off switch.
+  --freeze-ref <ref>
+                  Which ref to freeze against. Defaults to HEAD. HEAD is
+                  mutable state an agent moves without committing anything,
+                  so refs/remotes/origin/main is the stronger setting — no
+                  reset, amend or checkout touches it, and a fetch puts it
+                  back.
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
@@ -196,6 +231,9 @@ Options:
   --preset <name>      all, clean-code, effect.
   --rules <dir>        Your own rule directory, or pkg:<name>.
   --config <file>      Per-repo scope overrides.
+  --freeze <mode>      auto, off, require. Same meaning and same default as
+                       the hook's; see falsestart --help.
+  --freeze-ref <ref>   Which ref to freeze against. Defaults to HEAD.
 
 Exit codes:
   0  No findings.
@@ -215,6 +253,8 @@ already there.`
 // `PRESETS.includes(value)` needs the tuple widened to `readonly string[]`, and widening by
 // assertion is exactly what `no-type-assertion` objects to. A comparison needs no widening.
 const isPreset = (value: string): value is Preset => PRESETS.some((preset) => preset === value)
+
+const isFreezeMode = (value: string): value is FreezeMode => FREEZE_MODES.some((mode) => mode === value)
 
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {
@@ -239,6 +279,9 @@ export const parseArguments = (args: readonly string[]): Options => {
   let listRules = false
   let version = false
   let warnUnscoped = false
+
+  let freeze: FreezeMode = 'auto'
+  let freezeRef: string = DEFAULT_FREEZE_REF
 
   let baselinePath: string | undefined
   const exclude: string[] = []
@@ -310,7 +353,9 @@ export const parseArguments = (args: readonly string[]): Options => {
       argument !== '--config' &&
       argument !== '--preset' &&
       argument !== '--baseline' &&
-      argument !== '--exclude'
+      argument !== '--exclude' &&
+      argument !== '--freeze' &&
+      argument !== '--freeze-ref'
     ) {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
@@ -341,6 +386,13 @@ export const parseArguments = (args: readonly string[]): Options => {
       baselinePath = value
     } else if (argument === '--exclude') {
       exclude.push(value)
+    } else if (argument === '--freeze-ref') {
+      freezeRef = value
+    } else if (argument === '--freeze') {
+      if (!isFreezeMode(value)) {
+        return { _tag: 'Invalid', problem: `unknown freeze mode: ${value} (expected ${FREEZE_MODES.join(', ')})` }
+      }
+      freeze = value
     } else if (isPreset(value)) {
       preset = value
     } else {
@@ -422,6 +474,8 @@ export const parseArguments = (args: readonly string[]): Options => {
       baselinePath,
       configPath,
       exclude,
+      freeze,
+      freezeRef,
       pathSource,
       paths,
       preset,
@@ -432,10 +486,10 @@ export const parseArguments = (args: readonly string[]): Options => {
   }
 
   if (listRules) {
-    return { _tag: 'ListRules', configPath, preset, rulesDirectory, rulesPackage }
+    return { _tag: 'ListRules', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
   }
 
   return doctor
-    ? { _tag: 'Doctor', configPath, preset, rulesDirectory, rulesPackage }
-    : { _tag: 'Run', configPath, preset, rulesDirectory, rulesPackage, warnUnscoped }
+    ? { _tag: 'Doctor', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
+    : { _tag: 'Run', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage, warnUnscoped }
 }

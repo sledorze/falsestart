@@ -41,6 +41,25 @@ export default {
         'src/cli.ts',
       ],
     },
+    // Building the environment for the freeze's four `git` spawns. `spawnSync`'s `env` REPLACES the
+    // environment rather than extending it, so the inherited one has to be read to keep `PATH` —
+    // and the whole point of reading it is to take things OUT: `GIT_DIR`, `GIT_WORK_TREE` and their
+    // siblings, which would otherwise let an environment variable decide which repository is
+    // authoritative, and `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`, which a single file outside the
+    // repository could otherwise use to make git fail everywhere.
+    //
+    // Configuration is exactly what this rule wants declared with Effect Config; a process's own
+    // environment, being handed to a child so that a variable can be REMOVED from it, is not
+    // configuration. One file wide, and it sits where someone reviews it.
+    'no-process-env': {
+      files: ['**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}'],
+      ignores: [
+        '**/*.test.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        '**/*.spec.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        '**/*.bench.{ts,tsx,mts,cts,js,jsx,mjs,cjs}',
+        'src/cli.ts',
+      ],
+    },
     'no-type-assertion': {
       files: ['**/*.{ts,tsx,mts,cts}'],
       // An override REPLACES the rule's scope rather than merging with it, so the rule's own

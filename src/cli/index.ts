@@ -6,6 +6,6 @@
  * this area decides what the flags meant.
  */
 export type { Options, Preset } from './options.ts'
-export { DEFAULT_RULES_DIRECTORY, PACKAGE_PREFIX, parseArguments, PRESETS } from './options.ts'
+export { DEFAULT_FREEZE_REF, DEFAULT_RULES_DIRECTORY, PACKAGE_PREFIX, parseArguments, PRESETS } from './options.ts'
 export { packageRulesDirectory, presetDirectory } from './resolve.ts'
 export { isBrokenPipe } from './stdio.ts'
