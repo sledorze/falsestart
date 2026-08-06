@@ -10,6 +10,7 @@ describe('library surface', () => {
       'ConfigError',
       'DEFAULT_CONFIG_CANDIDATES',
       'DEFAULT_EXCLUSIONS',
+      'FAILURE_POLICIES',
       'FREEZE_MODES',
       'JAVASCRIPT_EXTENSIONS',
       'MAX_ANCHOR_WALK',

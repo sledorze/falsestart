@@ -12,6 +12,8 @@
 
 import type { FreezeMode } from '../freezing/index.ts'
 import { FREEZE_MODES } from '../freezing/index.ts'
+import type { FailurePolicy } from '../hook/index.ts'
+import { FAILURE_POLICIES } from '../hook/index.ts'
 
 /** Where rules live when the caller does not say. */
 export const DEFAULT_RULES_DIRECTORY = '.falsestart/rules'
@@ -67,6 +69,11 @@ export type Options =
       /** Same resolution as `Run`, but reports what it resolved instead of judging a payload. */
       readonly _tag: 'Doctor'
       readonly configPath: string | undefined
+      /**
+       * `undefined` means nobody named one, exactly as `configPath` and `preset` do here. It is
+       * what lets `--doctor` say nothing about a policy the caller never chose.
+       */
+      readonly failure: FailurePolicy | undefined
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string
@@ -102,6 +109,8 @@ export type Options =
   | (Freezing & {
       readonly _tag: 'Run'
       readonly configPath: string | undefined
+      /** What a failure of the guard itself costs. `undefined` means nobody named one. */
+      readonly failure: FailurePolicy | undefined
       /** Set when `--preset` was used; the caller resolves it against the installed package. */
       readonly preset: Preset | undefined
       /** Set when `--rules pkg:<name>` was used; the caller resolves it against the project. */
@@ -162,6 +171,23 @@ Options:
                   so refs/remotes/origin/main is the stronger setting — no
                   reset, amend or checkout touches it, and a fetch puts it
                   back.
+  --fail <policy> What happens when falsestart itself cannot do its job:
+                  closed, open. Defaults to open — the failure is reported on
+                  stderr, exit 1, and the write proceeds. closed denies the
+                  write instead, for a repo where an edit that cannot be
+                  verified must not land. It covers a rule tree or rules
+                  package that will not load, a config that will not load or
+                  whose override names a rule that is not loaded, and a rule
+                  that cannot run at match time. It does NOT cover a malformed
+                  hook payload or a refused command line: neither is a fact
+                  about your repository, and neither is fixable from inside
+                  it. Nor is it a claim that any rule COVERS what you write —
+                  see --doctor's scope block and --warn-unscoped for that. A
+                  frozen source that cannot be read denies in either policy;
+                  --fail open does not re-open it. Command line only,
+                  deliberately: the thing that denies must not carry its own
+                  off switch. Refused with scan and --list-rules, which
+                  already exit 2 when they cannot run.
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
@@ -256,6 +282,8 @@ const isPreset = (value: string): value is Preset => PRESETS.some((preset) => pr
 
 const isFreezeMode = (value: string): value is FreezeMode => FREEZE_MODES.some((mode) => mode === value)
 
+const isFailurePolicy = (value: string): value is FailurePolicy => FAILURE_POLICIES.some((policy) => policy === value)
+
 export const parseArguments = (args: readonly string[]): Options => {
   if (args.includes('--help') || args.includes('-h')) {
     // `scan` has its own flags and its own exit codes, and printing the hook's usage for it
@@ -282,6 +310,7 @@ export const parseArguments = (args: readonly string[]): Options => {
 
   let freeze: FreezeMode = 'auto'
   let freezeRef: string = DEFAULT_FREEZE_REF
+  let failure: FailurePolicy | undefined
 
   let baselinePath: string | undefined
   const exclude: string[] = []
@@ -355,7 +384,8 @@ export const parseArguments = (args: readonly string[]): Options => {
       argument !== '--baseline' &&
       argument !== '--exclude' &&
       argument !== '--freeze' &&
-      argument !== '--freeze-ref'
+      argument !== '--freeze-ref' &&
+      argument !== '--fail'
     ) {
       return { _tag: 'Invalid', problem: `unrecognised argument: ${argument}` }
     }
@@ -393,6 +423,14 @@ export const parseArguments = (args: readonly string[]): Options => {
         return { _tag: 'Invalid', problem: `unknown freeze mode: ${value} (expected ${FREEZE_MODES.join(', ')})` }
       }
       freeze = value
+    } else if (argument === '--fail') {
+      if (!isFailurePolicy(value)) {
+        return {
+          _tag: 'Invalid',
+          problem: `unknown failure policy: ${value} (expected ${FAILURE_POLICIES.join(', ')})`,
+        }
+      }
+      failure = value
     } else if (isPreset(value)) {
       preset = value
     } else {
@@ -433,6 +471,18 @@ export const parseArguments = (args: readonly string[]): Options => {
     return {
       _tag: 'Invalid',
       problem: '--warn-unscoped has no effect with `scan`; its report always states how many files were in scope',
+    }
+  }
+
+  // Both already fail closed on every path — `scan` exits 2 on a broken rule tree, an unreadable
+  // baseline, an unreadable file and a rule that cannot run, and `--list-rules` exits 2 too. A flag
+  // whose only meaningful value is the one already in force is a flag taken and dropped, and
+  // `--fail open` there would WEAKEN a guarantee this tool shipped rather than choose a policy.
+  // `--doctor` accepts it, because it reports the policy the hook will run under.
+  if ((scanning || listRules) && failure !== undefined) {
+    return {
+      _tag: 'Invalid',
+      problem: '--fail has no effect with `scan` or --list-rules; both already exit 2 when they cannot run',
     }
   }
 
@@ -490,6 +540,6 @@ export const parseArguments = (args: readonly string[]): Options => {
   }
 
   return doctor
-    ? { _tag: 'Doctor', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
-    : { _tag: 'Run', configPath, freeze, freezeRef, preset, rulesDirectory, rulesPackage, warnUnscoped }
+    ? { _tag: 'Doctor', configPath, failure, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
+    : { _tag: 'Run', configPath, failure, freeze, freezeRef, preset, rulesDirectory, rulesPackage, warnUnscoped }
 }

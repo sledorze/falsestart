@@ -18,6 +18,20 @@ import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
 import { containedPath } from '../freezing/index.ts'
 import { decide, judgedTarget, judgesPayload } from './decide.ts'
 
+/**
+ * What a failure of the GUARD costs, as opposed to a finding about the code.
+ *
+ * `open` is the 0.2.0 behaviour and the default: report on stderr, exit 1, let the write through.
+ * `closed` denies instead, for a repository where an edit that cannot be verified must not land.
+ *
+ * A policy over `Report`, deliberately, and not a fifth `Decision`: what a guard failure COSTS is a
+ * fact about the invocation, not about the code, so it belongs where the protocol's price list
+ * already lives. A fifth outcome would have moved policy into judgement, and `--doctor` would then
+ * have had to un-pick it again to keep reporting a failed sample as unhealthy.
+ */
+export const FAILURE_POLICIES = ['closed', 'open'] as const
+export type FailurePolicy = (typeof FAILURE_POLICIES)[number]
+
 export interface HookResponse {
   readonly exitCode: number
   readonly stderr: string | undefined
