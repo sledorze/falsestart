@@ -108,6 +108,7 @@ const loadTypeScript = (
  */
 export const loadConfigFile = (
   configPath: string,
+  _frozen?: string | undefined,
 ): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -150,6 +151,7 @@ export const loadConfigFile = (
  */
 export const findDefaultConfigs = (
   directory: string,
+  _frozen?: ReadonlyMap<string, string> | undefined,
 ): Effect.Effect<readonly string[], never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
@@ -176,6 +178,7 @@ export const findDefaultConfigs = (
  */
 export const loadDefaultConfig = (
   directory: string,
+  _frozen?: ReadonlyMap<string, string> | undefined,
 ): Effect.Effect<Config, ConfigError, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const present = yield* findDefaultConfigs(directory)
