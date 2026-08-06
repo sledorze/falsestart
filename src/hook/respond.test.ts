@@ -1512,3 +1512,54 @@ layer(platform)('what a Copilot guard failure costs', (it) => {
     ),
   )
 })
+
+/**
+ * Advice under Copilot: shown, and deciding nothing.
+ *
+ * Copilot's `preToolUse` output has three keys and not one of them is non-deciding.
+ * `permissionDecision: "allow"` would AUTO-APPROVE a write the permission flow would otherwise have
+ * prompted for, and `"ask"` would make advice block — both of which `decide.ts` rejects by name. So
+ * advice goes to stderr and stdout stays empty, which forbids both at once.
+ *
+ * The cost is real and is documented: a `severity: warning` finding reaches the user and the log
+ * under Copilot, and never the model.
+ */
+layer(platform)('Copilot advice', (it) => {
+  // T-A11a — `toBeUndefined` on stdout rather than "does not contain allow": the danger is emitting
+  // a `permissionDecision` at all, and asserting the channel is empty forbids every value of it.
+  it.effect('shows an advisory finding without deciding anything', () =>
+    withRules({ 'soft.yml': `${COPILOT_EDIT}severity: warning\n` }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('as any erases the type')
+      }),
+    ),
+  )
+
+  // T-A11b — the other source of advice, which carries no finding at all, lands on the same channel.
+  it.effect('reports an unscoped write on the same channel', () =>
+    withRules({ 'no-as-any.yml': `${COPILOT_EDIT}files:\n  - '**/*.tsx'\n` }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: copilotEdit('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          warnUnscoped: true,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).toContain('no rule is scoped to')
+      }),
+    ),
+  )
+})
