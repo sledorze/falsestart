@@ -694,4 +694,52 @@ layer(platform)('documentation covers the source', (it) => {
       }
     }),
   )
+
+  /**
+   * T13 — the same guard for `--fail`, whose deny reason is the one a blocked repository reads
+   * first. It has to name both policies, because one of them is how the reader gets unblocked.
+   */
+  it.effect('every --fail remedy the tool prints is one the parser accepts, and both policies are offered', () =>
+    Effect.gen(function* () {
+      const refused = yield* respond({
+        failure: 'closed',
+        input: JSON.stringify({
+          tool_input: { content: 'const x = y as any', file_path: '/r/a.ts' },
+          tool_name: 'Write',
+        }),
+        projectDirectory: '/no/such/place',
+        rulesDirectory: '/no/such/place',
+      })
+      const diagnosis = yield* diagnose({
+        configPath: undefined,
+        failure: 'closed',
+        projectDirectory: 'rules',
+        rulesDirectory: 'rules',
+        version: '0.0.0-test',
+      })
+
+      const decision: unknown = JSON.parse(refused.stdout ?? '{}')
+      const reason =
+        typeof decision === 'object' && decision !== null && 'hookSpecificOutput' in decision
+          ? String(JSON.stringify(decision.hookSpecificOutput)).replaceAll(String.raw`\n`, ' ')
+          : ''
+
+      const words = [reason, ...diagnosis.lines]
+        .join(' ')
+        .split(/\s+/)
+        .map((word) => word.replace(/[.,;`'"]+$/, ''))
+      const remedies = words.flatMap((word, index) =>
+        word.startsWith('--fail') ? [word.includes('=') ? [word] : [word, words[index + 1] ?? '']] : [],
+      )
+
+      expect(remedies.length).toBeGreaterThan(1)
+      for (const remedy of remedies) {
+        expect(parseArguments(remedy)).not.toHaveProperty('_tag', 'Invalid')
+      }
+      // Both policies must actually be named. Without this, emptying the escape leaves the two
+      // `--fail closed` occurrences in the lead and the doctor line, `length > 1` still holds, and
+      // the mutant survives — with the reader who is blocked never told how to get unblocked.
+      expect(new Set(remedies.map((pair) => pair.join(' ')))).toEqual(new Set(['--fail closed', '--fail open']))
+    }),
+  )
 })
