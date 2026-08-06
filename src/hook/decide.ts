@@ -14,6 +14,17 @@
  * that a typo in a rule file should hold every write in the repo hostage. Reporting keeps the
  * failure loud, which was the actual point, without turning a misconfiguration into an outage.
  *
+ * That argument is about the DEFAULT, and it is narrower than it was when it was written. Under a
+ * freeze a working-tree typo never reaches the loader at all, so what it now protects is mostly the
+ * repository with nothing to freeze — where the typo really is somebody's work in progress. For a
+ * repository where an edit that cannot be verified must not land, `--fail closed` turns this same
+ * `Report` into a denial.
+ *
+ * `Report` keeps its meaning either way. Nothing here decides what a guard failure COSTS, because
+ * that is a fact about the invocation rather than about the code, and `respond.ts` is where the
+ * protocol's price list lives. A fifth outcome would have moved the policy into the judgement, and
+ * `--doctor` would then have had to un-pick it again to keep calling a failed sample unhealthy.
+ *
  * Only `error`-severity findings deny. Anything softer becomes `Advise`: still shown, but it does
  * not stop the write, because advice that blocks is indistinguishable from an error. Dropping it
  * entirely would be worse — a `warning` rule would then do nothing whatsoever.

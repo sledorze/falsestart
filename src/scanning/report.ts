@@ -25,10 +25,11 @@ import type { ScanReport } from './scan.ts'
  * violations" from "the linter is broken" is one that teaches people to reach for `--no-verify`,
  * and a gate that trains people to bypass it is worse than no gate.
  *
- * Note this inverts the hook's fail-open policy on purpose. `hook/decide.ts` argues that a rule
- * which cannot run must not block, because a typo in a rule file must not hold every write in the
- * repo hostage. A gate is the opposite case: one that cannot run must stop, or it passes everything
- * while looking healthy.
+ * Note this inverts the hook's DEFAULT policy on purpose. `hook/decide.ts` argues that a rule which
+ * cannot run must not block, because a typo in a rule file must not hold every write in the repo
+ * hostage. A gate is the opposite case: one that cannot run must stop, or it passes everything while
+ * looking healthy. `--fail closed` makes the two agree; `scan` has no such flag because it has no
+ * other setting to choose between.
  */
 export const ScanExit = {
   Broken: 2,
