@@ -1487,6 +1487,44 @@ layer(platform)('what a Copilot guard failure costs', (it) => {
     ),
   )
 
+  // A misdeclared flag means NOTHING in the session is being judged, so the notice is the whole
+  // answer — and it must not cost a judged write to produce. Answered before the rules source, the
+  // freeze's four git spawns and the rule-tree load, all of which ran first while the payload was
+  // never going to be judged by any of them. A broken rule tree is the fixture that measures it:
+  // if the tree is still loaded, the response names the tree instead of the flag.
+  it.effect('answers a misdeclared agent without loading anything to answer it', () =>
+    withRules({ 'broken.yml': 'id: 7\nlanguage: tsx' }, (rules) =>
+      Effect.gen(function* () {
+        let spawned = 0
+        const response = yield* respond({
+          agent: 'copilot',
+          failure: 'closed',
+          freeze: () => {
+            spawned += 1
+            return Effect.succeed({ config: frozenWith({}), rules: frozenWith({}) })
+          },
+          input: JSON.stringify({
+            tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' },
+            tool_name: 'Write',
+          }),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          unresolvedRules: UNRESOLVED,
+        })
+
+        expect(spawned).toBe(0)
+        expect(response.exitCode).toBe(1)
+        expect(response.stderr).toContain('--agent claude-code')
+        // Not the rules package, not the broken tree, and NOT a denial: `--fail closed` is a policy
+        // about a guard that could not do its job on a payload it was going to judge. This payload
+        // is not one, in either contract — the same reason a malformed payload is never the REASON
+        // to deny.
+        expect(response.stdout).toBeUndefined()
+        expect(response.stderr).not.toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
   // T-A12 — the hot path through the whole of `respond`, in both spellings. A broken rule tree on
   // disk is the fixture that makes this measurable: if the tree is loaded at all, this is exit 0
   // with a stderr notice rather than silence.
