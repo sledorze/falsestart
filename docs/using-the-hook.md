@@ -82,6 +82,34 @@ exits. On the hook path it writes no file, holds no lock and caches nothing, so 
 on its stdin, its rule tree and its config and on nothing else. What Claude Code does with two
 entries' answers is the runtime's business, and this page does not describe it.
 
+### Editing a rule while the freeze is on
+
+By default falsestart reads its rule documents and its config from `HEAD` rather than from your
+working tree, so the guard cannot be disarmed by the session it is guarding. The cost is one
+surprise: **you edit a rule, and nothing changes.**
+
+falsestart says so at the moment it happens. A judged write of a rule document inside the rules
+directory comes back with a `systemMessage`:
+
+```
+falsestart:
+rules are read from HEAD, so this document does not take effect until it is committed.
+`falsestart --doctor` lists what is not in effect; `--freeze=off` reads the working tree.
+```
+
+That note covers the case where you are editing the rule. It does not cover the other direction —
+widening a rule and expecting a new block somewhere else stays silent, because a signal that fires on
+most writes is one people stop reading. Two things answer it:
+
+```bash
+falsestart --doctor --rules ./rules        # lists every working-tree change that is not in effect
+falsestart --freeze off --rules ./rules    # this run reads the working tree
+```
+
+While you iterate, put `--freeze off` on the hook command line, or commit as you go. See
+[Freezing the rule set](./reference.md) for what each mode does and what happens when the freeze
+cannot be established.
+
 ### Check it is actually guarding something
 
 Every misconfiguration falsestart has degrades to the same place — exit 1, a line on stderr the agent
@@ -296,6 +324,10 @@ which rules are loaded. `--list-rules` makes the answer assertable:
 ```bash
 falsestart --list-rules --preset all > rules.json
 ```
+
+The freeze is the other half of this: with `--freeze auto` (the default) both the hook and `scan`
+resolve their rules and config from the same committed ref, so the two gates cannot disagree because
+one of them read an uncommitted edit.
 
 Commit that file and diff it in CI, or assert on it from a test. It is the resolved set — presets
 and `pkg:` specifiers already resolved, your `falsestart.config.ts` overrides already applied — so

@@ -48,6 +48,11 @@ is stated as ratios because the ratios are what held across every re-run and bot
 - The same 168 documents written as one-line patterns with short messages cost **15–20% less** than
   168 derived from the shipped corpus. A rule's shape is work, not only its count, so a rule count
   on its own predicts little.
+- Reading the rule set from a git ref adds about **4% of a judged write**, at 23 rules and at 168.
+  Four `git` invocations, fixed, dominated by process starts rather than by documents: 7× the
+  documents cost about 1.5× the added time. Asking `git show` per document instead measured at
+  roughly 22× that added cost at 168 and grows linearly, which is nearly a whole judged write again —
+  the measurement that chose the shape. A call falsestart does not judge spawns git not at all.
 
 Reproduce all of it yourself, including the tree — that is the input a stranger cannot guess — from a
 directory with no `falsestart.config.ts`:
@@ -115,18 +120,27 @@ rejects, and then matches essentially every node. A rule upstream considers brok
 indiscriminately here. So a narrow check rejects those shapes — modelled on behaviour measured
 against the actual CLI rather than reasoned about.
 
-## Three failures that must not be confused
+## Four failures that must not be confused
 
-| Situation                           | Answer                         |
-| ----------------------------------- | ------------------------------ |
-| The code breaks a rule              | Block, with the rule's message |
-| A rule matched at a softer severity | Show it; do not block          |
-| The guard could not do its job      | Say so loudly; do not block    |
+| Situation                                        | Answer                            |
+| ------------------------------------------------ | --------------------------------- |
+| The code breaks a rule                           | Block, with the rule's message    |
+| A rule matched at a softer severity              | Show it; do not block             |
+| The guard could not do its job                   | Say so loudly; do not block       |
+| The rule source could not be read _as committed_ | Refuse to judge; do not fall back |
 
 The third is the interesting one. A rule that cannot _run_ is never reported as "found nothing" —
 conflating those would let a broken rule read as a clean file. But it does not follow that a typo in
 a rule file should hold every write in the repository hostage. The failure stays loud without
 becoming an outage.
+
+The fourth looks like a contradiction of the third and is an amendment to it, in the safe direction.
+Under a freeze a WORKING-TREE typo never reaches the loader at all, so the case the third row
+protects is strictly better off than before: corrupting a rule document used to be a one-command
+disarm, and is now a no-op. What refuses is a COMMITTED rule set that does not load, or a repository
+git said was readable and then would not read — a repository-wide problem a commit introduced, and
+exactly what `scan` in CI already fails closed on. Falling back to the working tree there would make
+breaking git the cheapest disarm available, which is the whole reason the freeze exists.
 
 ## Rules are programs, and programs are wrong
 
@@ -202,7 +216,29 @@ not hold every write in the repo hostage. A scan is a gate, and must fail CLOSED
 run has to stop, or it passes everything while looking healthy. Same rules underneath, contrary
 policies above, which is exactly the kind of thing that goes wrong when one module tries to be both.
 
-Only [`cli.ts`](../src/cli.ts) knows a process exists.
+Only [`cli.ts`](../src/cli.ts) knows a process exists. `freezing/` is the sharpest case of that
+split: it decides everything about what a git ref committed and spawns nothing, because `cli.ts` is
+excluded from the coverage ratchet and from mutation testing — a decision that lives there is a
+decision nothing observes.
+
+### Which repository the freeze trusts
+
+Resolved by walking **outward from the project** to the nearest directory whose `.git` is a real
+directory, and never by letting git discover a repository for itself. Both halves are structural
+invariants rather than defensive coding.
+
+git honours a `.git` that is an ordinary one-line file containing `gitdir: <path>`, and a write tool
+produces one without a shell. Running git with a cwd inside the rules directory therefore hands the
+choice of repository to whoever can write there. Planting the same file one level up a monorepo moves
+that directory's toplevel onto itself, so a containment check passes cleanly while the object
+database has been replaced. The walk steps over such a file onto a root whose `.git` is a directory,
+which `writeFileSync` cannot replace — `EISDIR`.
+
+What the walk cannot do is verify a repository that has no enclosing `.git` directory anywhere: a
+linked worktree outside its main repository, or `--separate-git-dir`. Those are reported rather than
+refused under the default, because they are supported git workflows. The general law behind that,
+and behind the `for-each-ref` probe being a cost increase rather than a closure: **no probe inside a
+git directory survives an agent that can write inside that git directory.**
 
 Documents cite entry points and never an area's internals, so a document goes stale when what an
 area _offers_ changes — which is when it should be re-read — rather than every time an

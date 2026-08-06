@@ -840,11 +840,7 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
       Effect.gen(function* () {
         yield* commitAll(root)
 
-        const result = yield* runIn(
-          root,
-          ['--rules', './rules', '--freeze-ref', 'refs/heads/nope'],
-          violation(root),
-        )
+        const result = yield* runIn(root, ['--rules', './rules', '--freeze-ref', 'refs/heads/nope'], violation(root))
 
         expect(result.stdout).toContain('refs/heads/nope does not resolve')
       }),
@@ -969,21 +965,23 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
 
   // T91 — C5a. Verified against 0.2.0 as exit 0 with no output.
   it.effect('refuses a rules directory swapped for a symlink to somewhere else', () =>
-    withProject({ '.weak/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'"), 'rules/r.yml': PROJECT_RULE }, (root) =>
-      Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem
-        const path = yield* Path.Path
-        yield* commitAll(root)
-        yield* fs.remove(path.join(root, 'rules'), { recursive: true })
-        yield* fs.symlink(path.join(root, '.weak'), path.join(root, 'rules'))
+    withProject(
+      { '.weak/r.yml': PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'"), 'rules/r.yml': PROJECT_RULE },
+      (root) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem
+          const path = yield* Path.Path
+          yield* commitAll(root)
+          yield* fs.remove(path.join(root, 'rules'), { recursive: true })
+          yield* fs.symlink(path.join(root, '.weak'), path.join(root, 'rules'))
 
-        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+          const result = yield* runIn(root, ['--rules', './rules'], violation(root))
 
-        expect(result.exitCode).toBe(0)
-        expect(result.stdout).toContain('"permissionDecision":"deny"')
-        expect(result.stdout).toContain('./rules resolves to')
-        expect(result.stdout).toContain('.weak')
-      }),
+          expect(result.exitCode).toBe(0)
+          expect(result.stdout).toContain('"permissionDecision":"deny"')
+          expect(result.stdout).toContain('./rules resolves to')
+          expect(result.stdout).toContain('.weak')
+        }),
     ),
   )
 

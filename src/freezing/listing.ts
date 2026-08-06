@@ -57,7 +57,8 @@ export const isAbsent = (object: string | Absent | undefined): boolean => typeof
 /** What a request that does not resolve is answered with: `<request> missing`, and exit 0. */
 const MISSING_SUFFIX = ' missing'
 
-const NEWLINE = 0x0a
+/** The byte a frame header ends on. Decimal, because prettier and oxlint disagree about hex case. */
+const NEWLINE = 10
 
 const decoder = new TextDecoder()
 
@@ -98,6 +99,10 @@ export const parseBatchObjects = (
         continue
       }
 
+      // `Number.parseInt` rather than `Number(…)`: oxlint's `prefer-number-coercion` asks for the
+      // latter and falsestart's own `no-raw-coercion` forbids it, on the grounds that a coercion
+      // cannot fail and so turns a wrong value into a plausible one. A named parse wins that tie.
+      // oxlint-disable-next-line prefer-number-coercion
       const size = Number.parseInt(header.slice(header.lastIndexOf(' ') + 1), 10)
       const start = newline + 1
       const end = start + size

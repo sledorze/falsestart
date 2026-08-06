@@ -59,8 +59,7 @@ const tree = (...records: readonly string[]): string => records.map((record) => 
 const CANDIDATES = ['falsestart.config.ts', 'falsestart.config.json'] as const
 
 /** The default probe: the ref resolves and the repository committed no config. */
-const probeAnswer = (): GitAnswer =>
-  answer(bytes(commit(), ...CANDIDATES.map((name) => missing(`HEAD:${name}`))))
+const probeAnswer = (): GitAnswer => answer(bytes(commit(), ...CANDIDATES.map((name) => missing(`HEAD:${name}`))))
 
 const inputFor = (overrides: Partial<FreezeInput>): FreezeInput => ({
   anchor: 'verified',
@@ -264,7 +263,10 @@ describe('classifying what git said', () => {
           inputFor({
             listTree: () =>
               answer(
-                tree(`100644 blob ${'a'.repeat(40)}\trules/real.yml`, `120000 blob ${'b'.repeat(40)}\trules/linked.yml`),
+                tree(
+                  `100644 blob ${'a'.repeat(40)}\trules/real.yml`,
+                  `120000 blob ${'b'.repeat(40)}\trules/linked.yml`,
+                ),
               ),
             mode,
           }),
@@ -282,13 +284,41 @@ describe('classifying what git said', () => {
       const outcome = yield* freeze(
         inputFor({
           listTree: () =>
-            answer(tree(`100644 blob ${'a'.repeat(40)}\trules/real.yml`, `120000 blob ${'b'.repeat(40)}\trules/README`)),
+            answer(
+              tree(`100644 blob ${'a'.repeat(40)}\trules/real.yml`, `120000 blob ${'b'.repeat(40)}\trules/README`),
+            ),
           readBlobs: () => answer(object('a'.repeat(40), 'id: real\n')),
         }),
       )
 
       expect(outcome.rules._tag).toBe('Frozen')
       expect(outcome.rules).toHaveProperty('documents', new Map([['real.yml', 'id: real\n']]))
+    }),
+  )
+
+  // The classifier's own half of the swapped-symlink refusal: `resolveRulesPath` decides that the
+  // disk disagrees with the command line, and this is where that becomes a refusal rather than a
+  // redirection.
+  describe.each(BOTH_MODES)('with --freeze=$mode', ({ mode }) => {
+    effect('refuses a rules path that resolves somewhere other than it was named', () =>
+      Effect.gen(function* () {
+        const outcome = yield* freeze(inputFor({ mode, rulesPath: { _tag: 'Diverged', real: '/p/.weak' } }))
+
+        expect(outcome.rules._tag).toBe('Broken')
+        expect(outcome.rules).toHaveProperty('reason', expect.stringContaining('/p/.weak'))
+      }),
+    )
+  })
+
+  // A short blob stream is a read that did not happen, and the frame count is what catches it.
+  effect('refuses when the blob stream stops short of the documents it was asked for', () =>
+    Effect.gen(function* () {
+      const listing = tree(`100644 blob ${'a'.repeat(40)}\trules/a.yml`, `100644 blob ${'b'.repeat(40)}\trules/b.yml`)
+      const short = object('a'.repeat(40), 'id: a\n')
+      const outcome = yield* freeze(inputFor({ listTree: () => answer(listing), readBlobs: () => answer(short) }))
+
+      expect(outcome.rules._tag).toBe('Broken')
+      expect(outcome.rules).toHaveProperty('reason', expect.stringContaining('1 of 2'))
     }),
   )
 
@@ -315,13 +345,9 @@ describe('classifying what git said', () => {
   // T24 — a deleted object must not silently shrink the rule set.
   effect('refuses when a blob the listing named is no longer there', () =>
     Effect.gen(function* () {
-      const outcome = yield* freeze(
-        inputFor({
-          listTree: () =>
-            answer(tree(`100644 blob ${'a'.repeat(40)}\trules/a.yml`, `100644 blob ${'b'.repeat(40)}\trules/b.yml`)),
-          readBlobs: () => answer(bytes(object('a'.repeat(40), 'id: a\n'), missing('b'.repeat(40)))),
-        }),
-      )
+      const listing = tree(`100644 blob ${'a'.repeat(40)}\trules/a.yml`, `100644 blob ${'b'.repeat(40)}\trules/b.yml`)
+      const blobs = bytes(object('a'.repeat(40), 'id: a\n'), missing('b'.repeat(40)))
+      const outcome = yield* freeze(inputFor({ listTree: () => answer(listing), readBlobs: () => answer(blobs) }))
 
       expect(outcome.rules._tag).toBe('Broken')
       expect(outcome.rules).toHaveProperty('reason', expect.stringContaining('b.yml'))
@@ -332,13 +358,9 @@ describe('classifying what git said', () => {
   // load for a reason that looks nothing like the cause.
   effect('strips the rules prefix so the keys match what the loader expects', () =>
     Effect.gen(function* () {
-      const outcome = yield* freeze(
-        inputFor({
-          listTree: () =>
-            answer(tree(`100644 blob ${'a'.repeat(40)}\trules/a.yml`, `100644 blob ${'b'.repeat(40)}\trules/b/c.yml`)),
-          readBlobs: () => answer(bytes(object('a'.repeat(40), 'id: a\n'), object('b'.repeat(40), 'id: c\n'))),
-        }),
-      )
+      const listing = tree(`100644 blob ${'a'.repeat(40)}\trules/a.yml`, `100644 blob ${'b'.repeat(40)}\trules/b/c.yml`)
+      const blobs = bytes(object('a'.repeat(40), 'id: a\n'), object('b'.repeat(40), 'id: c\n'))
+      const outcome = yield* freeze(inputFor({ listTree: () => answer(listing), readBlobs: () => answer(blobs) }))
 
       expect(outcome.rules).toEqual({
         _tag: 'Frozen',
@@ -370,6 +392,12 @@ describe('classifying what git said', () => {
   // T27 — absence is the answer "the repository committed no such config", not a failure.
   effect('takes the config candidates the ref actually holds', () =>
     Effect.gen(function* () {
+      const held = bytes(
+        commit(),
+        object('1'.repeat(40), 'export default {}\n'),
+        missing('HEAD:falsestart.config.mts'),
+        object('2'.repeat(40), '{"rules":{}}'),
+      )
       const outcome = yield* freeze(
         inputFor({
           config: {
@@ -377,15 +405,7 @@ describe('classifying what git said', () => {
             names: ['falsestart.config.ts', 'falsestart.config.mts', 'falsestart.config.json'],
             relative: '',
           },
-          probe: () =>
-            answer(
-              bytes(
-                commit(),
-                object('1'.repeat(40), 'export default {}\n'),
-                missing('HEAD:falsestart.config.mts'),
-                object('2'.repeat(40), '{"rules":{}}'),
-              ),
-            ),
+          probe: () => answer(held),
         }),
       )
 
@@ -407,12 +427,13 @@ describe('classifying what git said', () => {
   effect('asks the ref about the config path --config named', () =>
     Effect.gen(function* () {
       const asked: string[][] = []
+      const held = bytes(commit(), object('1'.repeat(40), '{"rules":{}}'))
       const outcome = yield* freeze(
         inputFor({
           config: { _tag: 'Explicit', name: 'scope.json', origin: '/p/tools/scope.json', relative: 'tools/scope.json' },
           probe: (requests) => {
             asked.push([...requests])
-            return answer(bytes(commit(), object('1'.repeat(40), '{"rules":{}}')))
+            return answer(held)
           },
         }),
       )
@@ -481,7 +502,7 @@ describe('classifying what git said', () => {
     effect('refuses a truncated probe rather than reading what arrived', () =>
       Effect.gen(function* () {
         const whole = bytes(commit(), ...CANDIDATES.map((name) => missing(`HEAD:${name}`)))
-        const outcome = yield* freeze(inputFor({ mode, probe: () => answer(whole.slice(0, whole.length - 10)) }))
+        const outcome = yield* freeze(inputFor({ mode, probe: () => answer(whole.slice(0, -10)) }))
 
         expect(outcome.config._tag).toBe('Broken')
         expect(outcome.rules._tag).toBe('Broken')

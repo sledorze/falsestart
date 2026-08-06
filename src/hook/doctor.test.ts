@@ -394,13 +394,11 @@ layer(platform)('the doctor under a freeze', (it) => {
   it.effect('names the ref and the document count, and reports no drift when there is none', () =>
     withTree({ 'a.yml': committed }, (rules) =>
       Effect.gen(function* () {
-        const report = (
-          yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
-            projectDirectory: rules,
-            rulesDirectory: rules,
-          })
-        ).lines.join('\n')
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
 
         expect(report).toContain('freeze   ref     HEAD')
         expect(report).toContain('1 document(s)')
@@ -412,21 +410,24 @@ layer(platform)('the doctor under a freeze', (it) => {
   // T55 — the primary answer. Without this the report says "frozen" and leaves the reader exactly
   // where they were.
   it.effect('lists every working-tree change that is not in effect', () =>
-    withTree({ 'a.yml': `${committed}severity: warning\n`, 'b.yml': committed.replace('no-as-any', 'other') }, (rules) =>
-      Effect.gen(function* () {
-        const report = (
-          yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed.replace('no-as-any', 'gone') }) },
+    withTree(
+      { 'a.yml': `${committed}severity: warning\n`, 'b.yml': committed.replace('no-as-any', 'other') },
+      (rules) =>
+        Effect.gen(function* () {
+          const report = (yield* run({
+            freeze: {
+              config: frozenWith({}),
+              rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed.replace('no-as-any', 'gone') }),
+            },
             projectDirectory: rules,
             rulesDirectory: rules,
-          })
-        ).lines.join('\n')
+          })).lines.join('\n')
 
-        expect(report).toContain('NOT in effect')
-        expect(report).toContain('changed  a.yml')
-        expect(report).toContain('added    b.yml')
-        expect(report).toContain('removed  gone.yml')
-      }),
+          expect(report).toContain('NOT in effect')
+          expect(report).toContain('changed  a.yml')
+          expect(report).toContain('added    b.yml')
+          expect(report).toContain('removed  gone.yml')
+        }),
     ),
   )
 
@@ -501,13 +502,11 @@ layer(platform)('the doctor under a freeze', (it) => {
   it.effect('prints no anchor line at all for an ordinary repository', () =>
     withTree({ 'a.yml': committed }, (rules) =>
       Effect.gen(function* () {
-        const report = (
-          yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
-            projectDirectory: rules,
-            rulesDirectory: rules,
-          })
-        ).lines.join('\n')
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
 
         expect(report).not.toContain('anchor')
       }),
@@ -520,13 +519,11 @@ layer(platform)('the doctor under a freeze', (it) => {
     withTree({}, (root) =>
       Effect.gen(function* () {
         const path = yield* Path.Path
-        const report = (
-          yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
-            projectDirectory: root,
-            rulesDirectory: path.join(root, 'deleted'),
-          })
-        ).lines.join('\n')
+        const report = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: root,
+          rulesDirectory: path.join(root, 'deleted'),
+        })).lines.join('\n')
 
         expect(report).toContain('removed  a.yml')
       }),
@@ -537,23 +534,19 @@ layer(platform)('the doctor under a freeze', (it) => {
   it.effect('names the config the ref committed, and says so when it holds none', () =>
     withTree({ 'a.yml': committed }, (rules) =>
       Effect.gen(function* () {
-        const named = (
-          yield* run({
-            freeze: {
-              config: frozenWith({ 'falsestart.config.ts': 'export default { rules: {} }\n' }),
-              rules: frozenWith({ 'a.yml': committed }),
-            },
-            projectDirectory: rules,
-            rulesDirectory: rules,
-          })
-        ).lines.join('\n')
-        const none = (
-          yield* run({
-            freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
-            projectDirectory: rules,
-            rulesDirectory: rules,
-          })
-        ).lines.join('\n')
+        const named = (yield* run({
+          freeze: {
+            config: frozenWith({ 'falsestart.config.ts': 'export default { rules: {} }\n' }),
+            rules: frozenWith({ 'a.yml': committed }),
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+        const none = (yield* run({
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
 
         expect(named).toContain('config  frozen — falsestart.config.ts')
         expect(none).toContain('config  frozen — no falsestart config at HEAD')

@@ -11,7 +11,13 @@ import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platform-node'
 import { Data, Effect, FileSystem, Layer, Path, Stdio, Stream } from 'effect'
-import { DEFAULT_FREEZE_REF, isBrokenPipe, packageRulesDirectory, parseArguments, presetDirectory } from './cli/index.ts'
+import {
+  DEFAULT_FREEZE_REF,
+  isBrokenPipe,
+  packageRulesDirectory,
+  parseArguments,
+  presetDirectory,
+} from './cli/index.ts'
 import type { HookResponse } from './hook/index.ts'
 import { diagnose, respond } from './hook/index.ts'
 import {

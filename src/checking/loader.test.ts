@@ -280,15 +280,11 @@ layer(unreadable)('rule tree loading from committed bytes', (it) => {
   // T32 — validation is the loader's job on either path, not something the working tree provided.
   it.effect('still refuses two rules sharing an id', () =>
     Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        loadRules(
-          '/no/such/place',
-          new Map([
-            ['a.yml', rule('same')],
-            ['b.yml', rule('same')],
-          ]),
-        ),
-      )
+      const documents = new Map([
+        ['a.yml', rule('same')],
+        ['b.yml', rule('same')],
+      ])
+      const error = yield* Effect.flip(loadRules('/no/such/place', documents))
 
       expect(error.reasons.join('\n')).toContain('duplicate rule id')
     }),
@@ -297,13 +293,11 @@ layer(unreadable)('rule tree loading from committed bytes', (it) => {
   // T33 — the `_utils` split is about the KEY, not about a filesystem path.
   it.effect('treats a frozen _utils document as a shared util rather than a rule', () =>
     Effect.gen(function* () {
-      const loaded = yield* loadRules(
-        '/no/such/place',
-        new Map([
-          ['_utils/shared.yml', 'id: anyKeyword\nrule:\n  kind: any\n'],
-          ['a.yml', rule('alpha')],
-        ]),
-      )
+      const documents = new Map([
+        ['_utils/shared.yml', 'id: anyKeyword\nrule:\n  kind: any\n'],
+        ['a.yml', rule('alpha')],
+      ])
+      const loaded = yield* loadRules('/no/such/place', documents)
 
       expect(loaded.map((entry) => entry.id)).toEqual(['alpha'])
       expect(loaded[0]?.utils).toEqual({ anyKeyword: { kind: 'any' } })
@@ -313,15 +307,16 @@ layer(unreadable)('rule tree loading from committed bytes', (it) => {
   // T34 — `isRuleDocument` decides on either path, or a committed README becomes a broken rule.
   it.effect('ignores a frozen document that is not a rule document', () =>
     Effect.gen(function* () {
-      const loaded = yield* loadRules(
-        '/no/such/place',
-        new Map([
-          ['README.md', '# how these rules work\n'],
-          ['a.yml', rule('alpha')],
-        ]),
-      )
+      // Deliberately out of order: a frozen map arrives in the ref's own order, and findings have to
+      // come out the same way run to run regardless.
+      const documents = new Map([
+        ['z.yml', rule('zulu')],
+        ['README.md', '# how these rules work\n'],
+        ['a.yml', rule('alpha')],
+      ])
+      const loaded = yield* loadRules('/no/such/place', documents)
 
-      expect(loaded.map((entry) => entry.id)).toEqual(['alpha'])
+      expect(loaded.map((entry) => entry.id)).toEqual(['alpha', 'zulu'])
     }),
   )
 })
@@ -330,13 +325,15 @@ layer(platform)('reading a rule tree from disk', (it) => {
   // T35 — the extraction must not change the key shape, or every frozen tree fails to load for a
   // reason that looks nothing like the cause.
   it.effect('returns the keys the recursive walk produces, sorted', () =>
-    withTree({ '_utils/shared.yml': 'id: u\nrule:\n  kind: any\n', 'b/c.yml': rule('c'), 'a.yml': rule('a') }, (directory) =>
-      Effect.gen(function* () {
-        const documents = yield* readRuleDocuments(directory)
+    withTree(
+      { '_utils/shared.yml': 'id: u\nrule:\n  kind: any\n', 'a.yml': rule('a'), 'b/c.yml': rule('c') },
+      (directory) =>
+        Effect.gen(function* () {
+          const documents = yield* readRuleDocuments(directory)
 
-        expect([...documents.keys()]).toEqual(['_utils/shared.yml', 'a.yml', 'b/c.yml'])
-        expect(documents.get('a.yml')).toBe(rule('a'))
-      }),
+          expect([...documents.keys()]).toEqual(['_utils/shared.yml', 'a.yml', 'b/c.yml'])
+          expect(documents.get('a.yml')).toBe(rule('a'))
+        }),
     ),
   )
 })

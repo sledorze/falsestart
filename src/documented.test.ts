@@ -574,14 +574,14 @@ layer(platform)('documentation covers the source', (it) => {
    * content hash can see it: `--help` names three modes, the parser accepts whatever it accepts, and
    * a fourth mode added to one and not the other is invisible from both sides.
    */
-  it.effect('the freeze modes --help names are exactly the ones the parser accepts', () =>
-    Effect.gen(function* () {
-      const help = parseArguments(['--help'])
-      const named = (help._tag === 'Help' ? help.text : '').match(/--freeze <mode>\s+Where rules and config are read from: ([^.]+)\./)
+  it('the freeze modes --help names are exactly the ones the parser accepts', () => {
+    const help = parseArguments(['--help'])
+    const named = (help._tag === 'Help' ? help.text : '').match(
+      /--freeze <mode>\s+Where rules and config are read from: ([^.]+)\./,
+    )
 
-      expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FREEZE_MODES].toSorted())
-    }),
-  )
+    expect((named?.[1] ?? '').split(', ').toSorted()).toEqual([...FREEZE_MODES].toSorted())
+  })
 
   /**
    * T73 — `SECURITY.md` carries no summary and no link cairn could hash, so nothing else in this
@@ -591,7 +591,9 @@ layer(platform)('documentation covers the source', (it) => {
   it.effect('SECURITY.md names the boundary and every way through it', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const security = yield* fs.readFileString('SECURITY.md')
+      // Whitespace-normalised, because prettier reflows this prose and a claim is a claim wherever
+      // the line happens to break.
+      const security = (yield* fs.readFileString('SECURITY.md')).replaceAll(/\s+/g, ' ')
 
       for (const claim of [
         'cannot defend against an agent that can rewrite the things which say where its rules come from',
@@ -612,7 +614,7 @@ layer(platform)('documentation covers the source', (it) => {
   it.effect('SECURITY.md claims neither of the two things that are not true', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const security = yield* fs.readFileString('SECURITY.md')
+      const security = (yield* fs.readFileString('SECURITY.md')).replaceAll(/\s+/g, ' ')
 
       expect(security).not.toContain('takes a commit rather than an uncommitted edit')
       expect(security).not.toContain('an uncommitted change cannot change what is enforced')

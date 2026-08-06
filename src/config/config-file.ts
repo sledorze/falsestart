@@ -124,11 +124,7 @@ const FROZEN_IMPORT_NOTE =
  * The working tree is never stat'ed or read here — not even to check the file is there. Gating the
  * frozen path on the file's existence would make `rm falsestart.config.json` a one-command disarm.
  */
-const loadFrozenConfig = (
-  extension: string,
-  source: string,
-  origin: string,
-): Effect.Effect<Config, ConfigError> => {
+const loadFrozenConfig = (extension: string, source: string, origin: string): Effect.Effect<Config, ConfigError> => {
   if (extension === '.json') {
     return parseConfig(source, origin)
   }
@@ -138,9 +134,7 @@ const loadFrozenConfig = (
       ? stripAndImport(source, origin)
       : importDefault(dataUrl(source), origin).pipe(Effect.flatMap((exported) => validateConfig(exported, origin)))
 
-  return imported.pipe(
-    Effect.mapError((error) => new ConfigError({ reasons: [...error.reasons, FROZEN_IMPORT_NOTE] })),
-  )
+  return imported.pipe(Effect.mapError((error) => new ConfigError({ reasons: [...error.reasons, FROZEN_IMPORT_NOTE] })))
 }
 
 /**

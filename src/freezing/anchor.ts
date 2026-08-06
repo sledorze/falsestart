@@ -60,9 +60,7 @@ export interface AnchorResolution {
  * absence lands in the unverified arm rather than in a third branch no fixture can reach.
  */
 const isDirectoryEntry = (path: string): boolean =>
-  Effect.runSync(
-    Effect.try(() => lstatSync(path).isDirectory()).pipe(Effect.orElseSucceed(() => false)),
-  )
+  Effect.runSync(Effect.try(() => lstatSync(path).isDirectory()).pipe(Effect.orElseSucceed(() => false)))
 
 /**
  * The nearest enclosing repository whose `.git` is a directory, or the caller's own toplevel.

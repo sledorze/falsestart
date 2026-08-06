@@ -142,7 +142,7 @@ export const diagnose = (
     // claim being made, and a filesystem that cannot answer at all gets the same answer as "no": the
     // reader's next step is identical, and this is the one report still available when things break.
     const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
+    const paths = yield* Path.Path
     const isReadableFile = (candidate: string) =>
       fs.stat(candidate).pipe(
         Effect.map((info) => info.type === 'File'),
@@ -170,10 +170,11 @@ export const diagnose = (
       `rules    ${rulesDirectory} — ${loaded.success.length} loaded (${blocking} block, ${loaded.success.length - blocking} advise)`,
     )
 
+    const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(paths.basename(configPath))
     const configured = yield* Effect.result(
       configPath === undefined
         ? loadDefaultConfig(projectDirectory, frozenConfig)
-        : loadConfigFile(configPath, frozenConfig?.get(path.basename(configPath))),
+        : loadConfigFile(configPath, namedConfig),
     )
     if (configured._tag === 'Failure') {
       lines.push(`config   COULD NOT LOAD — ${configured.failure.reasons.join('; ')}`)

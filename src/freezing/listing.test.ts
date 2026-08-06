@@ -117,7 +117,11 @@ describe('the objects a ref holds', () => {
   // T8 — `<request> missing` comes with exit 0, so absence has to be a value rather than a gap.
   effect('reports a request the ref does not hold as absent, in place', () =>
     Effect.gen(function* () {
-      const stdout = bytes(object('a'.repeat(40), 'id: a\n'), missing('HEAD:falsestart.config.ts'), object('c'.repeat(40), 'id: c\n'))
+      const stdout = bytes(
+        object('a'.repeat(40), 'id: a\n'),
+        missing('HEAD:falsestart.config.ts'),
+        object('c'.repeat(40), 'id: c\n'),
+      )
 
       expect(yield* parseBatchObjects(stdout, ['a', 'HEAD:falsestart.config.ts', 'c'])).toEqual([
         'id: a\n',
@@ -131,7 +135,7 @@ describe('the objects a ref holds', () => {
   effect('fails when the stream stops inside a declared size', () =>
     Effect.gen(function* () {
       const whole = bytes(object('a'.repeat(40), 'id: a\n'), object('b'.repeat(40), 'id: b-with-more-content\n'))
-      const truncated = whole.slice(0, whole.length - 10)
+      const truncated = whole.slice(0, -10)
 
       const reason = yield* Effect.flip(parseBatchObjects(truncated, ['a'.repeat(40), 'b'.repeat(40)]))
 
@@ -142,7 +146,8 @@ describe('the objects a ref holds', () => {
   // T10 — the same failure through a different shape.
   effect('fails when git answered fewer frames than were requested', () =>
     Effect.gen(function* () {
-      const reason = yield* Effect.flip(parseBatchObjects(object('a'.repeat(40), 'id: a\n'), ['a', 'b']))
+      const oneFrame = object('a'.repeat(40), 'id: a\n')
+      const reason = yield* Effect.flip(parseBatchObjects(oneFrame, ['a', 'b']))
 
       expect(reason).toContain('1 of 2')
     }),
@@ -152,7 +157,8 @@ describe('the objects a ref holds', () => {
   // newline, and that arm has to lead somewhere other than a silently shorter list.
   effect('fails when the stream stops part-way through a header', () =>
     Effect.gen(function* () {
-      const reason = yield* Effect.flip(parseBatchObjects(encoder.encode(`${'a'.repeat(40)} blob 6`), ['a']))
+      const headerOnly = encoder.encode(`${'a'.repeat(40)} blob 6`)
+      const reason = yield* Effect.flip(parseBatchObjects(headerOnly, ['a']))
 
       expect(reason).toContain('mid-header')
     }),

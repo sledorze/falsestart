@@ -53,13 +53,15 @@ const initRepository = (directory: string) =>
  * It records the directories it was asked about, because "the walk costs zero extra spawns in the
  * common case" is a claim about the number of calls and nothing else can see it.
  */
-const spawningRevParse = (calls: string[]) => (directory: string): string | undefined => {
-  calls.push(directory)
-  const result = spawnSync('git', ['--no-optional-locks', '-C', directory, 'rev-parse', '--show-toplevel'], {
-    encoding: 'utf8',
-  })
-  return result.status === 0 ? result.stdout.trim() : undefined
-}
+const spawningRevParse =
+  (calls: string[]) =>
+  (directory: string): string | undefined => {
+    calls.push(directory)
+    const result = spawnSync('git', ['--no-optional-locks', '-C', directory, 'rev-parse', '--show-toplevel'], {
+      encoding: 'utf8',
+    })
+    return result.status === 0 ? result.stdout.trim() : undefined
+  }
 
 /** Every parent is its own repository — the only shape that walks all the way to the root. */
 const echoingRevParse = (directory: string): string | undefined => directory

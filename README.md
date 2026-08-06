@@ -86,6 +86,18 @@ echo '{"tool_name":"Write","cwd":"'"$PWD"'","tool_input":{"file_path":"'"$PWD"'/
 That must print a `permissionDecision: "deny"` object. Change `as any` to `as Widget` and it must
 print nothing.
 
+Rules and config are read from `HEAD` by default, not from your working tree, so a session that can
+write files cannot disarm its own guard by editing a rule or adding a config file. `--doctor` prints
+what is frozen and what is not in effect; `--freeze off` reads the working tree while you iterate.
+
+```
+freeze   ref     HEAD
+         rules   frozen — 23 document(s) from rules/
+         config  frozen — falsestart.config.ts
+         1 working-tree change(s) are NOT in effect — commit them, or pass --freeze=off:
+           changed  clean-code/no-as-any.yml
+```
+
 Rules are [ast-grep](https://ast-grep.github.io) documents, so the same file stays readable by the
 upstream CLI:
 

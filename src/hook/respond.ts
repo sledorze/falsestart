@@ -67,8 +67,7 @@ const FREEZE_ESCAPE = 're-run the hook with --freeze=off to use the working tree
 const withEscape = (reason: string): string => `${reason}\n${FREEZE_ESCAPE}`
 
 /** Both, when there are both. The freeze note never replaces what a rule had to say. */
-const join = (text: string, extra: string | undefined): string =>
-  extra === undefined ? text : `${text}\n${extra}`
+const join = (text: string, extra: string | undefined): string => (extra === undefined ? text : `${text}\n${extra}`)
 
 /** The reasons a source that git established as freezable could not be read. */
 const frozenFailures = (outcome: FreezeOutcome | undefined): readonly string[] =>
@@ -179,9 +178,7 @@ export interface RespondOptions {
    *
    * Absent means unfrozen — the 0.2.0 behaviour — so a library call that predates this is unchanged.
    */
-  readonly freeze?:
-    | (() => Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path>)
-    | undefined
+  readonly freeze?: (() => Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path>) | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
@@ -232,10 +229,11 @@ export const respond = (
     // An explicit --config must exist; without one, the default names are looked for in
     // `projectDirectory` — never beside the rules, which `--preset` and `pkg:` both put inside
     // node_modules — and their absence simply means no overrides.
+    const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(path.basename(configPath))
     const configured = yield* Effect.result(
       configPath === undefined
         ? loadDefaultConfig(projectDirectory, frozenConfig)
-        : loadConfigFile(configPath, frozenConfig?.get(path.basename(configPath))),
+        : loadConfigFile(configPath, namedConfig),
     )
 
     if (configured._tag === 'Failure') {

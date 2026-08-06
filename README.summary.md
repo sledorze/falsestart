@@ -23,6 +23,11 @@ Rules come from three places: `--preset all|clean-code|effect` for the shipped c
 <dir>` for your own, and `--rules pkg:<name>` for another package's. Where each rule applies is
 re-scopable per repo through a typed `falsestart.config.ts`.
 
+Both are read from `HEAD` rather than from the working tree by default, so a session that can write
+files cannot disarm its own guard by editing a rule or adding a config the repository never
+committed. `--doctor` prints what is frozen and what is not in effect; `--freeze off` reads the
+working tree while you iterate.
+
 Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, docs check).
 
 Also linked from the README: [CONTRIBUTING](./CONTRIBUTING.md) (how to run the checks and the three

@@ -26,9 +26,21 @@ copy and the original becomes a rule that silently under-matches. One deliberate
 native binding accepts matcher shapes the real CLI rejects and then matches nearly every node, so a
 narrow check — modelled on measured CLI behaviour — rejects them.
 
-**Three failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
-guard could not run (say so loudly, do not block). A rule that cannot run is never reported as
-"found nothing", but a typo in a rule file must not hold a repository hostage.
+**Four failures kept distinct:** code breaks a rule (block), a softer severity matched (show), the
+guard could not run (say so loudly, do not block), and the rule source could not be read AS
+COMMITTED (refuse to judge; never fall back). A rule that cannot run is never reported as "found
+nothing", but a typo in a rule file must not hold a repository hostage. The fourth amends the third
+in the safe direction: under a freeze a working-tree typo never reaches the loader at all, so what
+refuses is a COMMITTED rule set that will not load — falling back there would make breaking git the
+cheapest disarm available.
+
+**Which repository the freeze trusts** is resolved by walking outward from the project to the nearest
+`.git` that is a real DIRECTORY, and never by letting git discover one for itself. A `.git` gitfile is
+one ordinary write, and it moves a toplevel onto itself so a containment check still passes; a
+directory cannot be replaced by a write (`EISDIR`). What the walk cannot verify — a linked worktree
+outside its main repository, `--separate-git-dir` — is reported rather than refused by default. The
+law behind that, and behind the `for-each-ref` probe being a cost increase rather than a closure: no
+probe inside a git directory survives an agent that can write inside that git directory.
 
 **Rules are programs, so they are wrong until shown otherwise** — worked examples of both kinds,
 a blast-radius corpus no rule may flag, and a check that every API a message names is real.
@@ -45,9 +57,10 @@ while the only thing a config may change about a rule is `files`/`ignores` and n
 the matcher. `falsestart scan` answers the corpus-shaped question as far as whole files on disk —
 still one file at a time.
 
-**Six areas, separated by what each may know:** `checking/` (rule documents and source text),
+**Seven areas, separated by what each may know:** `checking/` (rule documents and source text),
 `config/` (a repo's overrides), `hook/` (the agent protocol), `scanning/` (the filesystem: paths in,
-a report out), `cli/` (the command line), `testing/`
+a report out), `freezing/` (what a git ref committed, parsed from git's plumbing output — it spawns
+nothing), `cli/` (the command line), `testing/`
 (helpers for testing your own rules). `hook/` and `scanning/` are the two adapters and are separate
 because their policies are opposite: the hook fails OPEN, since a broken rule must not hold every
 write hostage, while a scan is a gate and fails CLOSED, since one that cannot run passes everything

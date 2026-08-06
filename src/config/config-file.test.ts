@@ -150,13 +150,15 @@ layer(platform)('loading a config the ref committed', (it) => {
   // T41 — the issue's third vector: adding a second config file breaks the load, and a broken load
   // is an allowed write. Discovery has to come from the ref too.
   it.effect('discovers only the config the ref holds, whatever is on disk', () =>
-    withFiles({ 'falsestart.config.json': '{"rules":{}}', 'falsestart.config.ts': 'export default { rules: {} }\n' }, (directory) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        const found = yield* findDefaultConfigs(directory, new Map([['falsestart.config.ts', 'export default {}\n']]))
+    withFiles(
+      { 'falsestart.config.json': '{"rules":{}}', 'falsestart.config.ts': 'export default { rules: {} }\n' },
+      (directory) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          const found = yield* findDefaultConfigs(directory, new Map([['falsestart.config.ts', 'export default {}\n']]))
 
-        expect(found).toEqual([path.join(directory, 'falsestart.config.ts')])
-      }),
+          expect(found).toEqual([path.join(directory, 'falsestart.config.ts')])
+        }),
     ),
   )
 

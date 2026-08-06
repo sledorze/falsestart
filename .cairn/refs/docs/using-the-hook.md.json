@@ -1,7 +1,11 @@
 {
   "refs": [
     {
-      "hash": "e5bcead5532eb737a9096c1bbb3786c9d998f34352bb50df22eedfffc2c5615b",
+      "hash": "425c72911bf6d999853906fc64d2c99629610881e98ab7fd1a446d45e2c05c26",
+      "target": "./reference.md"
+    },
+    {
+      "hash": "5fa60ee881e586b48a1d6ccc63a23b62000132eedcb2d1c4e39f3e6cb005ee7c",
       "target": "./architecture.md"
     }
   ]

@@ -152,8 +152,7 @@ const broken = (reason: string): Frozen => ({ _tag: 'Broken', reason })
  * It is for a repository that knows it is a repository and wants `rm -rf .git` to stop writes rather
  * than silently resume reading the working tree. Opt-in, because it genuinely can become an outage.
  */
-const byMode = (mode: FreezeMode, reason: string): Frozen =>
-  mode === 'require' ? broken(reason) : unfrozen(reason)
+const byMode = (mode: FreezeMode, reason: string): Frozen => (mode === 'require' ? broken(reason) : unfrozen(reason))
 
 const both = (verdict: Frozen): FreezeOutcome => ({ config: verdict, rules: verdict })
 

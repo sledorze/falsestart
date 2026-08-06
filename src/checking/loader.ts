@@ -40,8 +40,7 @@ const isMapping = (value: unknown): value is Record<string, unknown> =>
  * freeze is scoped by it too. Two copies of "what counts as a rule document" would eventually
  * disagree, and the disagreement would be silent in both directions.
  */
-export const isRuleDocument = (name: string): boolean =>
-  RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
+export const isRuleDocument = (name: string): boolean => RULE_EXTENSIONS.some((extension) => name.endsWith(extension))
 
 const isSharedUtil = (entry: string): boolean => entry.split('/')[0] === SHARED_UTILS_DIRECTORY
 
