@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FREEZE_MODES } from '../freezing/index.ts'
 import { DEFAULT_RULES_DIRECTORY, parseArguments } from './options.ts'
 
 describe('command line', () => {
@@ -367,5 +368,67 @@ describe('the scan command', () => {
 
   it('refuses a pkg: prefix with no package name', () => {
     expect(parseArguments(['--rules', 'pkg:'])._tag).toBe('Invalid')
+  })
+})
+
+/**
+ * The freeze switch lives on the command line and nowhere else.
+ *
+ * The thing being frozen must not carry its own off switch: if `freeze` were readable from
+ * `falsestart.config.json`, disarming would be `{"freeze":"off"}` and the freeze would have to
+ * bootstrap itself out of an unfrozen read of the file that disables it. The command line is a
+ * different trust root — it lives in the agent runtime's settings.
+ */
+describe('the freeze switch', () => {
+  // T58
+  describe.each(FREEZE_MODES)('--freeze %s', (mode) => {
+    it('parses, in every mode that resolves a rule set', () => {
+      for (const [args, tag] of [
+        [[], 'Run'],
+        [['--doctor'], 'Doctor'],
+        [['--list-rules'], 'ListRules'],
+        [['scan', 'a.ts'], 'Scan'],
+      ] as const) {
+        const parsed = parseArguments([...args, '--freeze', mode])
+
+        expect(parsed._tag).toBe(tag)
+        expect(parsed).toHaveProperty('freeze', mode)
+      }
+    })
+  })
+
+  it('defaults to auto, and to HEAD, in every mode', () => {
+    // Default-on closes the hole for everyone who did not read the issue, which is everyone. A
+    // default that regressed in ONE mode would be invisible: that mode would simply stop freezing.
+    for (const args of [[], ['--doctor'], ['--list-rules'], ['scan', 'a.ts']]) {
+      const parsed = parseArguments(args)
+
+      expect(parsed).toHaveProperty('freeze', 'auto')
+      expect(parsed).toHaveProperty('freezeRef', 'HEAD')
+    }
+  })
+
+  it('takes another ref from --freeze-ref', () => {
+    expect(parseArguments(['--freeze-ref', 'refs/remotes/origin/main'])).toHaveProperty(
+      'freezeRef',
+      'refs/remotes/origin/main',
+    )
+  })
+
+  // T59 — a value accepted and dropped is the failure this file's opening paragraph exists to
+  // prevent, and an unknown mode degrading to the default is the same failure wearing a hat.
+  it('refuses a mode it does not know, naming the ones it does', () => {
+    const parsed = parseArguments(['--freeze', 'bogus'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed).toHaveProperty('problem', expect.stringContaining('auto, off, require'))
+  })
+
+  it('refuses a flag where a value belongs, rather than waiting on a payload', () => {
+    // `--rules -x` consumed the flag as the directory and then blocked on stdin forever, with no
+    // output to explain itself. Both new flags take a value, so both can do it.
+    expect(parseArguments(['--freeze'])).toEqual({ _tag: 'Invalid', problem: '--freeze needs a value' })
+    expect(parseArguments(['--freeze-ref'])).toEqual({ _tag: 'Invalid', problem: '--freeze-ref needs a value' })
+    expect(parseArguments(['--freeze', '--doctor'])).toEqual({ _tag: 'Invalid', problem: '--freeze needs a value' })
   })
 })
