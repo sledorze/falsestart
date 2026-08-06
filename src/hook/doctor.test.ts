@@ -10,6 +10,7 @@ import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import { SHIPPED_RULE_IDS } from '../checking/rule-ids.generated.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
+import type { AgentId } from './decide.ts'
 import type { FailurePolicy } from './respond.ts'
 import { diagnose } from './doctor.ts'
 
@@ -39,6 +40,7 @@ const unstattable = Layer.mergeAll(
 )
 
 const run = (options: {
+  agent?: AgentId
   changelogPath?: string
   configPath?: string
   failure?: FailurePolicy
@@ -48,6 +50,7 @@ const run = (options: {
   unresolvedRules?: string
 }) =>
   diagnose({
+    agent: options.agent,
     changelogPath: options.changelogPath ?? 'CHANGELOG.md',
     configPath: options.configPath,
     failure: options.failure,
@@ -635,5 +638,63 @@ layer(platform)('the doctor under a freeze', (it) => {
         expect(none).toContain('config  frozen — no falsestart config at HEAD')
       }),
     ),
+  )
+})
+
+/**
+ * Which contract the hook will run under — the question a person asking "why did my deny not block"
+ * is by definition unable to answer from their command line, because they are the one who never
+ * passed `--agent`.
+ */
+layer(platform)('the active agent contract', (it) => {
+  const agentLine = (lines: readonly string[]): string => lines.find((line) => line.startsWith('agent')) ?? ''
+
+  // T-A21 — printed unconditionally, unlike `policy`, and above every early return. This is the one
+  // departure from the `--fail` precedent: a line printed only when the flag was named is absent
+  // from exactly the report that needs it.
+  it.effect('names the active contract, always, and above every early return', () =>
+    Effect.gen(function* () {
+      expect(agentLine((yield* run({})).lines)).toContain('claude-code')
+      expect(agentLine((yield* run({ agent: 'copilot' })).lines)).toContain('copilot')
+
+      const unresolved = yield* run({ agent: 'copilot', unresolvedRules: 'nope' })
+      expect(agentLine(unresolved.lines)).toContain('copilot')
+    }),
+  )
+
+  // T-A22 — the field names, not just the tool names. Nothing inside falsestart can VERIFY the
+  // Copilot mapping, because nothing here has a real Copilot payload; what it can do is stop hiding
+  // the inference in the source, so a reader can diff it against one payload in ten seconds.
+  it.effect('lists the active contract’s tools with their field names, and flags an inferred table', () =>
+    Effect.gen(function* () {
+      const copilot = yield* run({ agent: 'copilot' })
+      expect(copilot.lines).toContain(
+        'tools    create (path/content), edit (path/new_str) — any other tool call is ignored',
+      )
+      const provisional =
+        copilot.lines[copilot.lines.indexOf(copilot.lines.find((line) => line.startsWith('tools')) ?? '') + 1]
+      expect(provisional).toContain('PROVISIONAL')
+
+      const claudeCode = yield* run({})
+      expect(claudeCode.lines).toContain(
+        'tools    Edit (file_path/new_string), NotebookEdit (notebook_path/new_source), Write (file_path/content) — any other tool call is ignored',
+      )
+      expect(claudeCode.lines.some((line) => line.includes('PROVISIONAL'))).toBeFalsy()
+    }),
+  )
+
+  // T-A23 — the sample has to be written in the ACTIVE contract's vocabulary. Left hand-written in
+  // Claude Code's, a healthy Copilot installation reports `the sample could not be judged` and exits
+  // 1 — from the one command whose whole job is saying whether the installation is healthy.
+  it.effect('reports a healthy Copilot installation as healthy', () =>
+    Effect.gen(function* () {
+      // The same fixture the claude-code health check uses, deliberately: what is being measured is
+      // the contract the sample is written in, and a second rules directory would introduce a
+      // second variable — this repo's own config narrows rules the `clean-code` tree does not load.
+      const diagnosis = yield* run({ agent: 'copilot' })
+
+      expect(diagnosis.healthy).toBeTruthy()
+      expect(diagnosis.lines.some((line) => line.includes('was blocked'))).toBeTruthy()
+    }),
   )
 })

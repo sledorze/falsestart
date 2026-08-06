@@ -17,6 +17,7 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | `--freeze <mode>`    | Where rules and config are read from: `auto` (the default), `off`, `require`. See [Freezing the rule set](#freezing-the-rule-set). Command line only — never read from `falsestart.config.*` or from the environment.                                                                                                                                           |
 | `--freeze-ref <ref>` | Which ref to freeze against. Defaults to `HEAD`. A ref named here that does not resolve is an error in every mode.                                                                                                                                                                                                                                              |
 | `--fail <policy>`    | What a failure of falsestart **itself** costs: `open` (the default) reports on stderr, exits `1`, and the write proceeds; `closed` denies it. See [When falsestart itself cannot run](#when-falsestart-itself-cannot-run). Command line only — never read from `falsestart.config.*` or from the environment. Refused with `scan` and `--list-rules`.           |
+| `--agent <name>`     | Which agent runtime is on the other end: `claude-code` (the default), `copilot`. Decides both the payload shape falsestart reads and how a deny is expressed. See [Which agent is on the other end](#which-agent-is-on-the-other-end). Command line only. Refused with `scan` and `--list-rules`. `copilot` support is **provisional**.                         |
 | `--warn-unscoped`    | Report a judged write that no rule is scoped to, instead of passing it in silence. Non-blocking, off by default, refused with `--doctor`.                                                                                                                                                                                                                       |
 | `--version`          | Print the version. Exits 0 without reading stdin.                                                                                                                                                                                                                                                                                                               |
 | `-h`, `--help`       | Usage. Exits 0 without reading stdin.                                                                                                                                                                                                                                                                                                                           |
@@ -128,6 +129,8 @@ code. `open` is the default and is the 0.2.0 behaviour: the failure is reported 
 process exits `1`, and the write proceeds. `closed` denies the write instead, for a repository where
 an edit that cannot be verified must not land.
 
+Under `--agent claude-code`, the default:
+
 | Failure                                                                              | `--fail open` (default) | `--fail closed`                                          |
 | ------------------------------------------------------------------------------------ | ----------------------- | -------------------------------------------------------- |
 | The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`        | **deny**                                                 |
@@ -195,8 +198,90 @@ anything, so while `--fail closed` is on and the rule tree is broken, **every** 
 denied — including the edit that would repair the rule document. `--freeze off` does not have this
 shape; `--fail open` is the way through.
 
+Under `--agent copilot` the same table holds with two substitutions: every `report, exit 1` becomes
+**`report, exit 0`**, and every **deny** becomes exit `2`. The only exit `1` left is the misdeclared
+`--agent` notice, which is not in this table because it is not a guard failure — see
+[Which agent is on the other end](#which-agent-is-on-the-other-end) — which makes the malformed-payload
+row _stronger_ rather than weaker: exit 0 cannot deny even in principle.
+
+**`--fail closed` is the recommended policy under `--agent copilot`.** A fail-open report lands on
+stderr at exit 0, and GitHub does not document whether stderr is read at exit 0 at all. A denial is
+unmissable in either reading; a report may not be readable.
+
 `scan` and `--list-rules` refuse this flag because they already fail closed on every path — see
 [Scan exit codes](#scan-exit-codes).
+
+### Which agent is on the other end
+
+`--agent <name>` names the runtime falsestart is answering. `claude-code` is the default and is the
+0.2.0 behaviour in every respect. `copilot` is GitHub Copilot CLI.
+
+**Declared, not detected, and that is the whole decision.** A payload tells you the shape that came
+in. It says nothing about how the runtime will read your _answer_ — and the answer is where a wrong
+guess turns a deny into an allow. Sniffing would infer "deny with exit 2" from "the payload said
+`toolName`", so any normalising shim, proxy, or future Copilot that also accepts `tool_name` would
+make falsestart emit the Claude Code deny at exit 0 and the write would land. `--doctor` could not
+answer its own question either: it reads no stdin, so a sniffed contract does not exist at diagnosis
+time.
+
+Registration is duplicated in any installation serving both runtimes anyway. Claude Code registers in
+`.claude/settings.json` under `PreToolUse`; Copilot registers in `.github/hooks/*.json` (or
+`~/.copilot/hooks/`) under `{"version":1,"hooks":{"preToolUse":[…]}}`. `--agent copilot` adds sixteen
+characters to a file that has to exist regardless.
+
+**Two envelope spellings, and your hook config picks which.** GitHub documents two renderings of one
+payload, selected by the CASING of the event name in the hook configuration: a camelCase
+`preToolUse` gives `toolName`/`toolArgs`, a PascalCase `PreToolUse` gives `tool_name`/`tool_input`,
+"to match the VS Code Copilot extension format". falsestart reads both, and reading them is not
+sniffing the agent: the agent, and with it the entire output contract, is declared. `toolArgs` also
+arrives as a **JSON-encoded string** in real invocations, which falsestart decodes; the same string
+under `--agent claude-code` is genuinely malformed and is reported as such rather than reinterpreted.
+
+**Setting the flag wrong is caught, in both directions, but not equally loudly.** Forgetting it in
+front of Copilot denies every tool call in the session — the runtime treats exit 1 as "hook errored"
+— so it is noticed in seconds. Declaring `copilot` in front of Claude Code would otherwise be exit 0
+and silence: unguarded indefinitely, looking healthy the whole time. So a payload naming a tool that
+belongs to the OTHER contract's table is reported rather than deferred, on the channel the runtime
+that really sent it reads:
+
+```
+falsestart: this payload names the tool `Write`, which belongs to the claude-code contract, but --agent copilot was given. Set --agent claude-code, or remove the flag.
+```
+
+That is a structural test — membership in a declared, closed tool table — and not a guess about what
+a name looks like. It only reaches the mirror case in the spelling the two contracts share: a
+camelCase Copilot payload under `--agent claude-code` is answered `hook payload carried no tool_name`
+instead, which is the loud direction anyway.
+
+**What a rule author loses under Copilot.** A deny is exit 2. falsestart additionally writes
+Copilot's own deny document to stdout and the reason to stderr, because GitHub's hooks reference
+(read August 2026) says a `preToolUse` hook's stdout JSON is merged into the deny at exit 2 and its
+stderr is surfaced to the user. Issue #50's adopter reports the opposite — that the model sees a
+fixed generic string and the rule's message survives only in Copilot's own logs. falsestart does not
+depend on which is true: the write is blocked by the exit code alone, and the reason goes to every
+channel the contract documents. **Write a rule `message` that is useful to a person reading a log**,
+not only to a model reading a denial — under Copilot it may be the only reader it gets.
+
+A `severity: warning` finding is weaker still. Copilot's `preToolUse` output has three keys and none
+of them is non-deciding: `"allow"` would auto-approve a write the permission flow would have prompted
+for, and `"ask"` would make advice block. So advice goes to stderr and decides nothing, which means
+it reaches the user and the log and never the model.
+
+#### Provisional
+
+`--agent copilot` ships **provisional**, and these are the three facts it rests on that nobody has
+verified against a running Copilot:
+
+| Unverified                      | If it is wrong                                                                                                                                        | How to check                                                                                 |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `edit` takes `path`/`new_str`   | `edit` is not judged at write time. `falsestart scan` still catches it in CI.                                                                         | `falsestart --doctor --agent copilot` prints the names; diff them against one payload.       |
+| `create` takes `path`/`content` | Same, for `create`. `file_text` is the competing candidate for the content field.                                                                     | As above. falsestart names the keys that DID arrive when it cannot find the ones it expects. |
+| stderr is readable at exit `0`  | Every non-deny diagnostic is invisible: guard failures under `--fail open`, malformed payloads, the misdeclared-flag notice, and all advisory output. | Run a hook that exits 0 and writes to stderr, and look.                                      |
+
+GitHub documents Copilot's tool NAMES and nowhere documents its tool ARGUMENTS, which is why the
+first two are inferences rather than readings. `edit`'s `path` is corroborated by
+[copilot-cli#3349](https://github.com/github/copilot-cli/issues/3349); `new_str` and `content` are
+not. Please report a mismatch — each correction is one literal and one table row.
 
 ### `falsestart --list-rules`
 
@@ -282,10 +367,80 @@ and a flag that is accepted and changes nothing is what falsestart refuses elsew
 projection is available without a subprocess as `describeRules`, and `RuleDescriptionSchema` decodes
 the document back into typed entries.
 
+### The hook event falsestart implements
+
+falsestart is a **`PreToolUse`** guard and nothing else. It judges the text a tool call is about to
+write, and both of its outcomes — deny and advise — exist because the write has not happened yet.
+
+Both runtimes name the event in the payload: Claude Code on every payload, GitHub Copilot CLI on the
+VS Code compatible spelling a PascalCase hook config selects. When that name is anything other than
+`PreToolUse`, falsestart judges nothing and says so:
+
+```
+falsestart: this hook was invoked for `PostToolUse`, and falsestart only implements `PreToolUse` — nothing was judged. A decision emitted here would name the wrong event and be ignored. Register falsestart on PreToolUse, or run `falsestart scan` for after-the-write reporting.
+```
+
+Exit `1` with that line on stderr under Claude Code; exit `0` with it on stderr under `--agent
+copilot`. It never denies in either `--fail` policy, and it is answered before the rules source, the
+freeze and the rule tree are touched, so it costs what a deferred call costs.
+
+**Exit 0 under Copilot is the declared contract's price list, not an inference from the payload.**
+GitHub's fail-closed rule is `preToolUse`-specific — "`preToolUse` is fail-closed: a non-zero exit
+(other than exit 2) denies the tool call", while other events are fail-open — so at a hook genuinely
+registered on `postToolUse` an exit 1 would not deny. falsestart does not price its exit codes off
+the event name in the payload anyway: the runtime, and with it the whole output contract, is
+[declared](#which-agent-is-on-the-other-end), and a normalising shim in front of a hook registered at
+`preToolUse` could send any `hook_event_name` it liked. There the deny would be real, and it would
+deny every tool call in the repository over a mistake in a hook config.
+
+**A misdeclared `--agent` outranks this notice**, because only one of the two can be read. A tool
+name is structural proof of which runtime sent the payload and `hook_event_name` is not — both
+runtimes send it — so a payload naming `Write` under `--agent copilot` is answered
+`Set --agent claude-code` on Claude Code's channel at exit 1, whatever event it names. The event
+refusal arrives on the next call, once the flag names the runtime that is answering.
+
+**`PostToolUse` is the case worth naming.** falsestart used to judge that payload as though it were a
+`PreToolUse` one and emit a document naming `PreToolUse` and carrying `permissionDecision` — a field
+`PostToolUse` does not define. [Claude Code's reference](https://code.claude.com/docs/en/hooks.md)
+gives `PostToolUse` a top-level `decision`/`reason`, or `hookSpecificOutput` with `additionalContext`
+/ `updatedToolOutput`, so the document was ignored: nothing errored, nothing warned, and the hook
+showed as registered.
+
+**It is not going to be implemented there**, and the reason is not effort. Neither runtime can block
+once the tool has run — Claude Code's exit-2 row for `PostToolUse` reads "No | Shows stderr to Claude;
+the tool already ran", and Copilot's `postToolUse` is fail-open on every non-zero exit, 2 included — so `Deny`
+and `Advise` collapse into one emission and the `severity` of every rule stops meaning anything.
+[`falsestart scan`](#falsestart-scan-paths) already covers that ground: register it as your
+`PostToolUse` command if you want after-the-write reporting.
+
+**Two limits, stated.** A payload carrying no event name is judged exactly as it always was — absence
+is not a claim, and Copilot's camelCase payload carries no event field at all, so a Copilot hook
+registered as `postToolUse` cannot be detected and is judged as before. And a tool call falsestart
+would have deferred anyway (`Bash`, `view`, `grep`) stays silent at every event: the refusal fires
+where a judgement would otherwise have been emitted, not on every call in the session.
+
 ### Judged tool calls
 
-falsestart inspects the content a tool call is about to write. Three tool names carry that, and
-anything else is allowed in silence:
+falsestart inspects the content a tool call is about to write. A tool name in NEITHER table produces
+no output and exit 0, indistinguishable from a clean write, so a future write tool would be unguarded
+without any signal. Both tables are asserted against the code by a test rather than maintained here
+by hand.
+
+A tool name in the OTHER contract's table is not silent: it is reported as a misdeclared `--agent`
+(see [Which agent is on the other end](#which-agent-is-on-the-other-end)). That notice is answered
+before the rules source, the freeze and the rule tree are touched, so it costs what a deferred call
+costs and it never denies — a misdeclared payload is not a judged write in either contract, so
+`--fail closed` has no more to say about it than it does about a malformed one. Claude Code ships no
+tool called `create` or `edit`, so this needs a payload from something else speaking that envelope.
+
+`Bash` is deliberately absent from both, and so are Copilot's `bash`, `view`, `grep`, `glob`, `task`,
+`powershell`, `web_fetch` and `ask_user`. falsestart judges the text a write tool carries, so a
+heredoc or a shell redirect writes a file it never sees. That is a real hole, not an oversight:
+judging shell commands would mean predicting what they do.
+
+#### Claude Code (the default)
+
+The envelope is `tool_name` and `tool_input`.
 
 | `tool_name`    | path field      | content field |
 | -------------- | --------------- | ------------- |
@@ -294,15 +449,25 @@ anything else is allowed in silence:
 | `NotebookEdit` | `notebook_path` | `new_source`  |
 
 That is the complete set of Claude Code built-ins that carry file content — there is no `MultiEdit`.
-A tool name outside this table produces no output and exit 0, indistinguishable from a clean write,
-so a future write tool would be unguarded without any signal. The list is asserted against the code
-by a test rather than maintained here by hand.
 
-`Bash` is deliberately absent. falsestart judges the text a write tool carries, so a heredoc or a
-shell redirect writes a file it never sees. That is a real hole, not an oversight: judging shell
-commands would mean predicting what they do.
+#### GitHub Copilot CLI
+
+Under `--agent copilot`. The envelope has two documented spellings and falsestart reads both:
+`toolName`/`toolArgs` when the hook config names the event `preToolUse`, and `tool_name`/`tool_input`
+when it names it `PreToolUse`. `toolArgs` may arrive as a JSON-encoded string rather than an object.
+`cwd` is spelled `cwd` in both, so every repo-relative glob works unchanged.
+
+| tool     | path field | content field |
+| -------- | ---------- | ------------- |
+| `create` | `path`     | `content`     |
+| `edit`   | `path`     | `new_str`     |
+
+**These argument names are inferred, not documented.** See [Provisional](#provisional). `edit`'s
+`old_str` is deliberately unread: an edit is judged by the text it INTRODUCES.
 
 ### Exit codes
+
+#### Claude Code (the default)
 
 | Code                       | Meaning                                                            |
 | -------------------------- | ------------------------------------------------------------------ |
@@ -328,6 +493,45 @@ proof that some rule fired.
 
 Blocking is deliberately **not** exit 2: exit 2 does block, but the runtime discards stdout and
 reads stderr as the reason, throwing away the structured decision.
+
+#### GitHub Copilot CLI
+
+| Code                          | Meaning                                                                        |
+| ----------------------------- | ------------------------------------------------------------------------------ |
+| `2` + top-level deny document | A decision. This is how a block is expressed, and the only way to express one. |
+| `0` + stderr                  | Advice, or a problem falsestart is reporting. Decides nothing.                 |
+| `0` + no output               | No decision; the normal permission flow applies.                               |
+
+**There is no `1` row for a judged tool call, and that is forced rather than chosen.** Copilot denies
+the tool call on every non-zero exit other than 2, as `Denied by preToolUse hook (hook errored)`. So
+an exit 1 would not mean "reported, and the write proceeds" — it would block the write with a reason
+nobody can act on, and would silently convert `--fail open` into fail-closed. Every outcome that
+exits `1` under Claude Code therefore exits `0` here, including a refused command line.
+
+**The one deliberate exception, and its hazard.** A payload naming a tool from the Claude Code
+contract while `--agent copilot` is in force is answered with Claude Code's emitter — exit `1` and a
+stderr line — because the evidence of who is really on the other end is stronger than the flag, and
+the notice is worth nothing on a channel the runtime that is actually there does not read. If the
+runtime really is Copilot, that exit 1 denies. **That is the hazard to know about**: a Copilot MCP
+server or custom tool named `Write`, `Edit` or `NotebookEdit` would be denied as "hook errored", and
+the remedy the message prints would be the wrong one. It fails closed, which is the safe direction
+for a guard, but it is not silent and it is not `--fail open`. Report it if you hit it — the tool
+table is the thing that would need widening.
+
+`--doctor` is not on the hook path at all: it reads no stdin, is run by a person in a terminal, and
+still exits `1` when the installation is unhealthy. Nor is `--list-rules`, which keeps its own codes:
+`0` with the document, `2` when it could not be produced, `1` when the command line was refused.
+
+The deny document's keys are **top-level** — `permissionDecision` and `permissionDecisionReason` —
+not nested under `hookSpecificOutput`, which Copilot ignores
+([copilot-cli#2013](https://github.com/github/copilot-cli/issues/2013)). The reason is written to
+stderr as well.
+
+**Residual, stated:** a defect that escapes falsestart's own error handling still exits 1 through the
+Node runtime, which under Copilot denies rather than passes. That is the safe direction for a guard —
+it fails closed — but it is not the `--fail open` contract, so it is named here rather than left
+implicit. The two known reachable cases are handled: a refused command line exits 0, and a reader
+that closes the pipe is forgiven.
 
 ## Rule document
 
@@ -466,6 +670,8 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | --------------------------- | ----------- | -------- |
 | `ConfigError`               | error class | config   |
 | `DEFAULT_CONFIG_CANDIDATES` | constant    | config   |
+| `AGENTS`                    | constant    | hook     |
+| `AGENT_CONTRACTS`           | constant    | hook     |
 | `FAILURE_POLICIES`          | constant    | hook     |
 | `MatchError`                | error class | checking |
 | `RuleDescriptionSchema`     | constant    | checking |
@@ -536,7 +742,7 @@ missing entry is silent — so the list it must agree with is importable rather 
 
 Types are exported alongside these: `Rule`, `Finding`, `Violation`, `Decision`, `DecideOptions`,
 `Diagnosis`, `DiagnoseOptions`, `Config`, `FalsestartConfig`, `ScopeOverride`, `NarrowedScope`,
-`FailurePolicy`, `HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
+`AgentId`, `AgentContract`, `Envelope`, `FailurePolicy`, `HookResponse`, `RespondOptions`, `ScanOptions`, `ScanReport`, `ScannedFile`, `ScanOutcome`, `Exclusion`, `ExclusionReason`,
 `Partitioned`, `PartitionOptions`, `ParsedSource`, `GrammarFallback`,
 `ScanError`, `ScanExit`, `DEFAULT_EXCLUSIONS` and `BaselineUnreadable` are exported alongside them.
 `Language`, `Severity`, `RuleConstraint`, `FileScope`, `FileUnderCheck`, `ShippedRuleId`,

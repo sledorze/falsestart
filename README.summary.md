@@ -1,8 +1,8 @@
 # falsestart — summary
 
-Blocks risky code patterns the instant an AI writes them, as a Claude Code `PreToolUse` hook: the
-tool call arrives on stdin, falsestart answers with a decision, and code breaking a rule never
-reaches the file.
+Blocks risky code patterns the instant an AI writes them, as a `PreToolUse` hook for Claude Code or
+— with `--agent copilot` — for GitHub Copilot CLI: the tool call arrives on stdin, falsestart answers
+with a decision, and code breaking a rule never reaches the file.
 
 Install with `pnpm add -D @sledorze/falsestart` — the whole install for the hook, whose binary
 inlines what it needs and never loads yours. The library entry point works straight after it too;
@@ -12,7 +12,8 @@ holds nothing your own `package.json` did not ask for. That is not about `effect
 
 Register it in `.claude/settings.json` (strict JSON) with an `Edit|Write|NotebookEdit` matcher and
 the CLI invoked by path — `node "$CLAUDE_PROJECT_DIR/node_modules/@sledorze/falsestart/dist/cli.js"`.
-A bare `falsestart` exits 127 while the hook still shows as registered. Choose the preset
+A bare `falsestart` exits 127 while the hook still shows as registered. Copilot registers elsewhere
+— `.github/hooks/*.json` — and needs `--agent copilot`; see `docs/using-the-hook.md`. Choose the preset
 deliberately: `clean-code` assumes no framework and reaches JavaScript as well as TypeScript, `all` includes the Effect set.
 Rules are ast-grep documents, so the same file stays readable by the upstream CLI. A rule acts on a
 file only when its own `files`/`ignores` globs admit the path — matching content is never on its own

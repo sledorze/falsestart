@@ -29,7 +29,7 @@
  * not stop the write, because advice that blocks is indistinguishable from an error. Dropping it
  * entirely would be worse — a `warning` rule would then do nothing whatsoever.
  */
-import { Effect } from 'effect'
+import { Effect, Schema } from 'effect'
 import type { Finding, Rule } from '../checking/index.ts'
 import { appliesTo, checkFile, toScopingPath } from '../checking/index.ts'
 
@@ -43,6 +43,7 @@ export type Decision =
 const defer = (): Decision => ({ _tag: 'Defer' })
 
 export interface DecideOptions {
+  readonly agent?: AgentId | undefined
   /**
    * Say so when a judged write lands on a path no rule is scoped to.
    *
@@ -88,6 +89,146 @@ export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; re
 }
 
 /**
+ * The one hook event falsestart implements, and the key both runtimes name the event in.
+ *
+ * `hook_event_name` is documented by Claude Code on every payload, and by Copilot on the VS Code
+ * compatible spelling its PascalCase hook config selects — so ONE key covers both, and reading it
+ * is not sniffing the agent for the reason `AGENTS` gives: it says which event arrived, never how
+ * the runtime will read the answer. Copilot's camelCase spelling carries no event field at all,
+ * which is why absence can never be a refusal (see `judgedTarget`).
+ *
+ * `IMPLEMENTED_EVENT` is also what `respond` writes into Claude Code's deny document, so the event
+ * falsestart claims to implement and the event it names in its answer cannot drift apart — the
+ * hardcoded literal there was half of #63.
+ */
+export const EVENT_KEY = 'hook_event_name'
+export const IMPLEMENTED_EVENT = 'PreToolUse'
+
+/**
+ * The agent runtimes falsestart speaks to. DECLARED on the command line, never sniffed.
+ *
+ * A payload tells you the shape that came in and says nothing whatsoever about how the runtime will
+ * read the answer — and the answer is the half where a wrong guess turns a deny into an allow.
+ * Copilot expresses a deny as exit 2; Claude Code as exit 0 with a document on stdout. Inferring
+ * that from "the payload said `toolName`" would let any normalising shim in front of falsestart
+ * decide which contract falsestart emits.
+ */
+export const AGENTS = ['claude-code', 'copilot'] as const
+export type AgentId = (typeof AGENTS)[number]
+
+/** One documented spelling of a runtime's payload envelope. */
+export interface Envelope {
+  /** The key carrying the tool's arguments. */
+  readonly input: string
+  /** The key naming the tool. */
+  readonly name: string
+}
+
+export interface AgentContract {
+  /**
+   * Every documented spelling of this runtime's envelope, tried in order.
+   *
+   * Copilot has two, and which one arrives is chosen by the hook AUTHOR: a camelCase event name in
+   * the hook config yields camelCase fields, a PascalCase one yields snake_case "to match the VS
+   * Code Copilot extension format". Reading both is not sniffing the AGENT — the agent, and with it
+   * the whole output contract, is declared. Only the spelling of one envelope is read, and the
+   * runtime that sent it documents both as its own.
+   *
+   * Non-empty by type, because the FIRST one is what a payload carrying none of them is told to
+   * carry — a contract with no envelope could not say anything useful there.
+   */
+  readonly envelopes: readonly [Envelope, ...(readonly Envelope[])]
+  /**
+   * Whether this runtime may deliver its tool arguments as a JSON-ENCODED STRING rather than an
+   * object. Copilot does (github/copilot-cli#3349). Claude Code does not, and must not be given the
+   * benefit of the doubt: a `tool_input` that is a string is genuinely malformed there, and
+   * reinterpreting it would accept a shape the contract does not have.
+   */
+  readonly encodedInput: boolean
+  readonly id: AgentId
+  /**
+   * Prefixed onto every problem this contract reports. EMPTY for `claude-code`, so the default
+   * path's diagnostics stay byte-identical; `copilot: ` elsewhere, because
+   * `edit carried no new_str/path` is otherwise ambiguous between "Copilot renamed a field" and
+   * "you set --agent wrong", which have opposite remedies. A field rather than a conditional, so
+   * there is no branch to cover.
+   */
+  readonly problemPrefix: string
+  /** Whether this contract's tool argument names are inferred rather than documented. */
+  readonly provisionalTools: boolean
+  /**
+   * The tool `--doctor`'s sample is written as, with its field names carried DIRECTLY rather than
+   * looked up in `tools`. A lookup would need a `?? …` arm no input can reach, and an unreachable
+   * arm breaks the 100% branch threshold. A test asserts the two agree, so this cannot drift.
+   */
+  readonly sample: { readonly content: string; readonly path: string; readonly tool: string }
+  readonly tools: Readonly<Record<string, { readonly content: string; readonly path: string }>>
+}
+
+// `satisfies` rather than a type annotation, for the reason `EMPTY_CONFIG` gives in
+// `src/config/config.ts`: an annotated literal asserts a shape nothing checked.
+export const CLAUDE_CODE_CONTRACT = {
+  encodedInput: false,
+  envelopes: [{ input: 'tool_input', name: 'tool_name' }],
+  id: 'claude-code',
+  problemPrefix: '',
+  provisionalTools: false,
+  sample: { content: 'content', path: 'file_path', tool: 'Write' },
+  tools: WRITE_TOOLS,
+} satisfies AgentContract
+
+/**
+ * GitHub Copilot CLI. `view`, `bash`, `grep`, `glob`, `task`, `powershell`, `web_fetch` and
+ * `ask_user` introduce no source text and are absent for the reason `Bash` is.
+ *
+ * NEITHER tool's argument names are documented by GitHub — `docs/reference.md` and `--doctor` both
+ * say so to the reader. `edit`'s `path` is corroborated by copilot-cli#3349; `new_str` and `content`
+ * are inferences. If one is wrong that tool is unjudged: reported where the report is readable,
+ * silent where it is not, and caught by `falsestart scan` either way. `edit`'s `old_str` is
+ * deliberately unread — an edit is judged by the text it INTRODUCES.
+ */
+export const COPILOT_CONTRACT = {
+  encodedInput: true,
+  envelopes: [
+    { input: 'toolArgs', name: 'toolName' },
+    { input: 'tool_input', name: 'tool_name' },
+  ],
+  id: 'copilot',
+  problemPrefix: 'copilot: ',
+  provisionalTools: true,
+  sample: { content: 'content', path: 'path', tool: 'create' },
+  tools: {
+    create: { content: 'content', path: 'path' },
+    edit: { content: 'new_str', path: 'path' },
+  },
+} satisfies AgentContract
+
+/** Exported for the reason `WRITE_TOOLS` is: so `docs/reference.md` can be checked against it. */
+export const AGENT_CONTRACTS: Readonly<Record<AgentId, AgentContract>> = {
+  'claude-code': CLAUDE_CODE_CONTRACT,
+  copilot: COPILOT_CONTRACT,
+}
+
+/** The default lives HERE and nowhere else, for the reason `respond.ts` defaults `--fail` once. */
+export const contractFor = (agent: AgentId | undefined): AgentContract => AGENT_CONTRACTS[agent ?? 'claude-code']
+
+/**
+ * Every tool name that belongs to some OTHER contract, precomputed once.
+ *
+ * Membership here is what turns "a tool falsestart has no opinion about" into "the flag names the
+ * wrong runtime": `Write` cannot come from Copilot, whose tool table is documented and closed, and
+ * `create` cannot come from Claude Code. A structural discriminator — membership in a declared
+ * table — rather than a guess about what the name looks like.
+ */
+const toolsElsewhere = (id: AgentId): ReadonlySet<string> =>
+  new Set(AGENTS.filter((other) => other !== id).flatMap((other) => Object.keys(AGENT_CONTRACTS[other].tools)))
+
+const OTHER_TOOLS: Readonly<Record<AgentId, ReadonlySet<string>>> = {
+  'claude-code': toolsElsewhere('claude-code'),
+  copilot: toolsElsewhere('copilot'),
+}
+
+/**
  * The payload is validated by hand rather than with `Schema`, unlike rule documents.
  *
  * The shapes differ in what a good error has to say. A rule document is authored by a person who
@@ -95,10 +236,41 @@ export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; re
  * payload is machine-generated, and the useful message names the TOOL and the field that tool was
  * expected to carry (`NotebookEdit carried no new_source/notebook_path`) — per-tool knowledge that
  * lives here, not in a schema. Validating against a union of tool shapes would report a union
- * mismatch, which is strictly less informative.
+ * mismatch, and it would now span two agents, two envelope spellings and two-or-three tools, where
+ * the useful message is `copilot: create carried no content/path to judge (toolArgs carried:
+ * file_text, path)`.
  */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The first documented spelling this payload actually uses, if any. */
+const spokenEnvelope = (
+  payload: Record<string, unknown>,
+  contract: AgentContract,
+): { readonly envelope: Envelope; readonly tool: string } | undefined => {
+  for (const envelope of contract.envelopes) {
+    const tool = payload[envelope.name]
+    if (typeof tool === 'string') {
+      return { envelope, tool }
+    }
+  }
+  return undefined
+}
+
+/**
+ * The contract a payload's tool name really belongs to, when it is not the declared one's.
+ *
+ * `undefined` covers three different things on purpose — no tool name in a spelling this contract
+ * reads, a tool this contract owns, and a tool nobody owns — because every caller asks the same
+ * question of it: is there structural evidence that ANOTHER runtime sent this payload. Membership
+ * in a declared, closed table is that evidence; the shape of the name is not.
+ */
+const foreignTool = (payload: Record<string, unknown>, contract: AgentContract): AgentId | undefined => {
+  const spoken = spokenEnvelope(payload, contract)
+  return spoken === undefined || spoken.tool in contract.tools
+    ? undefined
+    : AGENTS.find((id) => id !== contract.id && spoken.tool in AGENT_CONTRACTS[id].tools)
+}
 
 /**
  * Whether this payload is even a candidate for judgement.
@@ -109,10 +281,25 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * tree from raising errors on tool calls it was never going to have an opinion about.
  *
  * A malformed payload counts as a candidate: deciding it is a problem is `decide`'s job, and
- * skipping it here would silently swallow exactly the case worth reporting.
+ * skipping it here would silently swallow exactly the case worth reporting. So does a tool name
+ * belonging to a DIFFERENT contract than the one declared: that is not a tool falsestart has no
+ * opinion about, it is proof the flag is wrong, and deferring it here would make a misdeclared
+ * `--agent` silently unguarded — which is the failure mode the flag exists to avoid.
+ *
+ * It never touches the INPUT key, so a Copilot `bash` call costs the same handful of operations a
+ * `Bash` call does today, in either spelling, and the JSON-string decode never runs on the hot path.
+ *
+ * The second parameter is optional because this is a published export whose arity predates the
+ * agent contract; absent means `claude-code`.
  */
-export const judgesPayload = (payload: unknown): boolean =>
-  !isRecord(payload) || typeof payload['tool_name'] !== 'string' || payload['tool_name'] in WRITE_TOOLS
+export const judgesPayload = (payload: unknown, agent?: AgentId): boolean => {
+  if (!isRecord(payload)) {
+    return true
+  }
+  const contract = contractFor(agent)
+  const spoken = spokenEnvelope(payload, contract)
+  return spoken === undefined || spoken.tool in contract.tools || OTHER_TOOLS[contract.id].has(spoken.tool)
+}
 
 const describe = (finding: Finding): string =>
   `${finding.ruleId} (${finding.line}:${finding.column}): ${finding.message}`
@@ -130,6 +317,18 @@ export type JudgedTarget =
   /** Not a tool that writes source. Nothing this tool knows how to judge. */
   | { readonly _tag: 'Deferred' }
   | { readonly _tag: 'Malformed'; readonly problem: string }
+  /**
+   * The payload names a tool from a contract other than the one declared, which is proof the flag
+   * is wrong rather than a tool falsestart has no opinion about. `runtime` is the contract the name
+   * really belongs to, so the notice can be emitted on the channel that runtime reads — a message
+   * about a misdeclared `--agent` is useless on the channel of the agent that is not there.
+   */
+  | { readonly _tag: 'Misdeclared'; readonly problem: string; readonly runtime: AgentId }
+  /**
+   * The payload names a hook event falsestart does not implement, so there is nothing here to
+   * judge — see `judgedTarget`, which is where the argument for refusing rather than judging is.
+   */
+  | { readonly _tag: 'Unsupported'; readonly problem: string }
   | {
       readonly _tag: 'Write'
       readonly content: string
@@ -138,30 +337,137 @@ export type JudgedTarget =
       readonly path: string
     }
 
-export const judgedTarget = (payload: unknown): JudgedTarget => {
+/**
+ * A JSON-encoded argument object, kept in a result rather than thrown.
+ *
+ * `Schema.UnknownFromJsonString` rather than `JSON.parse` for the reason `no-json-global` gives, and
+ * because a guard that throws inside a hook is a guard whose behaviour the agent runtime decides.
+ */
+const decodeArguments = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)
+
+/**
+ * The contract is REQUIRED, not defaulted.
+ *
+ * A default here reads as harmless and is not: it makes every call site that forgets to pass one
+ * judge a Copilot payload against Claude Code's table, which resolves to `Malformed` — and
+ * `respond` routes `Malformed` to a report rather than to `--fail closed`, so a rule that could not
+ * run would stop denying under `--agent copilot`. It would also be an arm no input can reach once
+ * both call sites pass a contract, which the 100% branch threshold rejects.
+ */
+export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedTarget => {
   if (!isRecord(payload)) {
-    return { _tag: 'Malformed', problem: 'hook payload was not an object' }
+    return { _tag: 'Malformed', problem: `${contract.problemPrefix}hook payload was not an object` }
   }
 
-  const toolName = payload['tool_name']
-  if (typeof toolName !== 'string') {
-    return { _tag: 'Malformed', problem: 'hook payload carried no tool_name' }
+  // Read FIRST, ahead of the envelope, because most of the events falsestart does not implement
+  // carry no tool call whatsoever — `SessionStart`, `Stop` and `UserPromptSubmit` have no
+  // `tool_name` to find. Answering those `hook payload carried no tool_name` names neither the
+  // cause nor the remedy; it is the dead end #50 opened with, one event further along.
+  //
+  // A string that is not `PreToolUse` is the only refusal. ABSENCE is not: Copilot's camelCase
+  // payload carries no event field, plenty of library callers construct a payload without one, and
+  // most of this repo's own fixtures omit it — a refusal there would be a guard that stopped
+  // guarding on a payload it used to judge. Neither is a non-string value, which is not a claim
+  // about an event at all.
+  //
+  // What this does NOT do is implement the event. #51's design pass is the argument: after the
+  // write neither runtime can block, so `Deny` and `Advise` collapse into one emission and the
+  // `severity` dimension of every rule stops meaning anything. `falsestart scan` already covers
+  // that ground, so the message names it rather than pretending there is a judgement to make here.
+  //
+  // A misdeclared `--agent` outranks it, and that is a CHANNEL argument rather than a priority
+  // call. A tool name is structural proof of which runtime sent this; `hook_event_name` is not,
+  // because both runtimes send it. Where the payload carries that proof, the misdeclaration is the
+  // only answer that can be emitted where the runtime really there will read it — measured:
+  // `--agent copilot` in front of a Claude Code payload at `PostToolUse` says `Set --agent
+  // claude-code` at exit 1, which Claude Code shows in the transcript, where the event refusal
+  // would go out at exit 0 on Copilot's channel and reach the debug log and nothing else. The
+  // event refusal arrives on the next call, once the flag names the runtime that is answering.
+  const event = payload[EVENT_KEY]
+  if (typeof event === 'string' && event !== IMPLEMENTED_EVENT && foreignTool(payload, contract) === undefined) {
+    return {
+      _tag: 'Unsupported',
+      problem:
+        `${contract.problemPrefix}this hook was invoked for \`${event}\`, and falsestart only implements ` +
+        `\`${IMPLEMENTED_EVENT}\` — nothing was judged. A decision emitted here would name the wrong event and ` +
+        'be ignored. Register falsestart on PreToolUse, or run `falsestart scan` for after-the-write reporting.',
+    }
   }
 
-  const fields = WRITE_TOOLS[toolName]
+  const spoken = spokenEnvelope(payload, contract)
+  if (spoken === undefined) {
+    // A payload speaking ANOTHER contract's envelope cannot be a misdeclaration — there is no tool
+    // name in a spelling this contract reads, so there is nothing to look up — but the envelope
+    // itself is evidence, and it is the only evidence available in this direction. Without this
+    // clause the answer is `hook payload carried no tool_name`, which is the exact line issue #50
+    // opens with and which names neither the cause nor the remedy.
+    const elsewhere = AGENTS.find(
+      (id) => id !== contract.id && spokenEnvelope(payload, AGENT_CONTRACTS[id]) !== undefined,
+    )
+    const hint =
+      elsewhere === undefined
+        ? ''
+        : ` (it carried ${spokenEnvelope(payload, AGENT_CONTRACTS[elsewhere])?.envelope.name}, ` +
+          `which belongs to the ${elsewhere} contract — did you mean --agent ${elsewhere}?)`
+    return {
+      _tag: 'Malformed',
+      problem: `${contract.problemPrefix}hook payload carried no ${contract.envelopes[0].name}${hint}`,
+    }
+  }
+
+  const fields = contract.tools[spoken.tool]
   if (fields === undefined) {
-    return { _tag: 'Deferred' }
+    // The same question the event check asked, asked once more rather than threaded through as a
+    // parameter: the answer is two property reads and a two-element `find`, and a parameter would
+    // make the two clauses able to disagree about what counts as evidence.
+    const elsewhere = foreignTool(payload, contract)
+    return elsewhere === undefined
+      ? { _tag: 'Deferred' }
+      : {
+          _tag: 'Misdeclared',
+          problem:
+            `this payload names the tool \`${spoken.tool}\`, which belongs to the ${elsewhere} ` +
+            `contract, but --agent ${contract.id} was given. Set --agent ${elsewhere}, or remove the flag.`,
+          runtime: elsewhere,
+        }
   }
 
-  const toolInput = payload['tool_input']
-  if (!isRecord(toolInput)) {
-    return { _tag: 'Malformed', problem: `${toolName} carried no tool_input` }
+  const raw = payload[spoken.envelope.input]
+  // Guarded on `typeof raw === 'string'`, so an ABSENT key keeps its own message rather than being
+  // reported as a string that would not parse — which is both untrue and a change to what the
+  // default path has always said.
+  let input: unknown = raw
+  if (contract.encodedInput && typeof raw === 'string') {
+    const decoded = decodeArguments(raw)
+    if (decoded._tag === 'Failure') {
+      return {
+        _tag: 'Malformed',
+        problem: `${contract.problemPrefix}${spoken.tool} carried ${spoken.envelope.input} as a string that is not JSON`,
+      }
+    }
+    input = decoded.success
   }
 
-  const content = toolInput[fields.content]
-  const path = toolInput[fields.path]
+  if (!isRecord(input)) {
+    return {
+      _tag: 'Malformed',
+      problem: `${contract.problemPrefix}${spoken.tool} carried no ${spoken.envelope.input}`,
+    }
+  }
+
+  const content = input[fields.content]
+  const path = input[fields.path]
   if (typeof content !== 'string' || typeof path !== 'string') {
-    return { _tag: 'Malformed', problem: `${toolName} carried no ${fields.content}/${fields.path} to judge` }
+    // The keys that DID arrive are named, because neither Copilot tool's argument names are
+    // documented by GitHub. Without them a wrong inference reads as a mysterious silence; with
+    // them it is one line of a diagnostic and a one-literal fix.
+    const carried = Object.keys(input).toSorted()
+    return {
+      _tag: 'Malformed',
+      problem:
+        `${contract.problemPrefix}${spoken.tool} carried no ${fields.content}/${fields.path} to judge ` +
+        `(${spoken.envelope.input} carried${carried.length === 0 ? ' nothing' : `: ${carried.join(', ')}`})`,
+    }
   }
 
   const cwd = payload['cwd']
@@ -180,8 +486,13 @@ export const decide = (
   options: DecideOptions = {},
 ): Effect.Effect<Decision> =>
   Effect.gen(function* () {
-    const target = judgedTarget(payload)
-    if (target._tag === 'Malformed') {
+    const target = judgedTarget(payload, contractFor(options.agent))
+    // A misdeclared flag reports for the reason a malformed payload does: it is a fact about the
+    // invocation rather than about the code, so an agent told "denied" would rewrite something
+    // nothing ever judged. A foreign hook event is a third fact of the same kind — about the
+    // REGISTRATION — and reusing `Report` rather than growing a fifth outcome is what keeps
+    // `respond` the only place that prices it, and `--doctor` free of a tag to un-pick.
+    if (target._tag === 'Malformed' || target._tag === 'Misdeclared' || target._tag === 'Unsupported') {
       return { _tag: 'Report', problem: target.problem } as const
     }
     if (target._tag === 'Deferred') {

@@ -2,6 +2,7 @@ import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { Rule } from '../checking/rule.ts'
 import { parseRule } from '../checking/rule.ts'
+import type { Decision } from './decide.ts'
 import { decide, judgesPayload } from './decide.ts'
 
 const rulesOf = (...sources: readonly string[]) => Effect.all(sources.map((source) => parseRule(source, 'test.yml')))
@@ -365,4 +366,424 @@ describe('notebook writes', () => {
       expect(judgesPayload({ tool_name: 'NotebookEdit' })).toBeTruthy()
     })
   })
+})
+
+/**
+ * GitHub Copilot CLI, whose payload is a second wire contract rather than a variant of the first.
+ *
+ * The agent is DECLARED, never sniffed: a payload says what shape came in and nothing whatsoever
+ * about how the runtime will read the answer, and that second half is where a wrong guess turns a
+ * deny into an allow. What IS read from the payload is which of the two spellings GitHub documents
+ * for its OWN envelope arrived — a choice the hook author makes in the hook config file, by the
+ * casing of the event name, and one that can change without the agent changing.
+ */
+describe('the Copilot payload contract', () => {
+  // T-A1 — triage recognises both Copilot spellings, defers Copilot's non-write traffic, and claims
+  // a misdeclaration so `decide` can report it rather than deferring in silence.
+  it('claims a Copilot write in either spelling and lets its other traffic past', () => {
+    expect(judgesPayload({ toolName: 'bash' }, 'copilot')).toBeFalsy()
+    // The hot path in the VS Code compatible spelling. Without the second envelope declared this is
+    // `true`, and `respond` then loads the whole rule tree and spawns the freeze's four git
+    // processes for a `bash` call — on every single tool call in the session.
+    expect(judgesPayload({ tool_name: 'bash' }, 'copilot')).toBeFalsy()
+    expect(judgesPayload({ toolName: 'edit' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ tool_name: 'edit' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ toolName: 'create' }, 'copilot')).toBeTruthy()
+    // A tool from ANOTHER contract is claimed rather than deferred, which is what lets `decide`
+    // report that the flag names the wrong runtime. Deferring here is silence, and silence is the
+    // one answer a guard must never give to a payload it cannot judge.
+    expect(judgesPayload({ tool_name: 'Write' }, 'copilot')).toBeTruthy()
+    expect(judgesPayload({ toolName: 'edit' })).toBeTruthy()
+    expect(judgesPayload({ tool_name: 'Bash' })).toBeFalsy()
+  })
+
+  const problemOf = (decision: Decision): string => (decision._tag === 'Report' ? decision.problem : '')
+
+  // T-A2
+  effect('judges a Copilot edit by the text it would introduce, in the camelCase envelope', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: {
+            new_str: 'const x = value as any',
+            old_str: 'const x = value',
+            path: '/repo/src/widget.ts',
+          },
+          toolName: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A2b — the same write in the VS Code compatible envelope, which a repo migrating a
+  // `.claude/settings.json` registration gets by naming the event `PreToolUse`.
+  effect('judges the same edit in the VS Code compatible envelope', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          tool_input: {
+            new_str: 'const x = value as any',
+            old_str: 'const x = value',
+            path: '/repo/src/widget.ts',
+          },
+          tool_name: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A3a — observed on a real invocation (github/copilot-cli#3349), so it is the shape to expect
+  // rather than an edge case.
+  effect('decodes toolArgs delivered as a JSON-encoded string', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: '{"new_str":"const x = value as any","old_str":"","path":"/repo/src/widget.ts"}',
+          toolName: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A3b — the negative that keeps the decode inside the contract that documents it. Claude Code
+  // never sends a string here, so reinterpreting one would accept a shape its contract does not
+  // have. Cannot be seen failing by withholding code; guarded by dropping the `encodedInput`
+  // conjunct and watching it turn into a Deny.
+  effect('never reinterprets a string tool_input under the default contract', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        tool_input: '{"content":"const x = value as any","file_path":"/repo/src/widget.ts"}',
+        tool_name: 'Write',
+      })
+
+      expect(decision._tag).toBe('Report')
+    }),
+  )
+
+  // T-A3c
+  effect('says which way toolArgs was unreadable', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const notJson = yield* decide(rules, { toolArgs: 'not json', toolName: 'edit' }, { agent: 'copilot' })
+      expect(notJson._tag).toBe('Report')
+      expect(problemOf(notJson)).toContain('as a string that is not JSON')
+
+      const notAnObject = yield* decide(rules, { toolArgs: 7, toolName: 'edit' }, { agent: 'copilot' })
+      expect(notAnObject._tag).toBe('Report')
+      expect(problemOf(notAnObject)).toContain('carried no toolArgs')
+    }),
+  )
+
+  // T-A3d — an ABSENT input key keeps its own message, which is what pins "byte-identical without
+  // the flag" for the diagnostic text and not just for the exit codes. "carried tool_input as a
+  // string that is not JSON" would be both a default-path change and untrue.
+  effect('keeps the absent-input message each contract already had', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const claudeCode = yield* decide(rules, { tool_name: 'Write' })
+      expect(problemOf(claudeCode)).toBe('Write carried no tool_input')
+
+      const copilot = yield* decide(rules, { toolName: 'edit' }, { agent: 'copilot' })
+      expect(problemOf(copilot)).toBe('copilot: edit carried no toolArgs')
+
+      // Neither spelling present at all: the first one this contract documents is the one named,
+      // because that is the one a hook author writing a fresh config will have reached for.
+      const neither = yield* decide(rules, {}, { agent: 'copilot' })
+      expect(problemOf(neither)).toBe('copilot: hook payload carried no toolName')
+    }),
+  )
+
+  // The forward gap, closed. A camelCase Copilot payload under the default contract cannot be
+  // recognised as a misdeclaration — nothing in that contract reads `toolName`, so there is no tool
+  // name to look up — but the ENVELOPE is still recognisable, and naming it turns issue #50's
+  // opening message from a dead end into the remedy. One branch on a path that was already
+  // Malformed; the message a payload speaking no known envelope gets is untouched.
+  effect('names the contract whose envelope arrived when this one carried none', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const camelCase = yield* decide(rules, { toolArgs: { path: '/repo/src/a.ts' }, toolName: 'edit' })
+      expect(problemOf(camelCase)).toBe(
+        'hook payload carried no tool_name (it carried toolName, which belongs to the copilot contract — did you mean --agent copilot?)',
+      )
+
+      // No known envelope at all keeps the message it has always had, in either contract.
+      const unknown = yield* decide(rules, { nothing: 1 })
+      expect(problemOf(unknown)).toBe('hook payload carried no tool_name')
+
+      const unknownToCopilot = yield* decide(rules, { nothing: 1 }, { agent: 'copilot' })
+      expect(problemOf(unknownToCopilot)).toBe('copilot: hook payload carried no toolName')
+    }),
+  )
+
+  // R9 — an empty argument object rendered as a dangling `carried: )`. The keys that arrived are
+  // the whole point of the clause, and "none of them" is a thing worth saying in words.
+  effect('says so in words when the arguments carried no keys at all', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), { tool_input: {}, tool_name: 'Write' })
+
+      expect(problemOf(decision)).toBe('Write carried no content/file_path to judge (tool_input carried nothing)')
+    }),
+  )
+
+  // R9 — every other Copilot diagnostic names the contract; this one did not, so a reader seeing it
+  // could not tell which contract had rejected their payload.
+  effect('prefixes the not-an-object complaint with the contract too', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const copilot = yield* decide(rules, 'nope', { agent: 'copilot' })
+      expect(problemOf(copilot)).toBe('copilot: hook payload was not an object')
+
+      const claudeCode = yield* decide(rules, 'nope')
+      expect(problemOf(claudeCode)).toBe('hook payload was not an object')
+    }),
+  )
+
+  // T-A4a
+  effect('judges a Copilot create by the content it would write', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: { content: 'const x = value as any', path: '/repo/src/widget.ts' },
+          toolName: 'create',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A4b — GitHub documents no tool ARGUMENT names anywhere, so `content` is an inference and
+  // `file_text` is the competing candidate. Naming what arrived is what makes a wrong inference
+  // diagnosable in ten seconds instead of mysterious.
+  effect('names both what it expected and what arrived when a field mapping does not match', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        {
+          cwd: '/repo',
+          toolArgs: { file_text: 'const x = value as any', path: '/repo/src/a.ts' },
+          toolName: 'create',
+        },
+        { agent: 'copilot' },
+      )
+
+      expect(problemOf(decision)).toContain('copilot: create carried no content/path to judge')
+      expect(problemOf(decision)).toContain('file_text')
+    }),
+  )
+
+  // T-A5 — nothing below `judgedTarget` learns an agent exists, and the freedom is worth pinning:
+  // `cwd` is spelled `cwd` in both Copilot formats, so every repo-relative glob keeps working.
+  effect('scopes a Copilot write by the same globs, relative to the same cwd', () =>
+    Effect.gen(function* () {
+      const scoped = yield* rulesOf(`${noAsAny}files:\n  - 'src/**/*.ts'\n`)
+      const editOf = (path: string) => ({
+        cwd: '/repo',
+        toolArgs: { new_str: 'const x = value as any', old_str: '', path },
+        toolName: 'edit',
+      })
+
+      expect((yield* decide(scoped, editOf('/repo/vendor/w.ts'), { agent: 'copilot' }))._tag).toBe('Defer')
+      expect((yield* decide(scoped, editOf('/repo/src/w.ts'), { agent: 'copilot' }))._tag).toBe('Deny')
+    }),
+  )
+
+  // T-A5b — the direction that would otherwise be silent. `--agent copilot` in front of Claude Code
+  // emits exit 0 with nothing on either stream, so without this the installation is unguarded
+  // indefinitely and looks healthy the whole time.
+  effect('reports a payload whose tool belongs to the other contract, and says which flag to set', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const claudeCodePayload = yield* decide(
+        rules,
+        { tool_input: { content: 'const x = 1', file_path: '/repo/src/a.ts' }, tool_name: 'Write' },
+        { agent: 'copilot' },
+      )
+      expect(claudeCodePayload._tag).toBe('Report')
+      expect(problemOf(claudeCodePayload)).toContain('`Write`')
+      expect(problemOf(claudeCodePayload)).toContain('claude-code contract')
+      expect(problemOf(claudeCodePayload)).toContain('--agent claude-code')
+
+      // The mirror is only reachable in the spelling the two contracts SHARE. Nothing in the
+      // claude-code contract reads `toolName`, so a camelCase Copilot payload arriving here is
+      // answered `hook payload carried no tool_name` — issue #50's opening line, and the loud
+      // direction. Widening the default contract to read `toolName` would be a change to the
+      // default path in order to improve a message, which is the wrong trade.
+      const copilotPayload = yield* decide(rules, {
+        tool_input: { new_str: 'const x = 1', old_str: '', path: '/repo/src/a.ts' },
+        tool_name: 'edit',
+      })
+      expect(copilotPayload._tag).toBe('Report')
+      expect(problemOf(copilotPayload)).toContain('`edit`')
+      expect(problemOf(copilotPayload)).toContain('--agent copilot')
+    }),
+  )
+})
+
+/**
+ * The one event falsestart implements, and what it says when it was registered at another one.
+ *
+ * #63. Both runtimes name the event in the payload — Claude Code always, Copilot in its VS Code
+ * compatible spelling — so falsestart can read which event it was invoked for instead of assuming.
+ * Registered at `PostToolUse` it used to judge the payload normally and emit a document naming
+ * `PreToolUse` and carrying `permissionDecision`, a field `PostToolUse` does not define. That
+ * document is ignored: nothing errors, nothing warns, and the hook shows as registered.
+ *
+ * What is asserted here is a REFUSAL, not a judgement. PostToolUse is deliberately not implemented
+ * (#51): after the write neither runtime can block, so `Deny` and `Advise` collapse and `severity`
+ * stops meaning anything — `falsestart scan` is the tool for that ground, and the message says so.
+ */
+describe('the event falsestart implements', () => {
+  const problemOf = (decision: Decision): string => (decision._tag === 'Report' ? decision.problem : '')
+
+  /** Four events a repository might plausibly register a guard on. None of them is this one. */
+  const ELSEWHERE = [
+    { event: 'PostToolUse' },
+    { event: 'SessionStart' },
+    { event: 'Stop' },
+    { event: 'UserPromptSubmit' },
+  ]
+
+  describe.each(ELSEWHERE)('invoked for $event', ({ event }) => {
+    effect('reports the event it was given rather than judging the write', () =>
+      Effect.gen(function* () {
+        // The same payload that is denied at PreToolUse, which is what makes this measure the
+        // event and not the content: without the fix every row here is a `Deny`.
+        const decision = yield* decide(yield* rulesOf(noAsAny), {
+          ...writePayload('const x = value as any'),
+          hook_event_name: event,
+        })
+
+        expect(decision._tag).toBe('Report')
+        expect(problemOf(decision)).toContain(`\`${event}\``)
+        expect(problemOf(decision)).toContain('PreToolUse')
+        // The remedy for the ground PostToolUse would have covered, named where it is read.
+        expect(problemOf(decision)).toContain('falsestart scan')
+      }),
+    )
+  })
+
+  // The negative that keeps every row above honest. `hook_event_name` is absent from most payloads
+  // in this suite and from every library caller that predates it, so absence must not become a
+  // refusal — a guard that reports instead of denying is a guard that stopped guarding.
+  effect('judges a payload that names no event at all exactly as it always has', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), writePayload('const x = value as any'))
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // The other negative: the event falsestart DOES implement, named explicitly, is not a refusal.
+  effect('judges a payload that names PreToolUse exactly as it always has', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 'PreToolUse',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // A payload whose event name is not a string is not a claim about an event. Guards the same
+  // conjunct from the other side: `event !== 'PreToolUse'` alone would refuse this, and refuse
+  // every payload that carries no event at all.
+  effect('does not read a non-string event name as an event', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 7,
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  // Why the event is read BEFORE the envelope: most of the events falsestart does not implement
+  // carry no tool call whatsoever. Answering this with `hook payload carried no tool_name` names
+  // neither the cause nor the remedy — it is the dead end issue #50 opened with.
+  effect('names the event on a payload that carries no tool call at all', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(yield* rulesOf(noAsAny), {
+        cwd: '/repo',
+        hook_event_name: 'SessionStart',
+        session_id: 'abc',
+      })
+
+      expect(problemOf(decision)).toContain('`SessionStart`')
+      expect(problemOf(decision)).not.toContain('carried no tool_name')
+    }),
+  )
+
+  // Both mistakes at once, and the one case where the event refusal must NOT win. A tool name is
+  // structural proof of who is really on the other end; `hook_event_name` is not, because both
+  // runtimes send it. Measured against the binary before the event check existed, `--agent copilot`
+  // in front of this payload said `Set --agent claude-code` at exit 1, which Claude Code shows in
+  // the transcript. Answering it with the event refusal instead emits at exit 0 on Copilot's
+  // channel — stderr Claude Code writes to the debug log and nothing else — so a diagnostic that
+  // was visible becomes silence. The misdeclaration wins, and the event refusal follows once the
+  // flag is right.
+  effect('lets a misdeclared agent win, because only that answer can reach the runtime', () =>
+    Effect.gen(function* () {
+      const decision = yield* decide(
+        yield* rulesOf(noAsAny),
+        { ...writePayload('const x = value as any'), hook_event_name: 'PostToolUse' },
+        { agent: 'copilot' },
+      )
+
+      expect(problemOf(decision)).toContain('--agent claude-code')
+      expect(problemOf(decision)).not.toContain('this hook was invoked for')
+    }),
+  )
+
+  // Every problem a contract reports names that contract, so a reader can tell which one rejected
+  // their payload. Copilot carries `hook_event_name` in the spelling a PascalCase hook config
+  // selects, so this refusal is reachable there and not only under the default.
+  effect('names the contract that refused, under either agent', () =>
+    Effect.gen(function* () {
+      const rules = yield* rulesOf(noAsAny)
+
+      const copilot = yield* decide(
+        rules,
+        {
+          hook_event_name: 'PostToolUse',
+          tool_input: { new_str: 'const x = value as any', old_str: '', path: '/repo/src/widget.ts' },
+          tool_name: 'edit',
+        },
+        { agent: 'copilot' },
+      )
+      expect(problemOf(copilot)).toContain('copilot: this hook was invoked for `PostToolUse`')
+
+      const claudeCode = yield* decide(rules, {
+        ...writePayload('const x = value as any'),
+        hook_event_name: 'PostToolUse',
+      })
+      expect(problemOf(claudeCode)).toContain('this hook was invoked for `PostToolUse`')
+      expect(problemOf(claudeCode)).not.toContain('copilot')
+    }),
+  )
 })
