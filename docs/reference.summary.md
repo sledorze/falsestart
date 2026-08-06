@@ -39,7 +39,12 @@ fact about the repository, and neither is fixable from inside it; a guard failur
 denies whatever payload arrives, naming that failure and not the payload, as the freeze already
 does — it applies to a judged write only, and it is
 a policy about failures rather than a claim that any rule covers what you write. `--fail open` does
-not re-open a freeze refusal. Command line only, for the reason `--freeze` is: one of the failures it
+not re-open a freeze refusal, and with both switches in play the way out is two steps, each denial
+printing the next: the freeze names `--freeze off`, and the working tree's copy of the same broken
+document then denies for the guard and names `--fail open`. Every governed failure is answered AFTER
+the payload is read, which is what keeps a non-judged tool call silent and is why
+`falsestart --rules pkg:<missing>` run by hand now waits for a payload instead of exiting — a hook
+runner closes stdin, and `--doctor` is the way to check a setup by hand. Command line only, for the reason `--freeze` is: one of the failures it
 denies on is a config that will not load. Refused with `scan` and `--list-rules`, which already exit
 2 when they cannot run. The denial says the guard failed before it says anything else, never names a
 rule, and warns that repairing the broken rule document needs `--fail open` too — every judged write

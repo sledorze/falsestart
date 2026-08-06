@@ -64,7 +64,11 @@ hook payload, a refused command line and any tool call falsestart does not judge
 were, and a freeze refusal denies either way. The trap to know first is that a load-time failure is
 answered before anything is judged, so while `--fail closed` is on and the rule tree is broken every
 judged write denies, including the edit that would repair it — the denial says so and names
-`--fail open`. `--doctor --fail closed` prints a `policy` line proving it is on, before anything is
+`--fail open`. Where the broken tree is COMMITTED, the way out is two steps and each denial names the
+next: the freeze prints `--freeze off`, and the working tree's copy of the same document then denies
+for the guard and prints `--fail open`. Running `falsestart --rules pkg:<missing>` by hand now waits
+for a payload rather than exiting, since the answer comes after the payload is read; `--doctor` is
+the way to check a setup by hand. `--doctor --fail closed` prints a `policy` line proving it is on, before anything is
 resolved.
 
 A rule declaring `warning`, `info` or `hint` is shown to the author as

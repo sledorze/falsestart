@@ -234,6 +234,11 @@ denied — including the edit that would fix the rule document. The denial says 
 is to re-run the hook with `--fail open`. `--freeze off` does not help here; it chooses which bytes
 are authoritative, not what a broken guard costs.
 
+If the broken rule tree is also a **committed** one, getting out is two steps and each denial names
+the next: the freeze denies first and prints `--freeze off`, and re-running with that reads the same
+broken document from the working tree, which then denies for the guard and prints `--fail open`.
+Expect the second denial; it is the switches answering different questions, not a loop.
+
 `falsestart --doctor --fail closed` proves it is on, in a line printed before anything is resolved so
 it is still there when nothing resolved:
 
@@ -263,6 +268,12 @@ existing setup loads — the worst failure available to a tool whose job is enfo
 A package that will not resolve is reported and does not block, like every other misconfiguration:
 a missing dependency must not stop every write in the repo — unless `--fail closed` is set, which
 denies a **judged write** on it. A tool call falsestart does not judge stays silent either way.
+
+Keeping that silence means the answer waits until the payload has been read, so running
+`falsestart --rules pkg:<missing>` by hand in a terminal now blocks on a payload that is never
+coming — it used to print the error and exit. Nothing changes inside a hook, where the runner closes
+stdin. To check the setup by hand, run `falsestart --doctor`, which reads no stdin and ends with
+`rules COULD NOT RESOLVE`.
 
 ## Catching what bypasses the hook
 

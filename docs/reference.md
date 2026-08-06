@@ -144,6 +144,13 @@ an edit that cannot be verified must not land.
 could not be read denies in either policy — that denial is about which bytes are authoritative, not
 about the guard erroring, and its reason names `--freeze off` rather than `--fail open`.
 
+With both switches in play the way out is two steps, and each denial prints the next one. A frozen
+rule tree that will not load denies naming `--freeze off`; re-running with `--freeze off` reads the
+same broken document from the working tree, so under `--fail closed` it denies again — this time for
+the guard, naming `--fail open`. The reader converges after the second denial rather than the first.
+The order is not interchangeable: `--freeze off` alone answers which bytes run, and `--fail open`
+alone leaves the ref's broken bytes in force.
+
 **A malformed hook payload is never the REASON falsestart denies.** It is not a fact about your
 repository: the agent runtime sent a shape falsestart did not expect, and there is nothing in the
 project to fix. An agent told "denied" would have exactly one move — rewriting code that was never
@@ -165,6 +172,13 @@ is not a failure, and `--fail closed` says nothing about it. Read `--doctor`'s s
 
 **A judged write only.** A tool call falsestart does not judge — `Bash`, `Read`, anything outside the
 table in [Judged tool calls](#judged-tool-calls) — is silent in either policy.
+
+That silence is bought by answering every failure above **after** the payload has been read, and it
+has one cost outside a hook. `falsestart --rules pkg:<missing>` run by hand in a terminal now waits
+for a payload that is never coming, where it used to print the resolution error and exit `1`
+immediately. A hook runner closes stdin, so the hook itself is unaffected; a person checking their
+setup is not. **Use `falsestart --doctor` to check a setup by hand** — it reads no stdin and reports
+the same failure, as a `rules COULD NOT RESOLVE` line, with exit `1`.
 
 A denial says the guard failed before it says anything else, and never names a rule:
 

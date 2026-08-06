@@ -38,8 +38,12 @@ export const presetDirectory = (preset: Preset, packagedRulesRoot: string): stri
  * what `--preset` does for the rules shipped here. Scoped names keep two segments, so
  * `@acme/rules/strict` is the package `@acme/rules` and the subdirectory `strict`.
  *
- * Throws when the package cannot be resolved. The caller reports that as a misconfiguration and
- * lets the write proceed — a missing dependency must not stop every write in the repo.
+ * Throws when the package cannot be resolved. What that costs is the CALLER's decision, not this
+ * function's: by default it is reported and the write proceeds, because a missing dependency must
+ * not stop every write in the repo, and under `--fail closed` it denies a judged write instead — a
+ * repository that pins its rules to a package and enforces nothing until `pnpm install` finishes is
+ * the case that flag exists for. Either way a tool call falsestart does not judge stays silent, so
+ * the answer is made where the payload is known rather than here.
  */
 export const packageRulesDirectory = (specifier: string, projectDirectory: string): string => {
   const scoped = specifier.startsWith('@')

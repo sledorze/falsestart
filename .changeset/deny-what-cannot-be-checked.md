@@ -30,8 +30,8 @@ anything, so while `--fail closed` is on and the rule tree is broken, every judg
 including the edit that would fix the rule document. The denial says so and names `--fail open` as
 the way through.
 
-**Two behaviour changes ship regardless of the flag.** Both are non-blocking, and both are named here
-because a changelog reader is the only person who will see them:
+**Three behaviour changes ship regardless of the flag**, all on the `--rules pkg:` path, and all
+named here because a changelog reader is the only person who will see them:
 
 1. With `--rules pkg:` naming a package that will not resolve, a tool call falsestart does **not
    judge** (`Bash`, `Read`, and anything outside `Write`/`Edit`/`NotebookEdit`) is now **silent**
@@ -40,6 +40,11 @@ because a changelog reader is the only person who will see them:
 2. `falsestart --doctor --rules pkg:<missing>` now prints a report ending in a
    `COULD NOT RESOLVE` line and exits 1, where it previously printed one stderr line and no report
    at all.
+3. `falsestart --rules pkg:<missing>` run **by hand in a terminal** now waits for a hook payload
+   instead of printing the resolution error and exiting 1. That is the price of 1: the answer has to
+   come after the payload has been read, or a `Bash` call cannot be silent. A hook runner closes
+   stdin, so a real hook is unaffected — but if you check your setup by running the command yourself,
+   use `falsestart --doctor` instead, which reads no stdin and reports the same failure.
 
 `scan` and `--list-rules` **refuse** the flag: both already exit 2 when they cannot run, so `closed`
 would be a no-op and `open` would weaken a shipped guarantee. No existing command line contains
