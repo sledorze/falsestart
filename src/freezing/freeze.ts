@@ -196,6 +196,13 @@ export const classifyConfig = (options: ClassifyConfigOptions): Frozen => {
   }
 
   const names = source._tag === 'Explicit' ? [source.name] : source.names
+  // A path the command line NAMED and the ref does not hold is a source that was established as
+  // freezable and cannot be honoured, so it refuses. An absent candidate is different: nobody named
+  // it, and "the repository committed no such config" is the answer rather than a failure.
+  if (source._tag === 'Explicit' && typeof objects[0] !== 'string') {
+    return broken(`${source.origin} is not committed at ${evidence.ref}`)
+  }
+
   const documents = new Map<string, string>()
   for (const [index, name] of names.entries()) {
     const object = objects[index]
