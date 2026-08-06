@@ -25,6 +25,7 @@ import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
 import { WRITE_TOOLS } from './hook/decide.ts'
+import { diagnose } from './hook/doctor.ts'
 import { respond } from './hook/respond.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -618,6 +619,62 @@ layer(platform)('documentation covers the source', (it) => {
 
       expect(security).not.toContain('takes a commit rather than an uncommitted edit')
       expect(security).not.toContain('an uncommitted change cannot change what is enforced')
+    }),
+  )
+  /**
+   * The remedy a refusal prints is RUN, not read.
+   *
+   * Six of this repository's tests have now guarded nothing, and the sixth is why this one exists:
+   * three tests asserted the literal substring `--freeze=off` and nothing ever executed it, so a
+   * remedy the parser refuses shipped in five documents and in every deny reason. A user whose
+   * repository is blocked follows the printed instruction and gets a second failure.
+   *
+   * A test that asserts the CONTENT of an instruction is not a test that the instruction works.
+   */
+  it.effect('every --freeze remedy the tool prints is one the parser accepts', () =>
+    Effect.gen(function* () {
+      const refused = yield* respond({
+        freeze: () =>
+          Effect.succeed({
+            config: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+            rules: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+          }),
+        input: JSON.stringify({
+          tool_input: { content: 'const x = y as any', file_path: '/r/a.ts' },
+          tool_name: 'Write',
+        }),
+        projectDirectory: '/no/such/place',
+        rulesDirectory: '/no/such/place',
+      })
+      const diagnosis = yield* diagnose({
+        configPath: undefined,
+        freeze: {
+          config: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
+          rules: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
+        },
+        projectDirectory: 'rules',
+        rulesDirectory: 'rules',
+        version: '0.0.0-test',
+      })
+
+      const decision: unknown = JSON.parse(refused.stdout ?? '{}')
+      const reason =
+        typeof decision === 'object' && decision !== null && 'hookSpecificOutput' in decision
+          ? String(JSON.stringify(decision.hookSpecificOutput)).replaceAll(String.raw`\n`, ' ')
+          : ''
+
+      // Split the way a shell would, so the SEPARATOR is part of what is being tested:
+      // `--freeze=off` is one argv token and `--freeze off` is two, and only one of them parses.
+      const words = [reason, ...diagnosis.lines].join(' ').split(/\s+/).map((word) => word.replace(/[.,;`'"]+$/, ''))
+      const remedies = words.flatMap((word, index) =>
+        word.startsWith('--freeze') ? [word.includes('=') ? [word] : [word, words[index + 1] ?? '']] : [],
+      )
+
+      // The fixture has to actually contain instructions, or an empty list would pass silently.
+      expect(remedies.length).toBeGreaterThan(1)
+      for (const remedy of remedies) {
+        expect(parseArguments(remedy)).not.toHaveProperty('_tag', 'Invalid')
+      }
     }),
   )
 })

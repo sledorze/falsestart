@@ -126,7 +126,7 @@ layer(platform)('loading a config the ref committed', (it) => {
         )
 
         expect(error.reasons.join('\n')).toContain('data:')
-        expect(error.reasons.join('\n')).toContain('--freeze=off')
+        expect(error.reasons.join('\n')).toContain('--freeze off')
       }),
     ),
   )

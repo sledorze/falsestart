@@ -24,7 +24,7 @@ a weakened rule (now visible in a diff); moving the ref (`reset --soft` is undet
 `symbolic-ref` costs one extra command — `refs/remotes/*` resists both because no ordinary workflow
 touches it); repointing the repository where `.git` is a **file**, which survives only where no
 enclosing `.git` **directory** exists — a linked worktree outside its main repository, or
-`--separate-git-dir` — and which `--doctor` reports and `--freeze=require` refuses; and editing
+`--separate-git-dir` — and which `--doctor` reports and `--freeze require` refuses; and editing
 `.claude/settings.json`, which is why `--freeze` is a flag and not a config key.
 
 A guard rail, not a sandbox.

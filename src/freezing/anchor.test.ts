@@ -245,11 +245,15 @@ layer(platform)('deciding which repository speaks for a directory', (it) => {
   )
 
   it.effect('is not fooled by a gitfile whose target does not exist, or by one that is not a gitfile', () =>
-    withTree({ 'a/.git': 'gitdir: /no/such/place\n', 'b/.git': 'not a gitfile at all\n', 'keep.txt': 'x' }, (root) =>
+    withTree({ 'a/keep.txt': 'x', 'b/keep.txt': 'x' }, (root) =>
       Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
         const path = yield* Path.Path
         yield* initRepository(root)
         yield* commitAll(root)
+        // Written AFTER the commit, at paths the repository tracks: the attack shape.
+        yield* fs.writeFileString(path.join(root, 'a', '.git'), 'gitdir: /no/such/place\n')
+        yield* fs.writeFileString(path.join(root, 'b', '.git'), 'not a gitfile at all\n')
 
         for (const name of ['a', 'b']) {
           expect(yield* anchorOf(path.join(root, name))).toEqual({

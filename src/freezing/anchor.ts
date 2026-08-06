@@ -54,8 +54,22 @@ export const MAX_ANCHOR_WALK = 16
  * `core.worktree` arrangement — answers the same "no". The condition is stated positively so that
  * absence lands in the unverified arm rather than in a third branch no fixture can reach.
  */
-const isDirectoryEntry = (path: string): boolean =>
-  Effect.runSync(Effect.try(() => lstatSync(path).isDirectory()).pipe(Effect.orElseSucceed(() => false)))
+/** What sits at `<directory>/.git`, without following a link to it. */
+export type GitEntry = 'directory' | 'other' | 'none'
+
+/**
+ * `lstat`, not `stat`. A symlinked `.git` stats as a directory, and `unlink` followed by a write
+ * replaces the link without touching its target — squarely inside the escapes this design already
+ * assumes. Node's own `lstatSync` because Effect's `FileSystem` models only `stat`, which follows
+ * links; the same "no service exposes this at all" that `config-file.ts` reaches for `node:module`
+ * under.
+ */
+const gitEntryAt = (directory: string): GitEntry =>
+  Effect.runSync(
+    Effect.try(() => (lstatSync(`${directory}/.git`).isDirectory() ? 'directory' : 'other')).pipe(
+      Effect.orElseSucceed((): GitEntry => 'none'),
+    ),
+  )
 
 /**
  * The nearest enclosing repository whose `.git` is a directory, or the caller's own toplevel.
@@ -134,7 +148,7 @@ export const enclosingGitDirectory = (
 
     let candidate = directory
     for (;;) {
-      if (isDirectoryEntry(path.join(candidate, '.git'))) {
+      if (gitEntryAt(candidate) === 'directory') {
         return candidate
       }
       const parent = path.dirname(candidate)
@@ -159,28 +173,128 @@ export interface AnchorOptions {
   readonly toplevel: string
 }
 
-/** Stub: the previous rule — the nearest `.git` directory wins — so the red is a concrete value. */
+/** Whether a repository's committed tree accounts for a path, as far as it can be established. */
+type Accounting = 'tracked' | 'unknown' | 'untracked'
+
+const accountingFor = (
+  authority: string,
+  relative: string,
+  options: AnchorOptions,
+): Accounting => {
+  // A repository with no commit at the ref has committed nothing and so accounts for nothing. Asked
+  // separately, because `ls-tree` cannot distinguish "no such path" from "no such ref" by its exit
+  // code, and treating the second as an absence is the mistake this whole rule exists to undo.
+  if (options.refExists(authority).failed) {
+    return 'untracked'
+  }
+
+  const listed = options.listTreeAt(authority, relative)
+  if (listed.failed) {
+    return 'unknown'
+  }
+  return new TextDecoder().decode(listed.stdout).trim() === '' ? 'untracked' : 'tracked'
+}
+
+/**
+ * Every directory from `toplevel` up to the filesystem root that carries a `.git` entry of any kind,
+ * outermost first, with each one's path relative to the directory that encloses it.
+ *
+ * `lstat` only: no spawn, and nothing here asks git which repository anything belongs to. That
+ * question is exactly what an inherited variable or a planted entry can answer for it.
+ */
+const repositoryChain = (
+  toplevel: string,
+  path: Path.Path,
+): readonly string[] => {
+  const found: string[] = []
+  let candidate = toplevel
+  for (;;) {
+    if (gitEntryAt(candidate) !== 'none') {
+      found.push(candidate)
+    }
+    const parent = path.dirname(candidate)
+    if (parent === candidate) {
+      return found.toReversed()
+    }
+    candidate = parent
+  }
+}
+
+/**
+ * Which repository speaks for the project directory.
+ *
+ * **Proximity is not evidence.** The nearest `.git` is a heuristic, and every arrangement that broke
+ * an earlier revision of this rule was reachable by one `Write`: a gitfile pointing anywhere, and
+ * then a whole `.git` DIRECTORY created where none was — the EISDIR that makes a directory
+ * unreplaceable says nothing about creating one. "Outermost" is not the answer either; it only moves
+ * the plant site up to `$HOME`, which an agent can usually write too.
+ *
+ * So authority is established from the OUTSIDE IN. The outermost enclosing repository speaks first,
+ * and each repository nested below it is trusted only where the authority already established
+ * either has nothing at that path — an independent checkout that merely lives there, which is what a
+ * dotfiles repository in `$HOME` makes of every project inside it — or accounts for it as one of its
+ * own linked worktrees. Where the authority DOES hold that path, an inner repository is shadowing
+ * content the authority accounts for, and the authority keeps speaking.
+ *
+ * No question is ever put to the candidate repository itself. An agent that created it wrote every
+ * answer it could give, which is why corroboration from a repository under suspicion is worthless.
+ *
+ * Where the authority cannot be asked, or the chain is longer than `MAX_ANCHOR_WALK`, the answer is
+ * `Ambiguous` — falsestart cannot say what it would be enforcing, which is the same class as a
+ * frozen source that cannot be honoured, and gets the same refusal.
+ */
 export const resolveAnchor = (
   options: AnchorOptions,
 ): Effect.Effect<AnchorResolution, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const path = yield* Path.Path
+    const chain = repositoryChain(options.toplevel, path)
 
-    let candidate = options.toplevel
-    for (let walked = 0; walked < MAX_ANCHOR_WALK; walked += 1) {
-      if (isDirectoryEntry(path.join(candidate, '.git'))) {
-        return (yield* isLinkedWorktreeOf(options.toplevel, candidate))
-          ? { _tag: 'Anchored', anchor: 'verified', toplevel: options.toplevel }
-          : { _tag: 'Anchored', anchor: 'verified', toplevel: candidate }
+    const [outermost, ...nested] = chain
+    if (outermost === undefined) {
+      // git named a toplevel with no `.git` entry anywhere above it. Nothing can account for it.
+      return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
+    }
+    if (nested.length > MAX_ANCHOR_WALK) {
+      return {
+        _tag: 'Ambiguous',
+        reason: `more than ${MAX_ANCHOR_WALK} nested repositories between ${outermost} and ${options.toplevel}`,
       }
-      const parent = path.dirname(candidate)
-      if (parent === candidate) {
-        return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
-      }
-      candidate = parent
     }
 
-    return { _tag: 'Anchored', anchor: 'unverified', toplevel: options.toplevel }
+    const verificationOf = (repository: string): Anchor =>
+      gitEntryAt(repository) === 'directory' ? 'verified' : 'unverified'
+
+    let authority = outermost
+    let anchor = verificationOf(outermost)
+    for (const candidate of nested) {
+      // A linked worktree INHERITS its authority's verification: the trust came from outside, from
+      // the `.git` directory that accounts for it, and not from the gitfile the worktree carries.
+      if (yield* isLinkedWorktreeOf(candidate, authority)) {
+        authority = candidate
+        continue
+      }
+
+      const relative = containedPath(authority, candidate)
+      const accounting = accountingFor(authority, relative ?? candidate, options)
+      if (accounting === 'unknown') {
+        return {
+          _tag: 'Ambiguous',
+          reason:
+            `could not establish whether ${authority} accounts for ${candidate}: ` +
+            options.listTreeAt(authority, relative ?? candidate).stderr.trim(),
+        }
+      }
+      // 'tracked' means the authority holds that path itself, so an inner repository there is
+      // shadowing it and the authority keeps speaking. 'untracked' means the authority has nothing
+      // to say, and the inner one speaks for itself.
+      if (accounting === 'untracked') {
+        authority = candidate
+        anchor = verificationOf(candidate)
+      }
+    }
+
+    return { _tag: 'Anchored', anchor, toplevel: authority }
   })
 
 export type RulesPath =

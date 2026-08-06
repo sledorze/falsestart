@@ -118,8 +118,8 @@ describe('classifying what git said', () => {
         }),
       )
 
-      expect(outcome.rules).toEqual({ _tag: 'Unfrozen', reason: '--freeze=off' })
-      expect(outcome.config).toEqual({ _tag: 'Unfrozen', reason: '--freeze=off' })
+      expect(outcome.rules).toEqual({ _tag: 'Unfrozen', reason: '--freeze off' })
+      expect(outcome.config).toEqual({ _tag: 'Unfrozen', reason: '--freeze off' })
       expect(calls).toEqual([])
     }),
   )

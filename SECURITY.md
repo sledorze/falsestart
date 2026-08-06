@@ -29,8 +29,8 @@ Worth knowing before you trust it:
 By default falsestart resolves its rule documents and its config from `HEAD` (`--freeze-ref` selects
 another ref). Editing a rule document in your working tree, adding a config file the repository never
 committed, deleting one, and corrupting one all stop changing what is enforced. `falsestart --doctor`
-prints what is frozen and lists every working-tree change that is not in effect. `--freeze=off`
-restores reading the working tree; `--freeze=require` refuses to judge at all where there is anything
+prints what is frozen and lists every working-tree change that is not in effect. `--freeze off`
+restores reading the working tree; `--freeze require` refuses to judge at all where there is anything
 it cannot verify.
 
 Where there is nothing to freeze, falsestart reads the working tree and says so in `--doctor`: a
@@ -70,8 +70,8 @@ still do it:
   database while the repository's top-level path does not change, and the rules falsestart reads
   become the attacker's. `--freeze-ref` does not help, because the ref is then resolved in the
   substituted repository. falsestart detects the _condition_ rather than the attack: `--doctor`
-  prints an `anchor UNVERIFIED` line and `--freeze=require` refuses to judge at all. Under
-  `--freeze=auto` that report is the whole defence.
+  prints an `anchor UNVERIFIED` line and `--freeze require` refuses to judge at all. Under
+  `--freeze auto` that report is the whole defence.
 - **Editing the hook's own command line.** An agent that can edit `.claude/settings.json` can remove
   falsestart altogether. That is why `--freeze` is a command-line flag and is deliberately not
   readable from `falsestart.config.*`: the switch must not live inside the thing being frozen.

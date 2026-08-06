@@ -94,7 +94,7 @@ directory comes back with a `systemMessage`:
 ```
 falsestart:
 rules are read from HEAD, so this document does not take effect until it is committed.
-`falsestart --doctor` lists what is not in effect; `--freeze=off` reads the working tree.
+`falsestart --doctor` lists what is not in effect; `--freeze off` reads the working tree.
 ```
 
 That note covers the case where you are editing the rule. It does not cover the other direction —

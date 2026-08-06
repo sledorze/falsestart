@@ -638,7 +638,7 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toContain('"permissionDecision":"deny"')
         expect(response.stdout).toContain(reason)
-        expect(response.stdout).toContain('--freeze=off')
+        expect(response.stdout).toContain('--freeze off')
       }),
     )
   })
@@ -658,7 +658,7 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
 
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toContain('"permissionDecision":"deny"')
-        expect(response.stdout).toContain('--freeze=off')
+        expect(response.stdout).toContain('--freeze off')
       }),
     ),
   )

@@ -17,7 +17,7 @@
  * Nothing here spawns: the four `git` invocations arrive as callbacks, which is what lets every arm
  * of the decision be reached from a unit test rather than only from the coverage-excluded `cli.ts`.
  * They are callbacks rather than collected values so that a step nobody needs is never run at all —
- * `--freeze=off` asks git nothing, and a rules tree the ref does not track never reads a blob.
+ * `--freeze off` asks git nothing, and a rules tree the ref does not track never reads a blob.
  */
 import { Effect } from 'effect'
 import type { AnchorResolution, RulesPath } from './anchor.ts'
@@ -166,7 +166,7 @@ const anchorRefusal = (evidence: FreezeEvidence): string =>
   `no verified anchor between ${evidence.projectDirectory} and the filesystem root: ` +
   `${evidence.toplevel}/.git is not a directory, so this repository can be repointed by replacing ` +
   `one file. Expected in a linked worktree outside its main repository, or with --separate-git-dir. ` +
-  `Use --freeze=auto to freeze anyway.`
+  `Use --freeze auto to freeze anyway.`
 
 const prefixed = (relative: string, name: string): string => (relative === '' ? name : `${relative}/${name}`)
 
@@ -322,7 +322,7 @@ export const classifyRules = (options: ClassifyRulesOptions): Effect.Effect<Froz
 export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
   Effect.gen(function* () {
     if (input.mode === 'off') {
-      return both(unfrozen('--freeze=off'))
+      return both(unfrozen('--freeze off'))
     }
 
     if (input.workTree._tag === 'Absent') {

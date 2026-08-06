@@ -492,7 +492,7 @@ layer(platform)('the doctor under a freeze', (it) => {
         expect(report).toContain(rules)
         expect(report).toContain('linked worktree outside its main repository')
         expect(report).toContain('--separate-git-dir')
-        expect(report).toContain('--freeze=require')
+        expect(report).toContain('--freeze require')
       }),
     ),
   )

@@ -242,7 +242,12 @@ export const diagnose = (
       // read plus a pure comparison — here, in a report someone asked for, and never on a judged
       // write. A rules directory that is not there is not an error: the ref is what is in effect,
       // so every committed document simply reads as removed.
-      if (freeze.rules._tag === 'Frozen') {
+      //
+      // Printed only where the anchor is VERIFIED. "N working-tree change(s) are NOT in effect" is a
+      // claim about which side is authoritative, and where that cannot be positively established the
+      // claim was wrong in the direction that reassures — it named the project's own committed rule
+      // as the change that had not landed.
+      if (freeze.rules._tag === 'Frozen' && freeze.rules.anchor === 'verified') {
         const working = yield* readRuleDocuments(rulesDirectory).pipe(Effect.orElseSucceed(() => new Map()))
         const drift = divergence(freeze.rules.documents, working)
         if (drift.length > 0) {

@@ -94,7 +94,7 @@ what is frozen and what is not in effect; `--freeze off` reads the working tree 
 freeze   ref     HEAD
          rules   frozen — 23 document(s) from rules/
          config  frozen — falsestart.config.ts
-         1 working-tree change(s) are NOT in effect — commit them, or pass --freeze=off:
+         1 working-tree change(s) are NOT in effect — commit them, or pass --freeze off:
            changed  clean-code/no-as-any.yml
 ```
 

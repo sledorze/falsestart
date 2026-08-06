@@ -116,7 +116,7 @@ const loadTypeScript = (
  */
 const FROZEN_IMPORT_NOTE =
   'a config read from a ref is imported from a data: URL, which has no location to resolve a ' +
-  'package or relative import against; pass --freeze=off to import it from disk'
+  'package or relative import against; pass --freeze off to import it from disk'
 
 /**
  * Loads the bytes a ref committed, for whichever format the path names.

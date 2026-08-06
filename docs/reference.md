@@ -87,7 +87,7 @@ not resolve, a rule document committed as a symlink or a gitlink, and a rules di
 symlink on disk pointing somewhere other than the path the command line named.
 
 What `Broken` costs depends on who is asking: the hook denies the write (exit `0` with a deny
-document whose reason names git's own error and `--freeze=off`), `scan` and `--list-rules` exit `2`,
+document whose reason names git's own error and `--freeze off`), `scan` and `--list-rules` exit `2`,
 and `--doctor` reports `healthy: false` and exits `1`.
 
 Reading the ref costs four `git` invocations, fixed and independent of the rule count: `rev-parse`,
@@ -104,9 +104,9 @@ outward from the project until it finds a `.git` that is a real **directory**, w
 cannot replace. A planted `.git` anywhere below a real repository root is stepped over.
 
 Two legitimate setups have no enclosing `.git` directory at all: a linked worktree placed outside its
-main repository, and a repository created with `git init --separate-git-dir`. There, `--freeze=auto`
+main repository, and a repository created with `git init --separate-git-dir`. There, `--freeze auto`
 freezes as usual and `--doctor` prints an `anchor UNVERIFIED` line naming the condition;
-`--freeze=require` refuses to judge instead. A submodule's working tree resolves outward to its
+`--freeze require` refuses to judge instead. A submodule's working tree resolves outward to its
 superproject and is reported as a submodule rather than as an unverified anchor.
 
 ### `falsestart --list-rules`
@@ -223,7 +223,7 @@ commands would mean predicting what they do.
 | `1`                        | falsestart could not do its job. Reported, and the write proceeds. |
 
 `0` + `hookSpecificOutput` also carries a freeze refusal: a source the ref established as freezable
-that could not be read denies rather than reporting, and its reason names `--freeze=off`.
+that could not be read denies rather than reporting, and its reason names `--freeze off`.
 
 The first two are separate rows because they are separate documents, not one document carrying a
 different verdict: advice has no `permissionDecision` field at all, and a reader that looks only for
