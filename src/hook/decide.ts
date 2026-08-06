@@ -88,6 +88,127 @@ export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; re
 }
 
 /**
+ * The agent runtimes falsestart speaks to. DECLARED on the command line, never sniffed.
+ *
+ * A payload tells you the shape that came in and says nothing whatsoever about how the runtime will
+ * read the answer — and the answer is the half where a wrong guess turns a deny into an allow.
+ * Copilot expresses a deny as exit 2; Claude Code as exit 0 with a document on stdout. Inferring
+ * that from "the payload said `toolName`" would let any normalising shim in front of falsestart
+ * decide which contract falsestart emits.
+ */
+export const AGENTS = ['claude-code', 'copilot'] as const
+export type AgentId = (typeof AGENTS)[number]
+
+/** One documented spelling of a runtime's payload envelope. */
+export interface Envelope {
+  /** The key carrying the tool's arguments. */
+  readonly input: string
+  /** The key naming the tool. */
+  readonly name: string
+}
+
+export interface AgentContract {
+  /**
+   * Every documented spelling of this runtime's envelope, tried in order.
+   *
+   * Copilot has two, and which one arrives is chosen by the hook AUTHOR: a camelCase event name in
+   * the hook config yields camelCase fields, a PascalCase one yields snake_case "to match the VS
+   * Code Copilot extension format". Reading both is not sniffing the AGENT — the agent, and with it
+   * the whole output contract, is declared. Only the spelling of one envelope is read, and the
+   * runtime that sent it documents both as its own.
+   */
+  readonly envelopes: readonly Envelope[]
+  /**
+   * Whether this runtime may deliver its tool arguments as a JSON-ENCODED STRING rather than an
+   * object. Copilot does (github/copilot-cli#3349). Claude Code does not, and must not be given the
+   * benefit of the doubt: a `tool_input` that is a string is genuinely malformed there, and
+   * reinterpreting it would accept a shape the contract does not have.
+   */
+  readonly encodedInput: boolean
+  readonly id: AgentId
+  /**
+   * Prefixed onto every problem this contract reports. EMPTY for `claude-code`, so the default
+   * path's diagnostics stay byte-identical; `copilot: ` elsewhere, because
+   * `edit carried no new_str/path` is otherwise ambiguous between "Copilot renamed a field" and
+   * "you set --agent wrong", which have opposite remedies. A field rather than a conditional, so
+   * there is no branch to cover.
+   */
+  readonly problemPrefix: string
+  /** Whether this contract's tool argument names are inferred rather than documented. */
+  readonly provisionalTools: boolean
+  /**
+   * The tool `--doctor`'s sample is written as, with its field names carried DIRECTLY rather than
+   * looked up in `tools`. A lookup would need a `?? …` arm no input can reach, and an unreachable
+   * arm breaks the 100% branch threshold. A test asserts the two agree, so this cannot drift.
+   */
+  readonly sample: { readonly content: string; readonly path: string; readonly tool: string }
+  readonly tools: Readonly<Record<string, { readonly content: string; readonly path: string }>>
+}
+
+// `satisfies` rather than a type annotation, for the reason `EMPTY_CONFIG` gives in
+// `src/config/config.ts`: an annotated literal asserts a shape nothing checked.
+export const CLAUDE_CODE_CONTRACT = {
+  encodedInput: false,
+  envelopes: [{ input: 'tool_input', name: 'tool_name' }],
+  id: 'claude-code',
+  problemPrefix: '',
+  provisionalTools: false,
+  sample: { content: 'content', path: 'file_path', tool: 'Write' },
+  tools: WRITE_TOOLS,
+} satisfies AgentContract
+
+/**
+ * GitHub Copilot CLI. `view`, `bash`, `grep`, `glob`, `task`, `powershell`, `web_fetch` and
+ * `ask_user` introduce no source text and are absent for the reason `Bash` is.
+ *
+ * NEITHER tool's argument names are documented by GitHub — `docs/reference.md` and `--doctor` both
+ * say so to the reader. `edit`'s `path` is corroborated by copilot-cli#3349; `new_str` and `content`
+ * are inferences. If one is wrong that tool is unjudged: reported where the report is readable,
+ * silent where it is not, and caught by `falsestart scan` either way. `edit`'s `old_str` is
+ * deliberately unread — an edit is judged by the text it INTRODUCES.
+ */
+export const COPILOT_CONTRACT = {
+  encodedInput: true,
+  envelopes: [
+    { input: 'toolArgs', name: 'toolName' },
+    { input: 'tool_input', name: 'tool_name' },
+  ],
+  id: 'copilot',
+  problemPrefix: 'copilot: ',
+  provisionalTools: true,
+  sample: { content: 'content', path: 'path', tool: 'create' },
+  tools: {
+    create: { content: 'content', path: 'path' },
+    edit: { content: 'new_str', path: 'path' },
+  },
+} satisfies AgentContract
+
+/** Exported for the reason `WRITE_TOOLS` is: so `docs/reference.md` can be checked against it. */
+export const AGENT_CONTRACTS: Readonly<Record<AgentId, AgentContract>> = {
+  'claude-code': CLAUDE_CODE_CONTRACT,
+  copilot: COPILOT_CONTRACT,
+}
+
+/** The default lives HERE and nowhere else, for the reason `respond.ts` defaults `--fail` once. */
+export const contractFor = (agent: AgentId | undefined): AgentContract => AGENT_CONTRACTS[agent ?? 'claude-code']
+
+/**
+ * Every tool name that belongs to some OTHER contract, precomputed once.
+ *
+ * Membership here is what turns "a tool falsestart has no opinion about" into "the flag names the
+ * wrong runtime": `Write` cannot come from Copilot, whose tool table is documented and closed, and
+ * `create` cannot come from Claude Code. A structural discriminator — membership in a declared
+ * table — rather than a guess about what the name looks like.
+ */
+const toolsElsewhere = (id: AgentId): ReadonlySet<string> =>
+  new Set(AGENTS.filter((other) => other !== id).flatMap((other) => Object.keys(AGENT_CONTRACTS[other].tools)))
+
+const OTHER_TOOLS: Readonly<Record<AgentId, ReadonlySet<string>>> = {
+  'claude-code': toolsElsewhere('claude-code'),
+  copilot: toolsElsewhere('copilot'),
+}
+
+/**
  * The payload is validated by hand rather than with `Schema`, unlike rule documents.
  *
  * The shapes differ in what a good error has to say. A rule document is authored by a person who
@@ -95,10 +216,26 @@ export const WRITE_TOOLS: Readonly<Record<string, { readonly content: string; re
  * payload is machine-generated, and the useful message names the TOOL and the field that tool was
  * expected to carry (`NotebookEdit carried no new_source/notebook_path`) — per-tool knowledge that
  * lives here, not in a schema. Validating against a union of tool shapes would report a union
- * mismatch, which is strictly less informative.
+ * mismatch, and it would now span two agents, two envelope spellings and two-or-three tools, where
+ * the useful message is `copilot: create carried no content/path to judge (toolArgs carried:
+ * file_text, path)`.
  */
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
+
+/** The first documented spelling this payload actually uses, if any. */
+const spokenEnvelope = (
+  payload: Record<string, unknown>,
+  contract: AgentContract,
+): { readonly envelope: Envelope; readonly tool: string } | undefined => {
+  for (const envelope of contract.envelopes) {
+    const tool = payload[envelope.name]
+    if (typeof tool === 'string') {
+      return { envelope, tool }
+    }
+  }
+  return undefined
+}
 
 /**
  * Whether this payload is even a candidate for judgement.
@@ -109,10 +246,25 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  * tree from raising errors on tool calls it was never going to have an opinion about.
  *
  * A malformed payload counts as a candidate: deciding it is a problem is `decide`'s job, and
- * skipping it here would silently swallow exactly the case worth reporting.
+ * skipping it here would silently swallow exactly the case worth reporting. So does a tool name
+ * belonging to a DIFFERENT contract than the one declared: that is not a tool falsestart has no
+ * opinion about, it is proof the flag is wrong, and deferring it here would make a misdeclared
+ * `--agent` silently unguarded — which is the failure mode the flag exists to avoid.
+ *
+ * It never touches the INPUT key, so a Copilot `bash` call costs the same handful of operations a
+ * `Bash` call does today, in either spelling, and the JSON-string decode never runs on the hot path.
+ *
+ * The second parameter is optional because this is a published export whose arity predates the
+ * agent contract; absent means `claude-code`.
  */
-export const judgesPayload = (payload: unknown): boolean =>
-  !isRecord(payload) || typeof payload['tool_name'] !== 'string' || payload['tool_name'] in WRITE_TOOLS
+export const judgesPayload = (payload: unknown, agent?: AgentId): boolean => {
+  if (!isRecord(payload)) {
+    return true
+  }
+  const contract = contractFor(agent)
+  const spoken = spokenEnvelope(payload, contract)
+  return spoken === undefined || spoken.tool in contract.tools || OTHER_TOOLS[contract.id].has(spoken.tool)
+}
 
 const describe = (finding: Finding): string =>
   `${finding.ruleId} (${finding.line}:${finding.column}): ${finding.message}`
