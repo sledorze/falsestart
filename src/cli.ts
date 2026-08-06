@@ -328,7 +328,21 @@ const program = Effect.gen(function* () {
    * Read from `args` rather than from `options`, because the shared failure paths below run before
    * — and, for `Invalid`, instead of — the mode being known.
    */
-  const brokenCode = args[0] === 'scan' ? ScanExit.Broken : 1
+  /**
+   * Whether a refusal at a non-zero code could BLOCK a write rather than report one.
+   *
+   * `docs/reference.md` states the law: a refused hook command line must never be able to stop a
+   * write. Under Claude Code that is exit 1; under Copilot every non-zero exit denies the tool call
+   * — 2 deliberately, anything else as "hook errored" — so 0 is the only non-blocking code left.
+   *
+   * Anything other than an explicit `claude-code` counts, INCLUDING a misspelled or missing value:
+   * the parser is about to refuse those, and refusing them at exit 1 in front of Copilot is an
+   * outage rather than a message. Read from `args` rather than `options` for the reason `brokenCode`
+   * already is: this runs INSTEAD of the mode being known.
+   */
+  const mayDenyOnNonZero = args.some((argument, index) => argument === '--agent' && args[index + 1] !== 'claude-code')
+
+  const brokenCode = args[0] === 'scan' ? ScanExit.Broken : mayDenyOnNonZero ? 0 : 1
 
   if (options._tag === 'Help') {
     return yield* write(`${options.text}\n`, stdio.stdout())
@@ -563,6 +577,7 @@ const program = Effect.gen(function* () {
   const input = yield* stdio.stdin.pipe(Stream.decodeText(), Stream.mkString)
 
   const response = yield* respond({
+    agent: options.agent,
     configPath: options.configPath,
     failure: options.failure,
     freeze: freezeFor,
@@ -575,7 +590,13 @@ const program = Effect.gen(function* () {
     warnUnscoped: options.warnUnscoped,
   })
 
-  yield* emit(response)
+  // A reader that stopped reading is not this command's failure, and `runMain` exits 1 on anything
+  // that escapes — which under Copilot denies the tool call. `--list-rules` already forgives this
+  // for the same reason; the hook path had no forgiveness at all.
+  const wrote = yield* Effect.result(emit(response))
+  if (wrote._tag === 'Failure' && !isBrokenPipe(wrote.failure)) {
+    return yield* Effect.fail(wrote.failure)
+  }
 
   return yield* response.exitCode === 0 ? Effect.void : new Exit({ code: response.exitCode })
 })
