@@ -899,6 +899,87 @@ layer(platform)('a guard failure under --fail closed', (it) => {
 })
 
 /**
+ * A rules SOURCE that could not be resolved at all — `--rules pkg:<name>` naming a package that is
+ * not installed.
+ *
+ * The caller discovers this before stdin is read, so it cannot be answered there: under `--fail
+ * closed` it would deny `Bash`, `Read` and every other tool call an agent makes, over payloads that
+ * write nothing. It is handed to `respond` instead, which answers it behind `judgesPayload` — where
+ * every other guard failure already sits.
+ */
+const UNRESOLVED = "could not resolve rules package (Cannot find module '@acme/nope/package.json')"
+
+layer(platform)('a rules package the caller could not resolve', (it) => {
+  // T18
+  it.effect('denies a judged write when the rules package could not be resolved', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          failure: 'closed',
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          unresolvedRules: UNRESOLVED,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toBeDefined()
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  // T19 — the negative test, and the one an end-to-end `Write` payload cannot give. Denying a
+  // `Bash` call with "falsestart could not check this write" is an agent lockup rather than a write
+  // guard, and it contradicts `judgesPayload`'s stated invariant.
+  it.effect(
+    'stays silent on a tool call it will not judge, even with an unresolvable package under --fail closed',
+    () =>
+      withRules({}, (rules) =>
+        Effect.gen(function* () {
+          const response = yield* respond({
+            failure: 'closed',
+            input: JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'Bash' }),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+            unresolvedRules: UNRESOLVED,
+          })
+
+          expect(response.exitCode).toBe(0)
+          expect(response.stdout).toBeUndefined()
+          expect(response.stderr).toBeUndefined()
+        }),
+      ),
+  )
+
+  // T20 — the other half of the placement, which T18 and T19 cannot see: a run that cannot load a
+  // rule set has no use for four git spawns. A counter rather than a service double, matching how
+  // this file already supplies `freeze` as a plain thunk.
+  it.effect('never spawns the freeze for a run whose rules could not be resolved', () =>
+    withRules({}, (rules) =>
+      Effect.gen(function* () {
+        let spawned = 0
+        const response = yield* respond({
+          failure: 'closed',
+          freeze: () => {
+            spawned += 1
+            return Effect.succeed({ config: nothingToFreeze, rules: nothingToFreeze })
+          },
+          input: writeOf('const x = value as any'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          unresolvedRules: UNRESOLVED,
+        })
+
+        expect(spawned).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+      }),
+    ),
+  )
+})
+
+/**
  * The moment the confusion happens: a judged write INTO the frozen rules directory.
  *
  * Scoped by two structural tests and never by content — segment containment of the destination

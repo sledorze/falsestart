@@ -631,6 +631,76 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
       }),
     ),
   )
+
+  // T21 — the same failure, under the policy that governs it. A repository that pins its rules to a
+  // package and enforces nothing until `pnpm install` finishes is the "matter of when" this switch
+  // exists for.
+  it.effect('--fail closed denies a judged write when the rules package will not resolve', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath, '--fail', 'closed'],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('could not resolve rules package')
+      }),
+    ),
+  )
+
+  // T22 — the reproduction that corrected this design, end to end. Package resolution happens
+  // before stdin is read, so answering it there denied `Bash`, `Read`, `Grep` and an empty payload
+  // — a full agent lockup over calls that write nothing. Silence in EITHER policy is the fix, and
+  // that makes this a behaviour change independent of the flag: it is exit 1 with a stderr notice
+  // today.
+  it.effect('says nothing about a tool call it does not judge, even when the rules package will not resolve', () =>
+    withRules({}, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--rules', 'pkg:@acme/definitely-not-installed', '--config', configPath, '--fail', 'closed'],
+          payloadFor({ command: 'ls' }, 'Bash'),
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).toBe('')
+      }),
+    ),
+  )
+
+  // T23 — `--doctor` is the one question this command exists to answer, and it answered nothing at
+  // all here: no version line, no changelog line, no policy line.
+  it.effect('--doctor reports a rules package it could not resolve, and the policy it was given', () =>
+    Effect.gen(function* () {
+      const result = yield* runCliRaw(
+        ['--doctor', '--rules', 'pkg:@acme/definitely-not-installed', '--fail', 'closed'],
+        '',
+      )
+
+      expect(result.exitCode).toBe(1)
+      expect(result.stdout).toContain('falsestart ')
+      expect(result.stdout).toContain('--fail closed')
+      expect(result.stdout).toContain('COULD NOT RESOLVE')
+    }),
+  )
+
+  // T24 — the end-to-end half of the claim that `--doctor` is byte-unchanged for a caller who never
+  // uses this feature. A parse test cannot see it: the policy travels from the parser through
+  // `cli.ts` unresolved, and `cli.ts` is excluded from the coverage ratchet.
+  it.effect('--doctor says nothing about a policy when none was given', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath], '')
+
+        expect(result.stdout).not.toContain('policy')
+      }),
+    ),
+  )
 })
 
 /**
