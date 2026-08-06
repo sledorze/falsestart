@@ -199,7 +199,8 @@ denied — including the edit that would repair the rule document. `--freeze off
 shape; `--fail open` is the way through.
 
 Under `--agent copilot` the same table holds with two substitutions: every `report, exit 1` becomes
-**`report, exit 0`**, and every **deny** becomes exit `2`. There is no exit `1` there at all — see
+**`report, exit 0`**, and every **deny** becomes exit `2`. The only exit `1` left is the misdeclared
+`--agent` notice, which is not in this table because it is not a guard failure — see
 [Which agent is on the other end](#which-agent-is-on-the-other-end) — which makes the malformed-payload
 row _stronger_ rather than weaker: exit 0 cannot deny even in principle.
 
@@ -374,11 +375,11 @@ without any signal. Both tables are asserted against the code by a test rather t
 by hand.
 
 A tool name in the OTHER contract's table is not silent: it is reported as a misdeclared `--agent`
-(see [Which agent is on the other end](#which-agent-is-on-the-other-end)), which also means it is
-a judged candidate — so it reaches the guard failures in
-[When falsestart itself cannot run](#when-falsestart-itself-cannot-run) and can be denied by one,
-exactly as a `Write` would be. Claude Code ships no tool called `create` or `edit`, so this needs a
-payload from something else speaking that envelope.
+(see [Which agent is on the other end](#which-agent-is-on-the-other-end)). That notice is answered
+before the rules source, the freeze and the rule tree are touched, so it costs what a deferred call
+costs and it never denies — a misdeclared payload is not a judged write in either contract, so
+`--fail closed` has no more to say about it than it does about a malformed one. Claude Code ships no
+tool called `create` or `edit`, so this needs a payload from something else speaking that envelope.
 
 `Bash` is deliberately absent from both, and so are Copilot's `bash`, `view`, `grep`, `glob`, `task`,
 `powershell`, `web_fetch` and `ask_user`. falsestart judges the text a write tool carries, so a
@@ -449,17 +450,25 @@ reads stderr as the reason, throwing away the structured decision.
 | `0` + stderr                  | Advice, or a problem falsestart is reporting. Decides nothing.                 |
 | `0` + no output               | No decision; the normal permission flow applies.                               |
 
-**There is no `1` row, and that is forced rather than chosen.** Copilot denies the tool call on every
-non-zero exit other than 2, as `Denied by preToolUse hook (hook errored)`. So an exit 1 would not
-mean "reported, and the write proceeds" — it would block the write with a reason nobody can act on,
-and would silently convert `--fail open` into fail-closed. Every outcome that exits `1` on the HOOK
-PATH therefore exits `0` here, including a refused command line. `--doctor` is not on that path: it
-reads no stdin, is run by a person in a terminal, and still exits `1` when the installation is
-unhealthy.
+**There is no `1` row for a judged tool call, and that is forced rather than chosen.** Copilot denies
+the tool call on every non-zero exit other than 2, as `Denied by preToolUse hook (hook errored)`. So
+an exit 1 would not mean "reported, and the write proceeds" — it would block the write with a reason
+nobody can act on, and would silently convert `--fail open` into fail-closed. Every outcome that
+exits `1` under Claude Code therefore exits `0` here, including a refused command line.
 
-**One gap in the refusal, stated.** The exit-0 refusal recognises `--agent` written as two arguments.
-`--agent=copilot` is not a form this parser accepts for any flag, and it is refused as an
-unrecognised argument at exit `1` — which under Copilot denies. Write `--agent copilot`.
+**The one deliberate exception, and its hazard.** A payload naming a tool from the Claude Code
+contract while `--agent copilot` is in force is answered with Claude Code's emitter — exit `1` and a
+stderr line — because the evidence of who is really on the other end is stronger than the flag, and
+the notice is worth nothing on a channel the runtime that is actually there does not read. If the
+runtime really is Copilot, that exit 1 denies. **That is the hazard to know about**: a Copilot MCP
+server or custom tool named `Write`, `Edit` or `NotebookEdit` would be denied as "hook errored", and
+the remedy the message prints would be the wrong one. It fails closed, which is the safe direction
+for a guard, but it is not silent and it is not `--fail open`. Report it if you hit it — the tool
+table is the thing that would need widening.
+
+`--doctor` is not on the hook path at all: it reads no stdin, is run by a person in a terminal, and
+still exits `1` when the installation is unhealthy. Nor is `--list-rules`, which keeps its own codes:
+`0` with the document, `2` when it could not be produced, `1` when the command line was refused.
 
 The deny document's keys are **top-level** — `permissionDecision` and `permissionDecisionReason` —
 not nested under `hookSpecificOutput`, which Copilot ignores

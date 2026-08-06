@@ -525,10 +525,11 @@ describe('the Copilot payload contract', () => {
       )
 
       // No known envelope at all keeps the message it has always had, in either contract.
-      expect(problemOf(yield* decide(rules, { nothing: 1 }))).toBe('hook payload carried no tool_name')
-      expect(problemOf(yield* decide(rules, { nothing: 1 }, { agent: 'copilot' }))).toBe(
-        'copilot: hook payload carried no toolName',
-      )
+      const unknown = yield* decide(rules, { nothing: 1 })
+      expect(problemOf(unknown)).toBe('hook payload carried no tool_name')
+
+      const unknownToCopilot = yield* decide(rules, { nothing: 1 }, { agent: 'copilot' })
+      expect(problemOf(unknownToCopilot)).toBe('copilot: hook payload carried no toolName')
     }),
   )
 
@@ -546,10 +547,13 @@ describe('the Copilot payload contract', () => {
   // could not tell which contract had rejected their payload.
   effect('prefixes the not-an-object complaint with the contract too', () =>
     Effect.gen(function* () {
-      expect(problemOf(yield* decide(yield* rulesOf(noAsAny), 'nope', { agent: 'copilot' }))).toBe(
-        'copilot: hook payload was not an object',
-      )
-      expect(problemOf(yield* decide(yield* rulesOf(noAsAny), 'nope'))).toBe('hook payload was not an object')
+      const rules = yield* rulesOf(noAsAny)
+
+      const copilot = yield* decide(rules, 'nope', { agent: 'copilot' })
+      expect(problemOf(copilot)).toBe('copilot: hook payload was not an object')
+
+      const claudeCode = yield* decide(rules, 'nope')
+      expect(problemOf(claudeCode)).toBe('hook payload was not an object')
     }),
   )
 

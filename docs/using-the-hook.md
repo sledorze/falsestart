@@ -289,7 +289,7 @@ also shift: what exits `1` under Claude Code exits `0` there, and a deny is exit
 it is still there when nothing resolved:
 
 ```
-policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload still proceeds.
+policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload is never the reason.
 ```
 
 Rules can come from three places:
