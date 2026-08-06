@@ -320,14 +320,27 @@ const decodeArguments = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)
  */
 export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedTarget => {
   if (!isRecord(payload)) {
-    return { _tag: 'Malformed', problem: 'hook payload was not an object' }
+    return { _tag: 'Malformed', problem: `${contract.problemPrefix}hook payload was not an object` }
   }
 
   const spoken = spokenEnvelope(payload, contract)
   if (spoken === undefined) {
+    // A payload speaking ANOTHER contract's envelope cannot be a misdeclaration — there is no tool
+    // name in a spelling this contract reads, so there is nothing to look up — but the envelope
+    // itself is evidence, and it is the only evidence available in this direction. Without this
+    // clause the answer is `hook payload carried no tool_name`, which is the exact line issue #50
+    // opens with and which names neither the cause nor the remedy.
+    const elsewhere = AGENTS.find(
+      (id) => id !== contract.id && spokenEnvelope(payload, AGENT_CONTRACTS[id]) !== undefined,
+    )
+    const hint =
+      elsewhere === undefined
+        ? ''
+        : ` (it carried ${spokenEnvelope(payload, AGENT_CONTRACTS[elsewhere])?.envelope.name}, ` +
+          `which belongs to the ${elsewhere} contract — did you mean --agent ${elsewhere}?)`
     return {
       _tag: 'Malformed',
-      problem: `${contract.problemPrefix}hook payload carried no ${contract.envelopes[0].name}`,
+      problem: `${contract.problemPrefix}hook payload carried no ${contract.envelopes[0].name}${hint}`,
     }
   }
 
@@ -374,11 +387,12 @@ export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedT
     // The keys that DID arrive are named, because neither Copilot tool's argument names are
     // documented by GitHub. Without them a wrong inference reads as a mysterious silence; with
     // them it is one line of a diagnostic and a one-literal fix.
+    const carried = Object.keys(input).toSorted()
     return {
       _tag: 'Malformed',
       problem:
         `${contract.problemPrefix}${spoken.tool} carried no ${fields.content}/${fields.path} to judge ` +
-        `(${spoken.envelope.input} carried: ${Object.keys(input).toSorted().join(', ')})`,
+        `(${spoken.envelope.input} carried${carried.length === 0 ? ' nothing' : `: ${carried.join(', ')}`})`,
     }
   }
 

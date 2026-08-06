@@ -1360,6 +1360,24 @@ layer(platform)('the Copilot emit contract', (it) => {
     ),
   )
 
+  // R9 — the last Copilot diagnostic that did not name its contract. A reader seeing it could not
+  // tell which contract had rejected their payload, which is the whole reason the prefix exists.
+  it.effect('names the contract on stdin it could not read as JSON', () =>
+    withRules({ 'no-as-any.yml': COPILOT_EDIT }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          agent: 'copilot',
+          input: 'this is not json',
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.exitCode).toBe(0)
+        expect(response.stderr).toContain('copilot: could not read the hook payload as JSON')
+      }),
+    ),
+  )
+
   // T-A13 — the default path, with the flag explicitly absent. Cannot be seen failing by
   // withholding code; guarded by inverting `emitterFor`'s ternary and watching both rows go red.
   it.effect('answers exactly as it always has when no agent is declared', () =>
