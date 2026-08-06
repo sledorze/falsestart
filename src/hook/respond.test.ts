@@ -591,7 +591,7 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
     withRules({ 'block-any.yml': NARROWED }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
-          freeze: () => ({ config: frozenWith({}), rules: frozenWith({ 'block-any.yml': BLOCKING }) }),
+          freeze: () => Effect.succeed({ config: frozenWith({}), rules: frozenWith({ 'block-any.yml': BLOCKING }) }),
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -629,7 +629,7 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
     effect('denies the write instead of letting it through with a notice', () =>
       Effect.gen(function* () {
         const response = yield* respond({
-          freeze: () => ({ config: { _tag: 'Broken', reason }, rules: { _tag: 'Broken', reason } }),
+          freeze: () => Effect.succeed({ config: { _tag: 'Broken', reason }, rules: { _tag: 'Broken', reason } }),
           input: writeOf('const x = value as any'),
           projectDirectory: '/no/such/place',
           rulesDirectory: '/no/such/place',
@@ -649,10 +649,8 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
     withRules({ 'block-any.yml': BLOCKING }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
-          freeze: () => ({
-            config: frozenWith({ 'falsestart.config.json': '{oops' }),
-            rules: nothingToFreeze,
-          }),
+          freeze: () =>
+            Effect.succeed({ config: frozenWith({ 'falsestart.config.json': '{oops' }), rules: nothingToFreeze }),
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -671,7 +669,8 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
     withRules({ 'block-any.yml': BLOCKING }, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
-          freeze: () => ({ config: frozenWith({}), rules: frozenWith({ 'broken.yml': 'id: 7\nlanguage: tsx' }) }),
+          freeze: () =>
+            Effect.succeed({ config: frozenWith({}), rules: frozenWith({ 'broken.yml': 'id: 7\nlanguage: tsx' }) }),
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -690,10 +689,11 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
     withRules({}, (rules) =>
       Effect.gen(function* () {
         const response = yield* respond({
-          freeze: () => ({
-            config: frozenWith({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}' }),
-            rules: frozenWith({ 'block-any.yml': BLOCKING }),
-          }),
+          freeze: () =>
+            Effect.succeed({
+              config: frozenWith({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}' }),
+              rules: frozenWith({ 'block-any.yml': BLOCKING }),
+            }),
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -726,10 +726,8 @@ const noteOf = (response: HookResponse): string => {
 const writeTo = (filePath: string, content = 'name: not a rule\n') =>
   JSON.stringify({ hook_event_name: 'PreToolUse', tool_input: { content, file_path: filePath }, tool_name: 'Write' })
 
-const frozenRules = (documents: Readonly<Record<string, string>>) => () => ({
-  config: frozenWith({}),
-  rules: frozenWith(documents),
-})
+const frozenRules = (documents: Readonly<Record<string, string>>) => () =>
+  Effect.succeed({ config: frozenWith({}), rules: frozenWith(documents) })
 
 layer(platform)('editing a rule while the freeze is on', (it) => {
   // T48

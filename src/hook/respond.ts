@@ -179,7 +179,9 @@ export interface RespondOptions {
    *
    * Absent means unfrozen — the 0.2.0 behaviour — so a library call that predates this is unchanged.
    */
-  readonly freeze?: (() => FreezeOutcome) | undefined
+  readonly freeze?:
+    | (() => Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path>)
+    | undefined
   /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
   readonly warnUnscoped?: boolean | undefined
 }
@@ -204,7 +206,7 @@ export const respond = (
     }
 
     // Invoked here and nowhere earlier: everything above this line runs on every tool call.
-    const outcome = options.freeze?.()
+    const outcome = options.freeze === undefined ? undefined : yield* options.freeze()
 
     // A source that was established as freezable and then could not be read is refused before any
     // content is looked at. Falling back to the working tree here would make breaking git the
