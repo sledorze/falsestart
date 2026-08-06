@@ -62,7 +62,7 @@ const denial = (reason: string): HookResponse => ({
  * The reason a refusal names its own escape hatch is that the alternative is what falsestart does
  * today: a line on a stderr the agent runtime discards, and the write proceeding.
  */
-const FREEZE_ESCAPE = 're-run the hook with --freeze=off to use the working tree'
+const FREEZE_ESCAPE = 're-run the hook with --freeze off to use the working tree'
 
 const withEscape = (reason: string): string => `${reason}\n${FREEZE_ESCAPE}`
 
@@ -143,7 +143,7 @@ const frozenRuleNote = (options: {
 
     return isRuleDocument(path.join(relative, path.basename(written)))
       ? `rules are read from ${ref}, so this document does not take effect until it is committed.\n` +
-          '`falsestart --doctor` lists what is not in effect; `--freeze=off` reads the working tree.'
+          '`falsestart --doctor` lists what is not in effect; `--freeze off` reads the working tree.'
       : undefined
   })
 

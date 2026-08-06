@@ -581,7 +581,7 @@ describe('an anchor that one write can repoint', () => {
       expect(reason).toContain('/p/.git is not a directory')
       expect(reason).toContain('linked worktree outside its main repository')
       expect(reason).toContain('--separate-git-dir')
-      expect(reason).toContain('--freeze=auto')
+      expect(reason).toContain('--freeze auto')
     }),
   )
 

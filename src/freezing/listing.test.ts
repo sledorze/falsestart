@@ -143,6 +143,20 @@ describe('the objects a ref holds', () => {
     }),
   )
 
+  // Reported as unverified by an adversarial review, so it is observed here rather than reasoned
+  // about: a blob whose bytes are not valid UTF-8 decodes to replacement characters and is handed on
+  // as content. It is the loader's business whether that parses, and it will not — which denies.
+  effect('hands on a blob that is not valid UTF-8 rather than failing the frame', () =>
+    Effect.gen(function* () {
+      const invalid = new Uint8Array([0x69, 0x64, 0x3a, 0x20, 0xff, 0xfe, 0x0a])
+      const stdout = bytes(encoder.encode(`${'a'.repeat(40)} blob ${invalid.length}\n`), invalid, encoder.encode('\n'))
+
+      const [content] = yield* parseBatchObjects(stdout, ['a'.repeat(40)])
+
+      expect(content).toBe('id: \uFFFD\uFFFD\n')
+    }),
+  )
+
   // T10 — the same failure through a different shape.
   effect('fails when git answered fewer frames than were requested', () =>
     Effect.gen(function* () {

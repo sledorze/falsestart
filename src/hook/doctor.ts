@@ -114,7 +114,7 @@ const describeFrozen = (source: Frozen, held: string): string => {
 const anchorWarning = (projectDirectory: string): string =>
   `UNVERIFIED — no directory between ${projectDirectory} and / has a .git DIRECTORY, so replacing ` +
   `one file repoints this repository and everything below would still read as frozen. Expected in a ` +
-  `linked worktree outside its main repository, or with --separate-git-dir. --freeze=require refuses ` +
+  `linked worktree outside its main repository, or with --separate-git-dir. --freeze require refuses ` +
   `to judge here instead.`
 
 export const diagnose = (
@@ -252,7 +252,7 @@ export const diagnose = (
         const drift = divergence(freeze.rules.documents, working)
         if (drift.length > 0) {
           lines.push(
-            `         ${drift.length} working-tree change(s) are NOT in effect — commit them, or pass --freeze=off:`,
+            `         ${drift.length} working-tree change(s) are NOT in effect — commit them, or pass --freeze off:`,
           )
           for (const entry of drift) {
             lines.push(`           ${entry.kind.padEnd(8)} ${entry.path}`)

@@ -78,6 +78,15 @@ project is not a git repository, the repository has no commit yet, the rules dir
 project repository, git does not track it (which includes `--preset` and `--rules pkg:`, both inside
 `node_modules`), it is a submodule, or the ref holds it as a symlink.
 
+"It is not a git repository" is established by looking for a `.git` **directory** between the project
+and the filesystem root, not by git declining to answer. git failing is not evidence that there is no
+repository, and treating it as such made one file outside the repository enough to disarm the guard.
+
+The submodule case is reported by name only when `--rules` names the submodule's own root, which is
+where the gitlink sits. With `--rules ./vendor/rules` inside a submodule at `vendor/`, the ref simply
+does not track that path and the reason is the more general "is not tracked at HEAD". Same verdict,
+less specific message.
+
 `Broken` needs positive prior evidence — a work tree, a ref that resolves or demonstrably does not in
 a repository that has refs, a tracked tree with at least one document — and it **never falls back to
 the working tree**, because a freeze that falls back on a git failure is one an agent defeats by

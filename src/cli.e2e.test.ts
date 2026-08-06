@@ -1305,4 +1305,81 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
       ),
     ),
   )
+  /**
+   * Cases an adversarial review flagged as unverified. Code reading said all of them fail closed;
+   * this repository's rule is that unobserved is unproven, so they are observed.
+   */
+  it.effect('denies rather than falling back when a committed rule document is not valid UTF-8', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        yield* fs.writeFile(path.join(root, 'rules', 'bad.yml'), new Uint8Array([0x69, 0x64, 0x3a, 0x20, 0xff, 0xfe, 0x0a]))
+        yield* commitAll(root)
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('bad.yml')
+      }),
+    ),
+  )
+
+  it.effect('refuses a --freeze-ref that names a tree rather than a commit', () =>
+    withProject({ 'rules/r.yml': PROJECT_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+        const tree = (yield* git(root, ['rev-parse', 'HEAD^{tree}'])).stdout.trim()
+
+        const result = yield* runIn(root, ['--rules', './rules', '--freeze-ref', tree], violation(root))
+
+        // Whatever it does, it must not be "read the working tree": a ref that is not a commit is
+        // either frozen against that tree or refused, and both are closed.
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+      }),
+    ),
+  )
+
+  it.effect('keeps freezing when the rules path contains a newline', () =>
+    withProject({}, (root) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const awkward = 'ru\nles'
+        yield* writeAll(root, { [`${awkward}/r.yml`]: PROJECT_RULE })
+        yield* commitAll(root)
+        yield* writeAll(root, { [`${awkward}/r.yml`]: PROJECT_RULE.replace("'**/*.ts'", "'**/never/**'") })
+
+        expect(yield* git(root, ['ls-tree', '-r', 'HEAD'])).toHaveProperty('exitCode', 0)
+        const result = yield* runIn(root, ['--rules', path.join('.', awkward)], violation(root))
+
+        expect(result.stdout).toContain('PROJECT RULE')
+      }),
+    ),
+  )
+  it.effect('denies rather than falling back when the committed tree is larger than the read buffer', () =>
+    withProject({}, (root) =>
+      Effect.gen(function* () {
+        // Past `maxBuffer`, `spawnSync` reports a SPAWN error rather than a non-zero exit, and its
+        // stderr is empty — so the reason has to carry the error itself or it says nothing at all.
+        const padding = `${'x'.repeat(1000)}\n`.repeat(1000)
+        const documents = Object.fromEntries(
+          Array.from({ length: 70 }, (_, index) => [
+            `rules/r${index}.yml`,
+            `${PROJECT_RULE.replace('no-as-any', `rule-${index}`)}note: |\n${padding}`,
+          ]),
+        )
+        yield* writeAll(root, documents)
+        yield* commitAll(root)
+
+        const result = yield* runIn(root, ['--rules', './rules'], violation(root))
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).toContain('could not read 70 rule document(s)')
+        expect(result.stdout).toContain('maxBuffer')
+      }),
+    ),
+  )
 })
