@@ -327,7 +327,7 @@ export const respond = (
     const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(input))
 
     if (parsed._tag === 'Failure') {
-      return emit.problem(`could not read the hook payload as JSON (${parsed.failure})`)
+      return emit.problem(`${contract.problemPrefix}could not read the hook payload as JSON (${parsed.failure})`)
     }
 
     if (!judgesPayload(parsed.success, agent)) {
