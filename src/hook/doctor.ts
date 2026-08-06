@@ -27,6 +27,7 @@ import {
 import { appliesTo, fallbacks, loadRules, readRuleDocuments } from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { divergence } from '../freezing/index.ts'
+import type { FailurePolicy } from './respond.ts'
 import { decide, WRITE_TOOLS } from './decide.ts'
 
 export interface Diagnosis {
@@ -48,6 +49,13 @@ export interface DiagnoseOptions {
   readonly changelogPath?: string | undefined
   readonly configPath: string | undefined
   /**
+   * The `--fail` policy the hook will run under, when the caller named one.
+   *
+   * `undefined` means nobody named one, and nothing is printed. OPTIONAL for the reason
+   * `changelogPath` is.
+   */
+  readonly failure?: FailurePolicy | undefined
+  /**
    * What a git ref committed, when the caller resolved one.
    *
    * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published, and a required field
@@ -56,6 +64,12 @@ export interface DiagnoseOptions {
   readonly freeze?: FreezeOutcome | undefined
   readonly projectDirectory: string
   readonly rulesDirectory: string
+  /**
+   * Why the caller could not resolve a rules source at all, when it could not.
+   *
+   * OPTIONAL for the reason `changelogPath` is. When set, `rulesDirectory` is never loaded from.
+   */
+  readonly unresolvedRules?: string | undefined
   readonly version: string
 }
 
@@ -121,7 +135,8 @@ export const diagnose = (
   options: DiagnoseOptions,
 ): Effect.Effect<Diagnosis, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
-    const { changelogPath, configPath, freeze, projectDirectory, rulesDirectory, version } = options
+    const { changelogPath, configPath, failure, freeze, projectDirectory, rulesDirectory, unresolvedRules, version } =
+      options
     const lines: string[] = [`falsestart ${version}`]
 
     // Every step below reads the FROZEN bytes where there are any. A report that resolved the
@@ -152,7 +167,29 @@ export const diagnose = (
     if (changelogPath !== undefined && (yield* isReadableFile(changelogPath))) {
       lines.push(`changes  ${changelogPath} — what this version changed, including any rule that is new`)
     }
+
+    // Printed only when `--fail` was NAMED, and printed here — above everything that can return
+    // early. A line on every run would announce the default, which is no news, and would be the
+    // thing `anchorWarning`'s comment forbids: a line readers stop seeing. Above the early returns
+    // because the person asking "why was that write denied with no finding" is precisely the one
+    // whose installation is in one of those states, and a policy line only a healthy run prints is
+    // a policy line nobody sees.
+    if (failure !== undefined) {
+      lines.push(
+        failure === 'closed'
+          ? 'policy   --fail closed — a write falsestart cannot check is DENIED. A malformed hook payload still proceeds.'
+          : 'policy   --fail open — a write falsestart cannot check is reported on stderr and proceeds.',
+      )
+    }
     lines.push('')
+
+    // Reported rather than left to the caller's stderr: this is the one resolution failure that
+    // happens before `diagnose` is reachable at all, so a caller that returned early on it produced
+    // no report whatsoever — for the single question this command exists to answer.
+    if (unresolvedRules !== undefined) {
+      lines.push(`rules    COULD NOT RESOLVE — ${unresolvedRules}`)
+      return { healthy: false, lines }
+    }
 
     const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
     if (loaded._tag === 'Failure') {
