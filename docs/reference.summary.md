@@ -6,7 +6,10 @@ The lists: command line, rule document format, configuration, shipped rules, lib
 in the payload (Claude Code always, Copilot in the VS Code compatible spelling), and any other name
 is refused rather than judged: exit 1 + stderr under Claude Code, exit 0 + stderr under Copilot,
 never a denial in either `--fail` policy, answered before the rules source, the freeze or the rule
-tree are touched. It used to judge a `PostToolUse` payload and emit a document naming `PreToolUse`
+tree are touched. Exit 0 under Copilot is the DECLARED contract's price list, not an inference from
+the event name — GitHub's fail-closed rule is `preToolUse`-specific, but a shim could send any event
+name to a hook registered there. A misdeclared `--agent` outranks the refusal, because a tool name is
+proof of who is on the other end and an event name is not. It used to judge a `PostToolUse` payload and emit a document naming `PreToolUse`
 with a `permissionDecision` that event does not define, which the runtime ignores in silence.
 `PostToolUse` will not be implemented: neither runtime can block after the tool has run, so deny and
 advise collapse and `severity` stops meaning anything — that is `falsestart scan`. A payload with no

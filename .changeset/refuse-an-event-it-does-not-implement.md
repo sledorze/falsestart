@@ -33,10 +33,17 @@ What changes is a registration at some other event, which was never being guarde
   ignored document. Exit 1 is a non-blocking error notice — the write still proceeds — and it is the
   row `PostToolUse` itself is stuck with, since exit 2 there feeds stderr to the model as a finding
   about code nothing judged.
-- **`--agent copilot`:** exit `0` with the line on stderr, and **never** exit 1 — every non-zero exit
-  but 2 denies there, so a refusal that exited 1 would deny every tool call in the repository over a
-  mistake in a hook config. Under `--fail closed` a violating write at `PostToolUse` used to exit
-  `2`, i.e. deny a tool call the runtime had already run; it no longer denies in any policy.
+- **`--agent copilot`:** exit `0` with the line on stderr, and **never** exit 1. A violating write at
+  `PostToolUse` used to exit `2` — a deny, of a tool call the runtime had already run — in **both**
+  `--fail` policies, because the deny came from the rule rather than from the policy. It no longer
+  denies in either. Exit 0 is the declared contract's price list rather than an inference from the
+  payload: GitHub's fail-closed rule is `preToolUse`-specific, but falsestart never reads an exit
+  code off an event name, and a shim in front of a hook registered at `preToolUse` could send any
+  event name it liked — there an exit 1 would deny every tool call in the repository.
+- **A misdeclared `--agent` still outranks all of this.** A payload naming a tool from the other
+  contract's table is answered `Set --agent claude-code` on that runtime's channel at exit 1,
+  whatever event it names — a tool name is proof of who is on the other end and `hook_event_name` is
+  not, so the misdeclaration is the only one of the two that can be read where it lands.
 - A tool call falsestart would have deferred anyway (`Bash`, `view`, `grep`) stays silent at every
   event, and the refusal is answered before the rules source, the freeze and the rule tree are
   touched, so it costs what a deferred call costs.

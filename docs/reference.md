@@ -380,10 +380,24 @@ VS Code compatible spelling a PascalCase hook config selects. When that name is 
 falsestart: this hook was invoked for `PostToolUse`, and falsestart only implements `PreToolUse` — nothing was judged. A decision emitted here would name the wrong event and be ignored. Register falsestart on PreToolUse, or run `falsestart scan` for after-the-write reporting.
 ```
 
-Exit `1` with that line on stderr under Claude Code; exit `0` with it on stderr under Copilot, where
-every non-zero exit but 2 denies and a registration mistake must not be able to block a tool call. It
-never denies in either `--fail` policy, and it is answered before the rules source, the freeze and
-the rule tree are touched, so it costs what a deferred call costs.
+Exit `1` with that line on stderr under Claude Code; exit `0` with it on stderr under `--agent
+copilot`. It never denies in either `--fail` policy, and it is answered before the rules source, the
+freeze and the rule tree are touched, so it costs what a deferred call costs.
+
+**Exit 0 under Copilot is the declared contract's price list, not an inference from the payload.**
+GitHub's fail-closed rule is `preToolUse`-specific — "`preToolUse` is fail-closed: a non-zero exit
+(other than exit 2) denies the tool call", while other events are fail-open — so at a hook genuinely
+registered on `postToolUse` an exit 1 would not deny. falsestart does not price its exit codes off
+the event name in the payload anyway: the runtime, and with it the whole output contract, is
+[declared](#which-agent-is-on-the-other-end), and a normalising shim in front of a hook registered at
+`preToolUse` could send any `hook_event_name` it liked. There the deny would be real, and it would
+deny every tool call in the repository over a mistake in a hook config.
+
+**A misdeclared `--agent` outranks this notice**, because only one of the two can be read. A tool
+name is structural proof of which runtime sent the payload and `hook_event_name` is not — both
+runtimes send it — so a payload naming `Write` under `--agent copilot` is answered
+`Set --agent claude-code` on Claude Code's channel at exit 1, whatever event it names. The event
+refusal arrives on the next call, once the flag names the runtime that is answering.
 
 **`PostToolUse` is the case worth naming.** falsestart used to judge that payload as though it were a
 `PreToolUse` one and emit a document naming `PreToolUse` and carrying `permissionDecision` — a field
@@ -394,7 +408,7 @@ showed as registered.
 
 **It is not going to be implemented there**, and the reason is not effort. Neither runtime can block
 once the tool has run — Claude Code's exit-2 row for `PostToolUse` reads "No | Shows stderr to Claude;
-the tool already ran", and Copilot's `postToolUse` is fail-open on every non-zero exit — so `Deny`
+the tool already ran", and Copilot's `postToolUse` is fail-open on every non-zero exit, 2 included — so `Deny`
 and `Advise` collapse into one emission and the `severity` of every rule stops meaning anything.
 [`falsestart scan`](#falsestart-scan-paths) already covers that ground: register it as your
 `PostToolUse` command if you want after-the-write reporting.

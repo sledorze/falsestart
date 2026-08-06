@@ -360,11 +360,9 @@ export const respond = (
     //
     // It is emitted on the DECLARED contract's channel, unlike `Misdeclared` below, and the
     // asymmetry is evidential rather than stylistic: a tool name is structural proof of who is on
-    // the other end, and `hook_event_name` is not — both runtimes send it. Where both mistakes are
-    // made at once (`--agent copilot` in front of Claude Code, registered at `PostToolUse`) this
-    // one wins and lands on a channel Claude Code shows only in debug. That is no worse than
-    // today's silence, and it resolves the moment the registration is fixed, at which point the
-    // misdeclaration is answered loudly.
+    // the other end, and `hook_event_name` is not — both runtimes send it. Which is why a payload
+    // carrying that proof never reaches here: `judgedTarget` lets the misdeclaration win, because
+    // this notice would go out at exit 0 on the wrong runtime's channel and be read by nobody.
     if (target._tag === 'Unsupported') {
       return emit.problem(target.problem)
     }
@@ -470,8 +468,9 @@ export const respond = (
         //
         // The discriminator is STRUCTURAL and never the text of the problem: `decide` can only reach
         // `Report` from a malformed target or from a rule that could not run, and `judgedTarget` has
-        // already said which. A misdeclared one never gets here — it is answered above, before any
-        // guard failure, because nothing in the session is being judged.
+        // already said which. Neither of the other two sources gets here — a misdeclared `--agent`
+        // and a foreign hook event are both answered above, before any guard failure, because
+        // nothing in the session is being judged.
         return target._tag === 'Malformed'
           ? emit.problem(decision.problem)
           : guardFailure(emit, options.failure, decision.problem)

@@ -258,6 +258,21 @@ const spokenEnvelope = (
 }
 
 /**
+ * The contract a payload's tool name really belongs to, when it is not the declared one's.
+ *
+ * `undefined` covers three different things on purpose — no tool name in a spelling this contract
+ * reads, a tool this contract owns, and a tool nobody owns — because every caller asks the same
+ * question of it: is there structural evidence that ANOTHER runtime sent this payload. Membership
+ * in a declared, closed table is that evidence; the shape of the name is not.
+ */
+const foreignTool = (payload: Record<string, unknown>, contract: AgentContract): AgentId | undefined => {
+  const spoken = spokenEnvelope(payload, contract)
+  return spoken === undefined || spoken.tool in contract.tools
+    ? undefined
+    : AGENTS.find((id) => id !== contract.id && spoken.tool in AGENT_CONTRACTS[id].tools)
+}
+
+/**
  * Whether this payload is even a candidate for judgement.
  *
  * Cheap and deliberately separate from `decide`, because the hook fires on EVERY tool call. A
@@ -359,8 +374,17 @@ export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedT
   // write neither runtime can block, so `Deny` and `Advise` collapse into one emission and the
   // `severity` dimension of every rule stops meaning anything. `falsestart scan` already covers
   // that ground, so the message names it rather than pretending there is a judgement to make here.
+  //
+  // A misdeclared `--agent` outranks it, and that is a CHANNEL argument rather than a priority
+  // call. A tool name is structural proof of which runtime sent this; `hook_event_name` is not,
+  // because both runtimes send it. Where the payload carries that proof, the misdeclaration is the
+  // only answer that can be emitted where the runtime really there will read it — measured:
+  // `--agent copilot` in front of a Claude Code payload at `PostToolUse` says `Set --agent
+  // claude-code` at exit 1, which Claude Code shows in the transcript, where the event refusal
+  // would go out at exit 0 on Copilot's channel and reach the debug log and nothing else. The
+  // event refusal arrives on the next call, once the flag names the runtime that is answering.
   const event = payload[EVENT_KEY]
-  if (typeof event === 'string' && event !== IMPLEMENTED_EVENT) {
+  if (typeof event === 'string' && event !== IMPLEMENTED_EVENT && foreignTool(payload, contract) === undefined) {
     return {
       _tag: 'Unsupported',
       problem:
@@ -393,7 +417,10 @@ export const judgedTarget = (payload: unknown, contract: AgentContract): JudgedT
 
   const fields = contract.tools[spoken.tool]
   if (fields === undefined) {
-    const elsewhere = AGENTS.find((id) => id !== contract.id && spoken.tool in AGENT_CONTRACTS[id].tools)
+    // The same question the event check asked, asked once more rather than threaded through as a
+    // parameter: the answer is two property reads and a two-element `find`, and a parameter would
+    // make the two clauses able to disagree about what counts as evidence.
+    const elsewhere = foreignTool(payload, contract)
     return elsewhere === undefined
       ? { _tag: 'Deferred' }
       : {
