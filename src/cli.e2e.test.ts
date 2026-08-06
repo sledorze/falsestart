@@ -1457,3 +1457,118 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, en
     ),
   )
 })
+
+/**
+ * The Copilot contract through the shipped bundle.
+ *
+ * `src/cli.ts` is excluded from the coverage ratchet and from mutation testing, so these are the
+ * only tests that see the refusal code and the broken-pipe forgiveness at all. They are also the
+ * only place the exit code that reaches the operating system is observed, which is the entire point
+ * under a runtime where every non-zero exit other than 2 denies the tool call.
+ */
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('the Copilot contract, through the binary', (it) => {
+  const copilotRun = (rulesDirectory: string, args: readonly string[], payload: string) =>
+    Effect.gen(function* () {
+      const configPath = yield* withEmptyConfig(rulesDirectory)
+      return yield* runCliRaw(['--rules', rulesDirectory, '--config', configPath, ...args], payload)
+    })
+
+  // T-A24 — including the JSON-encoded `toolArgs` that real invocations carry, and the absence of
+  // `hookSpecificOutput`, which is the envelope Copilot ignores.
+  it.effect('denies a Copilot edit with exit 2 and a top-level deny document', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const result = yield* copilotRun(
+          rules,
+          ['--agent', 'copilot'],
+          JSON.stringify({
+            cwd: '/r',
+            toolArgs: JSON.stringify({ new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' }),
+            toolName: 'edit',
+          }),
+        )
+
+        expect(result.exitCode).toBe(2)
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+        expect(result.stdout).not.toContain('hookSpecificOutput')
+        expect(result.stderr).toContain('as any')
+      }),
+    ),
+  )
+
+  // T-A25 — the traffic that makes up most of a session, in both spellings. Silence here is the
+  // difference between a guard and an outage: today, unconfigured, every one of these denies.
+  it.effect('says nothing at all about a Copilot tool call that writes nothing', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        for (const payload of [
+          JSON.stringify({ toolArgs: '{"command":"ls"}', toolName: 'bash' }),
+          JSON.stringify({ tool_input: { command: 'ls' }, tool_name: 'bash' }),
+        ]) {
+          const result = yield* copilotRun(rules, ['--agent', 'copilot'], payload)
+
+          expect(result.exitCode).toBe(0)
+          expect(result.stdout).toBe('')
+          expect(result.stderr).toBe('')
+        }
+      }),
+    ),
+  )
+
+  // T-A26a — a refused command line must never be able to block a write, and under Copilot the only
+  // code that satisfies that is 0. The two MISSPELLED rows are the ones that matter: the likeliest
+  // typo in a brand-new flag is the flag's own value, and refusing it at exit 1 in front of Copilot
+  // denies every tool call in the repository rather than printing a message.
+  it.effect('cannot deny anything when the command line names any agent but claude-code', () =>
+    Effect.gen(function* () {
+      for (const args of [
+        ['--agent', 'copilot', '--bogus'],
+        ['--agent', 'copilto', '--bogus'],
+        ['--agent', '--bogus'],
+      ]) {
+        const result = yield* runCliRaw(args, '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toBe('')
+        expect(result.stderr).not.toBe('')
+      }
+    }),
+  )
+
+  // T-A26b — the control. Cannot be seen failing by withholding code; guarded by making the
+  // condition unconditionally true and watching both rows drop to 0.
+  it.effect('still refuses at exit 1 where no agent, or claude-code, was named', () =>
+    Effect.gen(function* () {
+      expect(yield* runCliRaw(['--bogus'], '')).toHaveProperty('exitCode', 1)
+      expect(yield* runCliRaw(['--agent', 'claude-code', '--bogus'], '')).toHaveProperty('exitCode', 1)
+    }),
+  )
+
+  // T-A26c — `runMain` exits 1 on any escaping failure, and exit 1 denies under Copilot. Writing
+  // the response is the one fallible step left on the hook path, and a reader that closed the pipe
+  // is not this command's failure. Only a real pipeline shows it: the in-process spawner collects
+  // stdout to completion, so it can never be the reader that leaves.
+  it.effect('does not turn a reader that closed the pipe into a denial', () =>
+    withRules({ 'soft.yml': noAsAny.replace('severity: error', 'severity: warning') }, (rules) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const configPath = yield* withEmptyConfig(rules)
+        const payload = JSON.stringify({
+          cwd: '/r',
+          toolArgs: { new_str: 'const x = v as any', old_str: '', path: '/r/a.ts' },
+          toolName: 'edit',
+        })
+        const payloadPath = path.join(rules, 'payload.json')
+        yield* (yield* FileSystem.FileSystem).writeFileString(payloadPath, payload)
+
+        const script =
+          `node ${CLI} --rules ${rules} --config ${configPath} --agent copilot < ${payloadPath} 2>&1 | true; ` +
+          `exit "\${PIPESTATUS[0]}"`
+        const handle = yield* spawner.spawn(ChildProcess.make('bash', ['-c', script]))
+
+        expect(yield* handle.exitCode).not.toBe(1)
+      }).pipe(Effect.scoped),
+    ),
+  )
+})
