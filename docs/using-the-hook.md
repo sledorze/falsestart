@@ -994,9 +994,29 @@ ignores:
 Scope every rule with `files`. A rule with no `files` runs against every path, including ones
 where its language makes no sense.
 
-Globs are matched against the path **relative to the project root** the hook reports (`cwd`), so
-`src/**/*.ts` works as written. A file outside that root keeps its absolute path, and a rule can
-still reach it with a leading `**/`.
+Globs are matched against the path **relative to the `cwd` the payload carries**, so `src/**/*.ts`
+works as written. A file outside that directory keeps its absolute path, and a rule can still reach
+it with a leading `**/`.
+
+When the payload carries **no** `cwd`, the directory falsestart is running in stands in. Claude Code
+always sends one; the Copilot envelope is provisional and anything else driving the hook may not, and
+before this an absent `cwd` meant the absolute path was matched raw — so every repo-relative glob
+admitted nothing, silently, in an installation `--doctor` called healthy.
+
+`--doctor` prints both halves, because it reads no payload and so can only name the fallback:
+
+```
+scope
+         paths below are matched relative to /repo
+         a judged write uses the payload's cwd when it carries one, and this directory when it does not
+           4 rule(s) apply to src/a.ts
+```
+
+**If those two directories differ, read the first line as a warning.** The payload wins, and only you
+know which of the two your globs were written against — `cd packages/app && falsestart --rules
+../../rules` with the payload naming the repository root is a perfectly good setup, and so is the
+reverse. When a rule you expected to fire does not, run with `--warn-unscoped`: it prints the path
+the globs were actually matched against.
 
 Notebooks are scoped by the notebook's own path, not by the cell's language. A rule scoped to
 `**/*.ts` will not see TypeScript typed into a `.ipynb` cell — add `**/*.ipynb` to its `files` if

@@ -419,11 +419,20 @@ export const diagnose = (
     const reach = PROBE_PATHS.map(
       (path) => [path, scoped.success.filter((rule) => appliesTo(rule, path)).length] as const,
     )
-    lines.push('scope')
-    for (const [path, count] of reach) {
-      lines.push(`         ${`${count}`.padStart(3)} rule(s) apply to ${path}`)
-    }
-    lines.push('')
+    // WHICH directory those probe paths are relative to, said outright — including the part this
+    // command cannot answer.
+    //
+    // Every count below depends on the anchor, and `--doctor` reads no payload, so it can only name
+    // the fallback. Stating just this directory would be a claim about judged writes that is false
+    // whenever the payload names a different one, and that disagreement is the failure mode: every
+    // repo-relative glob then admits nothing, silently, in an installation this report calls healthy.
+    lines.push(
+      'scope',
+      `         paths below are matched relative to ${projectDirectory}`,
+      "         a judged write uses the payload's cwd when it carries one, and this directory when it does not",
+      ...reach.map(([path, count]) => `         ${`${count}`.padStart(3)} rule(s) apply to ${path}`),
+      '',
+    )
 
     // Reported, NOT failed. "Misses five `src/` paths" is not "misses everything": a rule set scoped
     // to `lib/**` or a monorepo's `packages/*/src/**` blocks perfectly well and probes zero here.
