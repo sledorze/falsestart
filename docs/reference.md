@@ -37,16 +37,23 @@ first — `--rules pkg:@acme/rules --rules ./local` and the reverse both load th
 last one wins" is not the rule there either. Only one `--preset` and one `--rules` source per
 invocation; layering more still means more hook entries.
 
-Only the `--rules` source can be frozen. A preset resolves inside `node_modules`, which the
-project's repository does not track, so under `auto` `--freeze` reads the working tree for it —
-exactly as it did when a preset was the only source.
+**Every source is frozen independently**, and by where its path actually sits rather than by what
+named it. A preset usually resolves inside `node_modules`, which your repository does not track, so
+`auto` reads the working tree for it and `require` refuses it. A repository that VENDORS its
+falsestart install commits those documents, and there the ref accounts for them exactly as it does
+for your own directory — so a vendored preset is genuinely frozen, and `require` is satisfied.
 
-Under `--freeze require` a preset is **refused**, whether or not a `--rules` directory is named
-alongside it. `require` means "judge nothing the ref cannot account for", and no ref of your
-repository accounts for a rule set that ships inside the installed package. Combining the two does
-not buy an exemption: a run that froze only your own directory would report `frozen`, exit 0, and
-judge with an unverified preset that the report never named. Drop `--preset` under `require`, or
-vendor the rules you want into the directory you commit.
+`--doctor` prints one `shipped` row per preset saying which of the two it is, because nothing else
+can tell them apart:
+
+```
+freeze   ref     HEAD
+         shipped frozen — 6 document(s) from ./vendor/falsestart/rules/clean-code
+         rules   frozen — 3 document(s) from ./.falsestart/rules
+```
+
+If `require` refuses your preset, either drop `--preset` and point `--rules` at rule documents you
+commit, or vendor the install so the ref covers it.
 
 ### `falsestart scan [paths…]`
 

@@ -454,14 +454,17 @@ describe('naming the sources an invocation loads', () => {
       // over loads a preset as an empty rule set the moment a freeze is in effect. That mistake left
       // the whole suite green at 698 tests while the real binary broke against any frozen repository.
       expect(
-        ruleSourcesOf({ frozenRules: frozen, rulesDirectory: './own', shippedDirectories: ['/pkg/clean-code'] }),
+        ruleSourcesOf({ frozenRules: frozen, rulesDirectory: './own', shipped: [{ directory: '/pkg/clean-code' }] }),
       ).toEqual([{ directory: '/pkg/clean-code' }, { directory: './own', documents: frozen }])
     }),
   )
 
   effect("puts the shipped sources first, so they are reported and merged before the caller's own", () =>
     Effect.sync(() => {
-      const sources = ruleSourcesOf({ rulesDirectory: './own', shippedDirectories: ['/pkg/a', '/pkg/b'] })
+      const sources = ruleSourcesOf({
+        rulesDirectory: './own',
+        shipped: [{ directory: '/pkg/a' }, { directory: '/pkg/b' }],
+      })
 
       expect(sources.map((source) => source.directory)).toEqual(['/pkg/a', '/pkg/b', './own'])
     }),

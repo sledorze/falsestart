@@ -18,9 +18,18 @@ export type {
   FreezeMode,
   FreezeOutcome,
   Frozen,
+  ShippedSource,
   GitAnswer,
   WorkTree,
 } from './freeze.ts'
-export { classifyConfig, classifyRules, containedPath, divergence, freeze, FREEZE_MODES } from './freeze.ts'
+export {
+  classifyConfig,
+  classifyRules,
+  containedPath,
+  divergence,
+  freeze,
+  FREEZE_MODES,
+  shippedRuleSources,
+} from './freeze.ts'
 export type { Absent, TreeEntry } from './listing.ts'
 export { isAbsent, parseBatchObjects, parseTreeListing } from './listing.ts'

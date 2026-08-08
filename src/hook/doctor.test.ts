@@ -483,7 +483,7 @@ layer(platform)('the doctor under a freeze', (it) => {
     withTree({ 'a.yml': committed }, (rules) =>
       Effect.gen(function* () {
         const report = (yield* run({
-          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }), shipped: [] },
           projectDirectory: rules,
           rulesDirectory: rules,
         })).lines.join('\n')
@@ -506,6 +506,7 @@ layer(platform)('the doctor under a freeze', (it) => {
             freeze: {
               config: frozenWith({}),
               rules: frozenWith({ 'a.yml': committed, 'gone.yml': committed.replace('no-as-any', 'gone') }),
+              shipped: [],
             },
             projectDirectory: rules,
             rulesDirectory: rules,
@@ -528,6 +529,7 @@ layer(platform)('the doctor under a freeze', (it) => {
           freeze: {
             config: { _tag: 'Unfrozen', reason: 'no falsestart config at HEAD' },
             rules: { _tag: 'Unfrozen', reason: `${rules} is not tracked at HEAD` },
+            shipped: [],
           },
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -548,6 +550,7 @@ layer(platform)('the doctor under a freeze', (it) => {
           freeze: {
             config: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
             rules: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+            shipped: [],
           },
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -569,6 +572,7 @@ layer(platform)('the doctor under a freeze', (it) => {
           freeze: {
             config: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
             rules: { _tag: 'Frozen', anchor: 'unverified', documents: new Map([['a.yml', committed]]), ref: 'HEAD' },
+            shipped: [],
           },
           projectDirectory: rules,
           rulesDirectory: rules,
@@ -591,7 +595,7 @@ layer(platform)('the doctor under a freeze', (it) => {
     withTree({ 'a.yml': committed }, (rules) =>
       Effect.gen(function* () {
         const report = (yield* run({
-          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }), shipped: [] },
           projectDirectory: rules,
           rulesDirectory: rules,
         })).lines.join('\n')
@@ -608,7 +612,7 @@ layer(platform)('the doctor under a freeze', (it) => {
       Effect.gen(function* () {
         const path = yield* Path.Path
         const report = (yield* run({
-          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }), shipped: [] },
           projectDirectory: root,
           rulesDirectory: path.join(root, 'deleted'),
         })).lines.join('\n')
@@ -631,7 +635,7 @@ layer(platform)('the doctor under a freeze', (it) => {
           rulesDirectory: rules,
         })).lines.join('\n')
         const none = (yield* run({
-          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }) },
+          freeze: { config: frozenWith({}), rules: frozenWith({ 'a.yml': committed }), shipped: [] },
           projectDirectory: rules,
           rulesDirectory: rules,
         })).lines.join('\n')
@@ -770,6 +774,54 @@ layer(platform)('a report over more than one rule source', (it) => {
           expect(diagnosis.lines.join('\n')).toContain(own)
         }),
       ),
+    ),
+  )
+})
+
+layer(platform)('the freeze block over more than one rule source', (it) => {
+  it.effect('gives every shipped source its own row, saying which of the two it is', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        // A vendored preset the ref really holds and one in node_modules that it does not are
+        // indistinguishable from any other line of the report, so each says so itself.
+        const report = (yield* run({
+          freeze: {
+            config: frozenWith({}),
+            rules: frozenWith({ 'a.yml': committed }),
+            shipped: [
+              { directory: './vendor/rules', source: frozenWith({ 'v.yml': committed }) },
+              { directory: '/pkg/rules', source: { _tag: 'Unfrozen', reason: 'outside the project repository' } },
+            ],
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })).lines.join('\n')
+
+        expect(report).toContain('shipped frozen — 1 document(s) from ./vendor/rules')
+        expect(report).toContain('shipped not frozen — outside the project repository')
+      }),
+    ),
+  )
+
+  it.effect('fails the diagnosis when a shipped source could not be read', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      Effect.gen(function* () {
+        // The whole point of classifying them. A preset the ref cannot account for under `require`
+        // is a guard that cannot do its job, and reporting healthy there is the failure this
+        // command exists to prevent.
+        const diagnosis = yield* run({
+          freeze: {
+            config: frozenWith({}),
+            rules: frozenWith({ 'a.yml': committed }),
+            shipped: [{ directory: '/pkg/rules', source: { _tag: 'Broken', reason: 'outside the repository' } }],
+          },
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('COULD NOT BE READ — outside the repository')
+      }),
     ),
   )
 })

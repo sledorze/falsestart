@@ -1,7 +1,7 @@
 {
   "refs": [
     {
-      "hash": "fd63b5e633ba5f4cbe1fe100f415bb5f92566b6a6374d41f6dba37e8bba200a2",
+      "hash": "fb8c3d8ac7b74dbe9764b3fc00c5df0179014b59f81af6c349c070e1a9689257",
       "target": "./reference.md"
     },
     {
@@ -25,7 +25,7 @@
       "target": "../src/scanning/index.ts"
     },
     {
-      "hash": "f7c6dca1ebf9e71c34c663292938891a31b18e8a632d324f272864b1063f7b71",
+      "hash": "5926cf47be8f7c8ecd98a9ad663b86e531d7844411a8236bd7a281b238810bea",
       "target": "../src/freezing/index.ts"
     },
     {
@@ -37,7 +37,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "71ba74926b65764d5798a3f0558e4322b1fcfe444568b71c81aa3cc2fc2aa91d",
+      "hash": "50763c45c47e836882a5aa4a326d41c306bb8b2bb5d1175f237aec49efca68ec",
       "target": "../src/cli.ts"
     }
   ]

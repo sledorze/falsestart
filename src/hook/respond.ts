@@ -23,7 +23,7 @@ import { Effect, FileSystem, Path, Schema } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
 import { isRuleDocument, loadRuleSources, ruleSourcesOf } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
-import { containedPath } from '../freezing/index.ts'
+import { containedPath, shippedRuleSources } from '../freezing/index.ts'
 import type { AgentId } from './decide.ts'
 import { contractFor, decide, IMPLEMENTED_EVENT, judgedTarget, judgesPayload } from './decide.ts'
 
@@ -180,7 +180,9 @@ const join = (text: string, extra: string | undefined): string => (extra === und
 const frozenFailures = (outcome: FreezeOutcome | undefined): readonly string[] =>
   outcome === undefined
     ? []
-    : [outcome.rules, outcome.config].flatMap((source) => (source._tag === 'Broken' ? [source.reason] : []))
+    : [outcome.rules, outcome.config, ...(outcome.shipped ?? []).map((entry) => entry.source)].flatMap((source) =>
+        source._tag === 'Broken' ? [source.reason] : [],
+      )
 
 const documentsOf = (source: Frozen | undefined): ReadonlyMap<string, string> | undefined =>
   source?._tag === 'Frozen' ? source.documents : undefined
@@ -289,14 +291,16 @@ export interface RespondOptions {
    */
   readonly rulesDirectory: string
   /**
-   * Rule directories loaded IN ADDITION to `rulesDirectory`, ahead of it, always from the working
-   * tree.
+   * Rule sources loaded IN ADDITION to `rulesDirectory`, ahead of it — a `--preset`.
    *
-   * Only a `--preset` lands here, and it is never frozen because it lives inside `node_modules`,
-   * which the project's ref does not track. Absent means "just `rulesDirectory`" — the 0.2.0
-   * behaviour, so a library call that predates this is unchanged. OPTIONAL for the reason `failure`
-   * is: `RespondOptions` is published, and a required field here is a compile error in every caller
-   * written before it existed.
+   * Each carries its OWN documents rather than sharing the caller's. A preset usually resolves
+   * inside `node_modules`, which the project's ref does not track, and reads the working tree; a
+   * repository that VENDORS its falsestart install commits those documents, and there the ref holds
+   * them exactly as it holds anything else. Assuming either way is what made a repo with six of
+   * these documents in `git ls-files` be told they were outside itself.
+   *
+   * Absent means "just `rulesDirectory`" — the 0.2.0 behaviour, so a library call that predates this
+   * is unchanged. OPTIONAL for the reason `failure` is.
    */
   readonly shippedDirectories?: readonly string[] | undefined
   /**
@@ -421,7 +425,11 @@ export const respond = (
     // A failure on EITHER frozen source has to deny, and the overrides step reads both.
     const eitherFrozen = [frozenRules, frozenConfig].some((documents) => documents !== undefined)
 
-    const sources = ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories: options.shippedDirectories })
+    const sources = ruleSourcesOf({
+      frozenRules,
+      rulesDirectory,
+      shipped: shippedRuleSources(outcome, options.shippedDirectories ?? []),
+    })
     const loaded = yield* Effect.result(loadRuleSources(sources))
     if (loaded._tag === 'Failure') {
       return refuse(
