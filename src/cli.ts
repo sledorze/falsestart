@@ -31,8 +31,7 @@ import {
   writeBaseline,
 } from './scanning/index.ts'
 import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
-import type { RuleSource } from './checking/index.ts'
-import { isRuleDocument, loadRuleSources, ruleListText } from './checking/index.ts'
+import { isRuleDocument, loadRuleSources, ruleListText, ruleSourcesOf } from './checking/index.ts'
 import type {
   AnchorResolution,
   ConfigSource,
@@ -241,11 +240,12 @@ const resolveFreeze = (options: {
   readonly ref: string
   readonly refExplicit: boolean
   readonly rulesDirectory: string
+  readonly shippedDirectories: readonly string[]
 }): Effect.Effect<FreezeOutcome, never, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const { configPath, mode, projectDirectory, ref, refExplicit, rulesDirectory } = options
+    const { configPath, mode, projectDirectory, ref, refExplicit, rulesDirectory, shippedDirectories } = options
 
     const real = (candidate: string) => fs.realPath(candidate).pipe(Effect.orElseSucceed(() => candidate))
     const projectReal = yield* real(projectDirectory)
@@ -310,6 +310,7 @@ const resolveFreeze = (options: {
       repository,
       rulesDirectory,
       rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
+      shippedDirectories,
       workTree,
     })
   })
@@ -451,17 +452,8 @@ const program = Effect.gen(function* () {
   /** The sources loaded ahead of `rulesDirectory` — a preset, and never frozen. */
   const shippedDirectories = directories.slice(0, -1)
 
-  /**
-   * Every rule source, with the committed bytes attached to the only one that can have any.
-   *
-   * The shipped directories deliberately get none: they are inside `node_modules`, so a `documents`
-   * map read from the project's ref holds nothing of theirs, and handing it over would load a preset
-   * as an empty rule set the moment a freeze was in effect.
-   */
-  const ruleSources = (frozenRules: ReadonlyMap<string, string> | undefined): readonly RuleSource[] => [
-    ...shippedDirectories.map((directory) => ({ directory })),
-    { directory: rulesDirectory, documents: frozenRules },
-  ]
+  const ruleSources = (frozenRules: ReadonlyMap<string, string> | undefined) =>
+    ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories })
 
   /**
    * The freeze for whichever mode is running, built from the same command line every time.
@@ -479,6 +471,7 @@ const program = Effect.gen(function* () {
       // unambiguously broken rather than a fresh-repository special case.
       refExplicit: options.freezeRef !== DEFAULT_FREEZE_REF,
       rulesDirectory,
+      shippedDirectories,
     })
 
   /** The documents a frozen source holds, or nothing when the working tree is what is in effect. */

@@ -17,6 +17,7 @@ export {
   mergeRuleSets,
   readRuleDocuments,
   RuleLoadError,
+  ruleSourcesOf,
 } from './loader.ts'
 export type { Violation } from './matcher.ts'
 export type { ParsedSource } from './matcher.ts'

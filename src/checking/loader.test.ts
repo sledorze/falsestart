@@ -2,7 +2,7 @@ import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
 import type { RuleGroup } from './loader.ts'
-import { loadRules, loadRuleSources, mergeRuleSets, readRuleDocuments } from './loader.ts'
+import { loadRules, loadRuleSources, mergeRuleSets, readRuleDocuments, ruleSourcesOf } from './loader.ts'
 import type { Rule } from './rule.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
@@ -439,5 +439,37 @@ layer(platform)('loading several rule sources at once', (it) => {
         }),
       ),
     ),
+  )
+})
+
+describe('naming the sources an invocation loads', () => {
+  const frozen = new Map([['a.yml', 'id: committed\n']])
+
+  // `effect` + `Effect.sync` rather than a bare `it`: the file's `layer(...)` blocks bind their own
+  // `it`, and importing one alongside them shadows it.
+  effect("gives the committed bytes to the caller's own directory and to nothing else", () =>
+    Effect.sync(() => {
+      // The invariant this function exists for. A shipped directory lives inside the installed
+      // package, so a map read from the PROJECT's ref holds nothing of its documents — handing it
+      // over loads a preset as an empty rule set the moment a freeze is in effect. That mistake left
+      // the whole suite green at 698 tests while the real binary broke against any frozen repository.
+      expect(
+        ruleSourcesOf({ frozenRules: frozen, rulesDirectory: './own', shippedDirectories: ['/pkg/clean-code'] }),
+      ).toEqual([{ directory: '/pkg/clean-code' }, { directory: './own', documents: frozen }])
+    }),
+  )
+
+  effect("puts the shipped sources first, so they are reported and merged before the caller's own", () =>
+    Effect.sync(() => {
+      const sources = ruleSourcesOf({ rulesDirectory: './own', shippedDirectories: ['/pkg/a', '/pkg/b'] })
+
+      expect(sources.map((source) => source.directory)).toEqual(['/pkg/a', '/pkg/b', './own'])
+    }),
+  )
+
+  effect('is just the one source when nothing was shipped alongside', () =>
+    Effect.sync(() => {
+      expect(ruleSourcesOf({ rulesDirectory: './own' })).toEqual([{ directory: './own', documents: undefined }])
+    }),
   )
 })

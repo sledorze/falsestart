@@ -38,8 +38,15 @@ last one wins" is not the rule there either. Only one `--preset` and one `--rule
 invocation; layering more still means more hook entries.
 
 Only the `--rules` source can be frozen. A preset resolves inside `node_modules`, which the
-project's repository does not track, so `--freeze` classifies it as unfreezable and reads the
-working tree for it in every mode — exactly as it did when a preset was the only source.
+project's repository does not track, so under `auto` `--freeze` reads the working tree for it —
+exactly as it did when a preset was the only source.
+
+Under `--freeze require` a preset is **refused**, whether or not a `--rules` directory is named
+alongside it. `require` means "judge nothing the ref cannot account for", and no ref of your
+repository accounts for a rule set that ships inside the installed package. Combining the two does
+not buy an exemption: a run that froze only your own directory would report `frozen`, exit 0, and
+judge with an unverified preset that the report never named. Drop `--preset` under `require`, or
+vendor the rules you want into the directory you commit.
 
 ### `falsestart scan [paths…]`
 

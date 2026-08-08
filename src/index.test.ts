@@ -77,6 +77,7 @@ describe('library surface', () => {
       'resolveRulesPath',
       'respond',
       'ruleListText',
+      'ruleSourcesOf',
       'samplePath',
       'scan',
       'toScopingPath',

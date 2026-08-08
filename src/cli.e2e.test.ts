@@ -556,8 +556,11 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
         )
 
         expect(result.exitCode).toBe(0)
-        expect(result.stdout).toContain('clean-code')
-        expect(result.stdout).toContain(directory)
+        // Each count asserted against the directory it belongs to. `toContain(directory)` alone was
+        // satisfied by the `config` line — `withEmptyConfig` writes inside `directory` — so the test
+        // stayed green with the second row removed entirely.
+        expect(result.stdout).toContain('/clean-code — 6 loaded')
+        expect(result.stdout).toContain(`${directory} — 1 loaded`)
       }),
     ),
   )
@@ -931,6 +934,97 @@ const ancestorsOf = (start: string): readonly string[] => {
 
 const violation = (root: string, content = 'const x = v as any') =>
   payloadFor({ content, file_path: `${root}/src/a.ts` })
+
+/** A rule no preset defines, so loading it proves the project's own directory was read. */
+const PROJECT_ONLY_RULE = `
+id: no-date-now
+language: tsx
+severity: error
+message: 'PROJECT ONLY RULE'
+rule:
+  pattern: Date.now()
+files:
+  - '**/*.ts'
+`
+
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('a preset alongside a frozen directory', (it) => {
+  // The wiring this exists for lives in `cli.ts`, which is excluded from the coverage ratchet and
+  // from mutation testing — so it is reachable only from here. Handing the project's frozen
+  // documents to the shipped source instead of only to the caller's own loads the preset as an
+  // EMPTY rule set, and every in-process test stays green: measured at 698 passing while
+  // `--list-rules` and `scan` failed against any repository with a live freeze.
+  it.effect("reads the preset from the working tree while the caller's directory is frozen", () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const listed = yield* runIn(root, ['--list-rules', '--preset', 'clean-code', '--rules', './rules'], '')
+
+        expect(listed.exitCode).toBe(0)
+        // Both halves. The preset's rules come from the working tree, because no ref of THIS
+        // repository holds them; the project's own come from the commit.
+        expect(listed.stdout).toContain('"no-as-any"')
+        expect(listed.stdout).toContain('"no-date-now"')
+      }),
+    ),
+  )
+
+  it.effect('judges with both sources under a live freeze', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const own = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules'], violation(root, 'Date.now()'))
+        const shipped = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules'], violation(root))
+
+        expect(own.stdout).toContain('PROJECT ONLY RULE')
+        expect(shipped.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  // `require` means "judge nothing the ref cannot account for". A preset was already covered when it
+  // was the only source; combining it with a directory moved the classification onto the directory
+  // and left the preset unclassified — the report said `frozen`, exited 0, and six unverified rules
+  // were in effect with nothing naming them.
+  it.effect('refuses to judge under --freeze require, because a preset cannot be verified', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const judged = yield* runIn(
+          root,
+          ['--preset', 'clean-code', '--rules', './rules', '--freeze', 'require'],
+          violation(root),
+        )
+        const diagnosed = yield* runIn(
+          root,
+          ['--preset', 'clean-code', '--rules', './rules', '--freeze', 'require', '--doctor'],
+          '',
+        )
+
+        expect(judged.stdout).toContain('"permissionDecision":"deny"')
+        expect(judged.stdout).toContain('ships with falsestart')
+        expect(diagnosed.exitCode).toBe(1)
+      }),
+    ),
+  )
+
+  // The negative that says where the refusal stops. `auto` is the default, and refusing there would
+  // make `--preset` unusable in every repository that has a commit.
+  it.effect('still judges with both sources under the default freeze mode', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const result = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules', '--doctor'], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('frozen — 1 document(s)')
+      }),
+    ),
+  )
+})
 
 layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, end to end', (it) => {
   // T60 — the issue's first vector.

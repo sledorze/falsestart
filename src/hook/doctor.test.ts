@@ -748,20 +748,28 @@ layer(platform)('a report over more than one rule source', (it) => {
 
   it.effect('names every source when one of them will not load', () =>
     withTree({ 'own.yml': ruleNamed('mine') }, (own) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        const diagnosis = yield* run({
-          configPath: 'empty.config.json',
-          rulesDirectory: own,
-          shippedDirectories: [path.join(own, 'absent')],
-        })
+      withTree({}, (sibling) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          // A SIBLING temp root, never `path.join(own, 'absent')`. That spelling makes `own` a
+          // substring of the absent path, which already appears in the `cannot read …` reason — so
+          // `toContain(own)` was satisfied by the reason alone and the test passed with the whole
+          // per-source block deleted.
+          const absent = path.join(sibling, 'absent')
+          const diagnosis = yield* run({
+            configPath: 'empty.config.json',
+            rulesDirectory: own,
+            shippedDirectories: [absent],
+          })
 
-        expect(diagnosis.healthy).toBeFalsy()
-        expect(diagnosis.lines.join('\n')).toContain('COULD NOT LOAD')
-        // Both directories, because "one of your two sources is broken" is not actionable without
-        // saying which two were tried.
-        expect(diagnosis.lines.join('\n')).toContain(own)
-      }),
+          expect(diagnosis.healthy).toBeFalsy()
+          expect(diagnosis.lines.join('\n')).toContain('COULD NOT LOAD')
+          // Both directories: "one of your two sources is broken" is not actionable without saying
+          // which two were tried, and only the broken one appears in the reason.
+          expect(diagnosis.lines.join('\n')).toContain(absent)
+          expect(diagnosis.lines.join('\n')).toContain(own)
+        }),
+      ),
     ),
   )
 })

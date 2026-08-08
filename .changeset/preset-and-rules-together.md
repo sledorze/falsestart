@@ -26,10 +26,16 @@ whichever was written first, rather than becoming a third source — the directo
 still loads exactly the preset: the `.falsestart/rules` default applies only when nothing else names
 a source, so a union never quietly adds a directory the caller did not ask for.
 
-Only the `--rules` source can be frozen, unchanged from before: a preset resolves inside
-`node_modules`, which the project's repository does not track, so `--freeze` reads the working tree
-for it in every mode. Pointing the freeze at your own directory when there is one is strictly more
-coverage than a preset-only invocation had.
+Only the `--rules` source can be frozen: a preset resolves inside `node_modules`, which the
+project's repository does not track. Under the default `--freeze auto` that is unchanged — the
+working tree is read for it, as it always was.
+
+Under `--freeze require` a preset is **refused**, whether or not a `--rules` directory is named
+alongside it, and that is a deliberate part of this change rather than a side effect. `require`
+means "judge nothing the ref cannot account for". Freezing only the caller's own directory would
+have reported `frozen`, exited 0, and judged with an unverified preset the report never named.
+A preset was already refused under `require` when it was the only source, so no working setup
+changes; what changes is that combining it with `--rules` does not buy an exemption.
 
 `loadRuleSources`, `mergeRuleSets` and the `RuleGroup`/`RuleSource` types are exported, and
 `RespondOptions`/`DiagnoseOptions` gain an optional `shippedDirectories`. Optional, so a library

@@ -24,8 +24,8 @@ import {
   loadConfigFile,
   loadDefaultConfig,
 } from '../config/index.ts'
-import type { RuleGroup, RuleSource } from '../checking/index.ts'
-import { appliesTo, fallbacks, loadRules, mergeRuleSets, readRuleDocuments } from '../checking/index.ts'
+import type { RuleGroup } from '../checking/index.ts'
+import { appliesTo, fallbacks, loadRules, mergeRuleSets, readRuleDocuments, ruleSourcesOf } from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { divergence } from '../freezing/index.ts'
 import type { FailurePolicy } from './respond.ts'
@@ -227,12 +227,7 @@ export const diagnose = (
       return { healthy: false, lines }
     }
 
-    // The shipped sources deliberately get no frozen documents: they sit inside `node_modules`,
-    // which the project's ref does not track. See `RespondOptions.shippedDirectories`.
-    const sources: readonly RuleSource[] = [
-      ...(shippedDirectories ?? []).map((directory) => ({ directory })),
-      { directory: rulesDirectory, documents: frozenRules },
-    ]
+    const sources = ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories })
     const perSource = yield* Effect.all(
       sources.map((source) =>
         loadRules(source.directory, source.documents).pipe(

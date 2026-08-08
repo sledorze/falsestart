@@ -21,7 +21,7 @@
  */
 import { Effect, FileSystem, Path, Schema } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
-import { isRuleDocument, loadRuleSources } from '../checking/index.ts'
+import { isRuleDocument, loadRuleSources, ruleSourcesOf } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
 import { containedPath } from '../freezing/index.ts'
 import type { AgentId } from './decide.ts'
@@ -421,13 +421,7 @@ export const respond = (
     // A failure on EITHER frozen source has to deny, and the overrides step reads both.
     const eitherFrozen = [frozenRules, frozenConfig].some((documents) => documents !== undefined)
 
-    // The shipped sources deliberately get no frozen documents: they sit inside `node_modules`, so a
-    // map read from the project's ref holds nothing of theirs, and handing it over would load a
-    // preset as an EMPTY rule set the moment a freeze was in effect.
-    const sources = [
-      ...(options.shippedDirectories ?? []).map((directory) => ({ directory })),
-      { directory: rulesDirectory, documents: frozenRules },
-    ]
+    const sources = ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories: options.shippedDirectories })
     const loaded = yield* Effect.result(loadRuleSources(sources))
     if (loaded._tag === 'Failure') {
       return refuse(

@@ -1838,20 +1838,30 @@ layer(platform)('judging with more than one rule source', (it) => {
 
   it.effect('reports both directories when one of two sources cannot be loaded', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (own) =>
-      Effect.gen(function* () {
-        const path = yield* Path.Path
-        const absent = path.join(own, 'absent')
-        const response = yield* respond({
-          input: writeOf('const x = value as any'),
-          projectDirectory: own,
-          rulesDirectory: own,
-          shippedDirectories: [absent],
-        })
+      withRules({}, (sibling) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          // A SIBLING temp root. `path.join(own, 'absent')` makes `own` a substring of the absent
+          // path, which the `cannot read …` reason already carries — so the assertion below passed
+          // against the single-directory message this change replaced.
+          const absent = path.join(sibling, 'absent')
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: own,
+            rulesDirectory: own,
+            shippedDirectories: [absent],
+          })
 
-        expect(response.stderr).toContain('could not load rules from')
-        expect(response.stderr).toContain(absent)
-        expect(response.stderr).toContain(own)
-      }),
+          // The HEADER line, not the whole stderr. Every reason `loadRules` produces already names
+          // the document or directory it failed on, so asserting over the whole message is
+          // satisfied by the reasons alone — it passed unchanged against the single-directory
+          // message this change replaced.
+          const [header = ''] = (response.stderr ?? '').split('\n')
+          expect(header).toContain('could not load rules from')
+          expect(header).toContain(absent)
+          expect(header).toContain(own)
+        }),
+      ),
     ),
   )
 })
