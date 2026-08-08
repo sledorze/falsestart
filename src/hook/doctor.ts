@@ -25,7 +25,15 @@ import {
   loadDefaultConfig,
 } from '../config/index.ts'
 import type { RuleGroup } from '../checking/index.ts'
-import { appliesTo, fallbacks, loadRules, mergeRuleSets, readRuleDocuments, ruleSourcesOf } from '../checking/index.ts'
+import {
+  appliesTo,
+  fallbacks,
+  loadRules,
+  mergeRuleSets,
+  readRuleDocuments,
+  ruleSourcesOf,
+  toScopingPath,
+} from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { divergence, shippedRuleSources } from '../freezing/index.ts'
 import type { FailurePolicy } from './respond.ts'
@@ -65,6 +73,16 @@ export interface DiagnoseOptions {
    * here is a compile error in every caller that predates it.
    */
   readonly freeze?: FreezeOutcome | undefined
+  /**
+   * Real paths to probe, on top of the built-in ones.
+   *
+   * Naming one ASSERTS it should be in scope: a named path no rule applies to fails the diagnosis,
+   * which is what makes this usable as a CI check. The built-in probes cannot carry that meaning —
+   * see `PROBE_PATHS`.
+   *
+   * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published.
+   */
+  readonly probePaths?: readonly string[] | undefined
   readonly projectDirectory: string
   /**
    * The caller's own rules, and the only source a freeze can govern. With `--preset` combined with
@@ -155,6 +173,7 @@ export const diagnose = (
       configPath,
       failure,
       freeze,
+      probePaths,
       projectDirectory,
       rulesDirectory,
       shippedDirectories,
@@ -416,9 +435,17 @@ export const diagnose = (
       )
     }
 
-    const reach = PROBE_PATHS.map(
-      (path) => [path, scoped.success.filter((rule) => appliesTo(rule, path)).length] as const,
-    )
+    // Relativised against THIS directory, which is not always the one a judged write uses.
+    //
+    // A hook anchors on the payload's `cwd` when it carries one, and this command reads no payload,
+    // so it cannot know it. Where the two differ the counts below are not the counts the hook will
+    // produce — measured: `--path <abs>` reported `1 rule(s) apply` and exit 0 for a write the hook
+    // allowed, because the session's cwd was a package subdirectory. The line printed above the
+    // block says so; claiming a named path is matched "exactly as a judged write is" was false, and
+    // false in the reassuring direction, which is the one failure a gate must not have.
+    const namedPaths = (probePaths ?? []).map((path) => toScopingPath(path, projectDirectory))
+    const rulesFor = (path: string) => scoped.success.filter((rule) => appliesTo(rule, path))
+    const reach = [...PROBE_PATHS, ...namedPaths].map((path) => [path, rulesFor(path).length] as const)
     // WHICH directory those probe paths are relative to, said outright — including the part this
     // command cannot answer.
     //
@@ -426,13 +453,74 @@ export const diagnose = (
     // the fallback. Stating just this directory would be a claim about judged writes that is false
     // whenever the payload names a different one, and that disagreement is the failure mode: every
     // repo-relative glob then admits nothing, silently, in an installation this report calls healthy.
+    // Which loaded rules reach NONE of the probed paths, by name.
+    //
+    // "0 rule(s) apply to src/a.ts" is a fact about the PATH and says nothing about which rule is
+    // inert; with a dozen loaded and one of them scoped to a directory that no longer exists, no
+    // line of this report named it. Informational and never fatal — a rule scoped somewhere these
+    // paths do not reach is an ordinary state, which is the whole reason the built-in probes cannot
+    // decide the exit code either.
+    const probed = reach.map(([path]) => path)
+    const missed = scoped.success.filter((rule) => !probed.some((path) => appliesTo(rule, path)))
+    // Split by CAUSE. A rule its own `ignores` excludes everywhere is not "scoped elsewhere", and
+    // telling its author to go and probe for a path would send them after one that cannot exist.
+    // `files` alone admits a probe that the whole rule refuses: the only thing that can have turned
+    // it down is `ignores`. An absent `files` admits everything, so such a rule landing in `missed`
+    // is self-excluded too, and needs no arm of its own.
+    const selfExcluded = missed.filter((rule) => probed.some((path) => appliesTo({ files: rule.files }, path)))
+    const unreached = missed.filter((rule) => !selfExcluded.includes(rule))
+
     lines.push(
       'scope',
       `         paths below are matched relative to ${projectDirectory}`,
       "         a judged write uses the payload's cwd when it carries one, and this directory when it does not",
       ...reach.map(([path, count]) => `         ${`${count}`.padStart(3)} rule(s) apply to ${path}`),
+      ...(unreached.length === 0
+        ? []
+        : [
+            `         no probed path reaches: ${unreached.map((rule) => rule.id).join(', ')}` +
+              ' — expected if they are scoped elsewhere; pass --path to probe where they should apply',
+          ]),
+      // Named separately, because for these no `--path` value can ever help: `ignores` is applied
+      // after `files`, so a rule whose own exclusions swallow its scope is inert everywhere. Sending
+      // that reader off to find a path that cannot exist is the opposite of what this line is for,
+      // and an over-broad `ignores` arriving from a config override is exactly how it happens.
+      ...(selfExcluded.length === 0
+        ? []
+        : [
+            `         nothing can reach: ${selfExcluded.map((rule) => rule.id).join(', ')}` +
+              ' — their own ignores exclude everything their files admit',
+          ]),
       '',
     )
+
+    // A path the CALLER named and nothing covers. Unlike the built-in probes this does fail, because
+    // naming a path is a statement that it should be guarded — the difference between a report and a
+    // check something can gate on.
+    // "You typed it wrong" and "your rules do not cover it" are different answers, and this is the
+    // one command whose job is to keep them apart. Reported as the same red, a mistyped `--path` is
+    // indistinguishable from the scoping bug the flag exists to catch.
+    const absent: string[] = []
+    for (const path of namedPaths) {
+      if (!(yield* isReadableFile(paths.resolve(projectDirectory, path)))) {
+        absent.push(path)
+      }
+    }
+    if (absent.length > 0) {
+      lines.push(
+        `check    ${absent.join(', ')} — named with --path, but there is no such FILE here.` +
+          ' A directory or a glob is not a path a hook ever reports; name one real file per area you expect to be guarded.',
+      )
+      return { healthy: false, lines }
+    }
+
+    const uncovered = namedPaths.filter((path) => rulesFor(path).length === 0)
+    if (uncovered.length > 0) {
+      lines.push(
+        `check    no rule applies to ${uncovered.join(', ')} — named with --path, so this is a failure rather than a note`,
+      )
+      return { healthy: false, lines }
+    }
 
     // Reported, NOT failed. "Misses five `src/` paths" is not "misses everything": a rule set scoped
     // to `lib/**` or a monorepo's `packages/*/src/**` blocks perfectly well and probes zero here.

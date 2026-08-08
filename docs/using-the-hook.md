@@ -225,7 +225,38 @@ inferred, and the line prints them so you can diff them against one real payload
 top-level files while leaving every nested source file — nearly the whole codebase — untouched. When no
 rule reaches any probed path it says so and still exits **0** — "misses five `src/` paths" is not
 "misses everything", and a rule set scoped to `lib/**` or a monorepo's `packages/*/src/**` blocks
-perfectly well while probing zero here. Read the block; do not gate CI on the exit code alone.
+perfectly well while probing zero here.
+
+**To gate CI, name the paths yourself.** `--path` is repeatable, and naming one is an assertion that
+it should be in scope — `--doctor` exits 1 when no rule applies to it:
+
+```console
+$ falsestart --doctor --rules ./.falsestart/rules --path packages/app/src/index.ts
+scope
+           1 rule(s) apply to packages/app/src/index.ts
+
+$ falsestart --doctor --rules ./.falsestart/rules --path services/api/src/index.ts ; echo $?
+check    no rule applies to services/api/src/index.ts — named with --path, so this is a failure rather than a note
+1
+```
+
+That is the difference between the two kinds of probe, and why only one of them can fail: the
+built-in paths are guesses about your layout, and a path you named is a statement about it. Pick one
+real **file** per area you expect to be guarded and pass them all; a rule set that silently stopped
+covering an area then fails the build instead of reporting a healthy installation. A `--path` that
+is not a file — a typo, a directory, a glob — is reported as its own failure rather than as a
+coverage gap, because the whole job of this command is keeping those two answers apart.
+
+**`--path` is matched relative to the directory falsestart runs in**, and that is not always the
+anchor a judged write uses: the hook prefers the payload's `cwd` when it carries one. In CI they are
+the same directory, which is what makes this a usable gate. In a live session whose `cwd` sits below
+the project root they are not, and then these counts are not the counts the hook produces — the line
+above the block says so.
+
+The block also names any loaded rule that **no** probed path reaches, because `0 rule(s) apply to
+src/a.ts` is a fact about the path and never says which rule is inert. That line is informational —
+a rule scoped somewhere these paths do not reach is an ordinary state — and `--path` is how you turn
+it into a question with an answer.
 
 ### Check both runtimes enforce the same thing
 

@@ -18,8 +18,18 @@ and per-path rule counts, then sends a real
 violation through the decision path. There is one `rules` row per SOURCE, so a combined
 `--preset … --rules …` prints two: a single total cannot answer "did my own rules load, or only the
 preset?". Read its scope block, not just its last line: a nested probe
-path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read
-its version line too — a hook wired at a path holding an older copy describes that copy, plausibly.
+path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else.
+
+The built-in probes are all under `src/` and NEVER fail the run — a rule set scoped to `lib/**` or a
+monorepo probes zero against them and is not broken. To gate CI, name real files with `--path`
+(repeatable): naming one asserts it should be in scope, and `--doctor` exits 1 when no rule applies
+to it, or when there is no such file (a typo and a coverage gap are reported as different answers).
+Named paths are matched relative to the directory falsestart runs in, which is NOT the anchor a
+judged write uses when the payload carries a `cwd`. The block also names any loaded rule that no
+probed path reaches, and separately any whose own `ignores` exclude everything their `files` admit —
+for those, no `--path` value can ever help.
+
+Read its version line too — a hook wired at a path holding an older copy describes that copy, plausibly.
 Under it, a `changes` line names the changelog inside that same copy, because a version number alone
 cannot say that a MINOR bump added an `error`-severity rule and turned a green repo red (`0.2.0` did
 it twice); the line is absent on versions published before it existed, which shipped no changelog at

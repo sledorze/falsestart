@@ -77,6 +77,15 @@ export type Options =
        */
       readonly failure: FailurePolicy | undefined
       readonly preset: Preset | undefined
+      /**
+       * Real paths to probe, on top of the built-in ones. Empty when nobody named any.
+       *
+       * Naming one is an ASSERTION that it should be in scope, which is what makes `--doctor` usable
+       * as a CI check. The built-in probes can never carry that meaning: they are all under `src/`,
+       * so a rule set scoped to a monorepo layout reports zero against every one of them while
+       * guarding perfectly well.
+       */
+      readonly probePaths: readonly string[]
       readonly rulesPackage: string | undefined
       readonly rulesDirectory: string | undefined
     })
@@ -161,6 +170,14 @@ Options:
                   decision path. Reads no stdin. Exits 1 when a step did not
                   resolve or the sample could not be judged. Use this to
                   check a hook is actually guarding something.
+  --path <p>      A real path to probe, with --doctor. Repeatable. Reported
+                  beside the built-in probes, and naming one ASSERTS it should
+                  be in scope: --doctor exits 1 when no rule applies to a path
+                  you named. That is the difference between it and the built-in
+                  probes, which are all under src/ and stay non-fatal — a rule
+                  set scoped to lib/** or packages/*/src/** reports zero against
+                  every one of them and is not broken. Use it to gate a hook in
+                  CI on a path you know your rules should cover.
   --list-rules    Print the resolved rule set as JSON on stdout and exit —
                   after --preset/pkg: resolution and after config scope
                   overrides, so the globs are the ones that will really
@@ -348,6 +365,7 @@ export const parseArguments = (args: readonly string[]): Options => {
   let sawAgent = false
 
   let baselinePath: string | undefined
+  const probePaths: string[] = []
   const exclude: string[] = []
   let writeBaseline = false
   let pathSource: 'Argv' | 'Newline' | 'Nul' = 'Argv'
@@ -418,6 +436,7 @@ export const parseArguments = (args: readonly string[]): Options => {
       argument !== '--preset' &&
       argument !== '--baseline' &&
       argument !== '--exclude' &&
+      argument !== '--path' &&
       argument !== '--freeze' &&
       argument !== '--freeze-ref' &&
       argument !== '--fail' &&
@@ -451,6 +470,13 @@ export const parseArguments = (args: readonly string[]): Options => {
       baselinePath = value
     } else if (argument === '--exclude') {
       exclude.push(value)
+    } else if (argument === '--path') {
+      // The empty string passes the flag-shaped-value guard and then reads as a path, producing
+      // `0 rule(s) apply to ` and a failure naming nothing at all.
+      if (value.trim().length === 0) {
+        return { _tag: 'Invalid', problem: '--path needs a path' }
+      }
+      probePaths.push(value)
     } else if (argument === '--freeze-ref') {
       freezeRef = value
     } else if (argument === '--freeze') {
@@ -536,6 +562,16 @@ export const parseArguments = (args: readonly string[]): Options => {
     return { _tag: 'Invalid', problem: '--update-baseline needs --baseline <file> to write to' }
   }
 
+  // Refused rather than ignored, like every other flag that means nothing in the mode it was given.
+  // On a judging run the payload already carries a real path, so there is nothing here to answer;
+  // `scan` is handed its paths as arguments; `--list-rules` states every rule's globs outright.
+  if (probePaths.length > 0 && !doctor) {
+    return {
+      _tag: 'Invalid',
+      problem: '--path requires --doctor; every other mode already has a real path to work with',
+    }
+  }
+
   if (doctor && warnUnscoped) {
     return {
       _tag: 'Invalid',
@@ -602,7 +638,18 @@ export const parseArguments = (args: readonly string[]): Options => {
   }
 
   return doctor
-    ? { _tag: 'Doctor', agent, configPath, failure, freeze, freezeRef, preset, rulesDirectory, rulesPackage }
+    ? {
+        _tag: 'Doctor',
+        agent,
+        configPath,
+        failure,
+        freeze,
+        freezeRef,
+        preset,
+        probePaths,
+        rulesDirectory,
+        rulesPackage,
+      }
     : {
         _tag: 'Run',
         agent,
