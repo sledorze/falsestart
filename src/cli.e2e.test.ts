@@ -105,6 +105,21 @@ files:
 `
 
 /**
+ * A rule no shipped preset defines, so a union invocation loading it proves the caller's own
+ * directory was read rather than the preset alone.
+ */
+const noDateNow = `
+id: no-date-now
+language: tsx
+severity: error
+message: 'Date.now() is not injectable'
+rule:
+  pattern: Date.now()
+files:
+  - '**/*.{ts,tsx}'
+`
+
+/**
  * A rule with BOTH scope keys, for the override test.
  *
  * Its own fixture rather than the shared `noAsAny`, which carries no `ignores` at all — asserting
@@ -460,6 +475,89 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe('')
+      }),
+    ),
+  )
+
+  // A preset and a repo's own rules in ONE invocation. Refused outright until now, which forced
+  // "preset plus my own rules" to be two hook entries with a duplicated matcher — and made both of
+  // them auto-discover the same config, where an override for a rule the OTHER entry loaded is a
+  // hard error. Both halves are asserted, because a union that quietly loaded only one of them
+  // would look exactly like the flag working.
+  it.effect('loads a preset and a rules directory together, and blocks with either', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const args = ['--preset', 'clean-code', '--rules', directory, '--config', configPath]
+
+        const own = yield* runCliRaw(
+          args,
+          payloadFor({ content: 'const t = Date.now()', file_path: `${directory}/src/a.ts` }),
+        )
+        expect(own.stdout).toContain('no-date-now')
+
+        const preset = yield* runCliRaw(
+          args,
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+        expect(preset.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('refuses a repo rule whose id a preset already defines, naming both directories', () =>
+    withRules({ 'clash.yml': noAsAny }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        // Whichever silently lost would carry a `files` glob nobody is enforcing.
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('no-as-any')
+        expect(result.stderr).toContain(directory)
+      }),
+    ),
+  )
+
+  // The reason the union is worth having, stated as a test. Two hook entries both auto-discover the
+  // repo's one config; the entry that did not load the preset rejects the override and bails, so a
+  // config naming `no-as-any` broke the `--rules` entry outright. One invocation loads both, so the
+  // override resolves.
+  it.effect('accepts a config override naming a preset rule when the preset is loaded alongside', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const configPath = path.join(directory, 'shared.config.json')
+        yield* fs.writeFileString(configPath, JSON.stringify({ rules: { 'no-as-any': { files: ['**/*.ts'] } } }))
+
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.stderr).not.toContain('OVERRIDES REJECTED')
+        expect(result.stderr).not.toContain('no rule named')
+        expect(result.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('--doctor reports both rule sources, not just one', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath, '--doctor'],
+          '',
+        )
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('clean-code')
+        expect(result.stdout).toContain(directory)
       }),
     ),
   )

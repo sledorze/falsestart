@@ -195,6 +195,11 @@ copy every other line in the report describes. The line is absent if that file i
 the case for every version published before it existed — `0.1.0` and `0.2.0` shipped no changelog at
 all, so on those the only way to see what an upgrade added was to pack both versions and diff them.
 
+There is one `rules` row per source, so a combined `--preset clean-code --rules ./.falsestart/rules`
+prints two. Read both: a single total cannot answer "did my own rules load, or only the preset?",
+which is precisely the way a combined invocation can look healthy while enforcing half of what you
+asked for.
+
 The `rules` line counts the tree twice: how many documents loaded, and how many of those declare a
 severity that could deny — only `error` does, and everything softer is shown to the author and
 decides nothing (see **Rules that advise instead of blocking** below). It is a tally of severities
@@ -205,7 +210,10 @@ zero, which is the case above and with every shipped preset.
 It reads no stdin and exits 1 if any step did not resolve, naming the cause — a rules directory that
 is not there, a config that cannot be read, or an override for a rule the current preset does not
 load. That last one is easy to hit: narrowing `--preset all` to `--preset clean-code` while keeping a
-config that names an Effect rule turns the whole guard off.
+config that names an Effect rule turns the whole guard off. If the config names rules from a preset
+AND rules of your own, name both sources in the one invocation — `--preset clean-code --rules
+./.falsestart/rules` — rather than splitting them across two hook entries that each reject the
+other's overrides.
 
 The `agent` line prints on every run, including one where nothing resolved. It is the answer to "why
 did my deny not block", which is a question only somebody who never passed `--agent` can be asking.

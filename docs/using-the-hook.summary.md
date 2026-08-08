@@ -15,7 +15,9 @@ of tool calls, and on a call falsestart does not judge it writes nothing to eith
 version that answered, the resolved rules with how many of them declare a blocking severity and how
 many advise (a severity tally, not a reachability claim — the scope block answers that), config
 and per-path rule counts, then sends a real
-violation through the decision path. Read its scope block, not just its last line: a nested probe
+violation through the decision path. There is one `rules` row per SOURCE, so a combined
+`--preset … --rules …` prints two: a single total cannot answer "did my own rules load, or only the
+preset?". Read its scope block, not just its last line: a nested probe
 path is what exposes the `src/**.ts` glob typo that guards top-level files and nothing else. Read
 its version line too — a hook wired at a path holding an older copy describes that copy, plausibly.
 Under it, a `changes` line names the changelog inside that same copy, because a version number alone
@@ -120,9 +122,10 @@ wider one exists twice, as two ids or as one document reached by two hook entrie
 hand.
 
 Laying out a large tree: subdirectories are organisational only, ids are unique across the whole
-tree (a duplicate refuses the load), and every matching rule is reported together. `--rules` names
-one rule source per invocation and cannot be combined with `--preset`, so layering two trees means
-two hook entries — which also gives each its own config and severity policy. The cost of splitting:
+tree (a duplicate refuses the load, across sources as well as within one), and every matching rule
+is reported together. `--rules` combines with `--preset` in one invocation, which is the way to give
+a preset and your own tree a SHARED config; layering more than that still means two hook entries —
+which gives each its own config and severity policy. The cost of splitting:
 a root `_utils/` is out of scope for an entry pointing at one subdirectory, and a rule referencing a
 matcher it cannot see fails to run, reported and non-blocking on exit 1.
 
@@ -131,7 +134,8 @@ The shipped corpus in `rules/` is split by assumption: `rules/clean-code/` is ge
 freely). Selection is by which rule documents are present, so "what is enforced here" is a directory
 listing. Rules come from three sources: `--preset all|clean-code|effect` for the shipped set,
 `--rules <dir>` for your own, and `--rules pkg:@acme/falsestart-rules[/subdir]` for another
-package, resolved from your project rather than a guessed node_modules path. The `pkg:` prefix is
+package, resolved from your project rather than a guessed node_modules path. A preset and a
+`--rules` source load together, in that order. The `pkg:` prefix is
 required rather than inferred, so an existing `--rules rules` keeps meaning the directory. A rules
 package is just a `rules/` directory of ast-grep documents. Where each rule applies is re-scopable per repo via `falsestart.config.{ts,mts,js,mjs,json}`
 (or `--config <file>`). A TypeScript config is type-checked against the exported `FalsestartConfig`

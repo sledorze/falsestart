@@ -103,7 +103,7 @@ describe('command line', () => {
       freeze: 'auto',
       freezeRef: 'HEAD',
       preset: 'clean-code',
-      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesDirectory: undefined,
       rulesPackage: undefined,
     })
   })
@@ -343,7 +343,7 @@ describe('the scan command', () => {
       freeze: 'auto',
       freezeRef: 'HEAD',
       preset: 'effect',
-      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      rulesDirectory: undefined,
       rulesPackage: undefined,
       warnUnscoped: false,
     })
@@ -360,12 +360,37 @@ describe('the scan command', () => {
     expect(parseArguments(['--preset'])._tag).toBe('Invalid')
   })
 
-  it('refuses --preset combined with --rules, rather than ranking them', () => {
-    // Silently preferring one would run a different rule set than the caller named.
-    const parsed = parseArguments(['--preset', 'all', '--rules', 'r'])
+  it('carries a preset and a rules directory together, as two sources rather than a ranking', () => {
+    // Refused outright until now, which forced a repo wanting "a shipped preset plus my own rules"
+    // to register two hook entries with a duplicated matcher — and made both of them auto-discover
+    // the same config, where an override for a rule the other invocation loaded is rejected.
+    expect(parseArguments(['--preset', 'all', '--rules', 'r'])).toEqual({
+      _tag: 'Run',
+      agent: 'claude-code',
+      configPath: undefined,
+      failure: undefined,
+      freeze: 'auto',
+      freezeRef: 'HEAD',
+      preset: 'all',
+      rulesDirectory: 'r',
+      rulesPackage: undefined,
+      warnUnscoped: false,
+    })
+  })
 
-    expect(parsed._tag).toBe('Invalid')
-    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('cannot be combined')
+  it('carries a preset and a rules PACKAGE together too', () => {
+    expect(parseArguments(['--preset', 'clean-code', '--rules', 'pkg:@acme/rules'])).toMatchObject({
+      preset: 'clean-code',
+      rulesDirectory: undefined,
+      rulesPackage: '@acme/rules',
+    })
+  })
+
+  it('leaves the rules directory unset when only a preset is named', () => {
+    // The default `.falsestart/rules` must NOT become a second source just because a preset was
+    // asked for: `--preset all` has always loaded exactly the preset, and a union that quietly
+    // added a directory the caller never named would be the substitution this file exists to stop.
+    expect(parseArguments(['--preset', 'effect'])).toMatchObject({ preset: 'effect', rulesDirectory: undefined })
   })
 
   it('takes a rules package from a pkg: prefixed --rules', () => {
@@ -376,7 +401,8 @@ describe('the scan command', () => {
       freeze: 'auto',
       freezeRef: 'HEAD',
       preset: undefined,
-      rulesDirectory: DEFAULT_RULES_DIRECTORY,
+      // The package IS the `--rules` source, so there is no local directory to union with it.
+      rulesDirectory: undefined,
       rulesPackage: '@acme/falsestart-rules',
       warnUnscoped: false,
     })

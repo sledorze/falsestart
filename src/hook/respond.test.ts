@@ -1811,3 +1811,47 @@ layer(platform)('registered at an event falsestart does not implement', (it) => 
     ),
   )
 })
+
+layer(platform)('judging with more than one rule source', (it) => {
+  const noDateNow = `id: no-date-now\nlanguage: tsx\nseverity: error\nmessage: 'Date.now() is not injectable'\nrule:\n  pattern: Date.now()\nfiles:\n  - '**/*.{ts,tsx}'\n`
+
+  it.effect("blocks with a rule from a shipped source as well as the caller's own", () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (own) =>
+      withRules({ 'no-date-now.yml': noDateNow }, (shipped) =>
+        Effect.gen(function* () {
+          const judge = (content: string) =>
+            respond({
+              input: writeOf(content),
+              projectDirectory: own,
+              rulesDirectory: own,
+              shippedDirectories: [shipped],
+            })
+
+          // Both halves, because a union that quietly loaded only one of them would look exactly
+          // like the feature working from either side alone.
+          expect((yield* judge('const x = value as any')).stdout).toContain('no-as-any')
+          expect((yield* judge('const t = Date.now()')).stdout).toContain('no-date-now')
+        }),
+      ),
+    ),
+  )
+
+  it.effect('reports both directories when one of two sources cannot be loaded', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (own) =>
+      Effect.gen(function* () {
+        const path = yield* Path.Path
+        const absent = path.join(own, 'absent')
+        const response = yield* respond({
+          input: writeOf('const x = value as any'),
+          projectDirectory: own,
+          rulesDirectory: own,
+          shippedDirectories: [absent],
+        })
+
+        expect(response.stderr).toContain('could not load rules from')
+        expect(response.stderr).toContain(absent)
+        expect(response.stderr).toContain(own)
+      }),
+    ),
+  )
+})

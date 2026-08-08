@@ -13,6 +13,7 @@ import { NodeFileSystem, NodePath, NodeRuntime, NodeStdio } from '@effect/platfo
 import { Data, Effect, FileSystem, Layer, Path, Stdio, Stream } from 'effect'
 import {
   DEFAULT_FREEZE_REF,
+  DEFAULT_RULES_DIRECTORY,
   isBrokenPipe,
   packageRulesDirectory,
   parseArguments,
@@ -30,7 +31,8 @@ import {
   writeBaseline,
 } from './scanning/index.ts'
 import { applyScopeOverrides, DEFAULT_CONFIG_CANDIDATES, loadConfigFile, loadDefaultConfig } from './config/index.ts'
-import { isRuleDocument, loadRules, ruleListText } from './checking/index.ts'
+import type { RuleSource } from './checking/index.ts'
+import { isRuleDocument, loadRuleSources, ruleListText } from './checking/index.ts'
 import type {
   AnchorResolution,
   ConfigSource,
@@ -393,17 +395,26 @@ const program = Effect.gen(function* () {
 
   const projectDirectory = process.cwd()
 
+  /**
+   * Every directory this invocation loads rules from, shipped set first.
+   *
+   * A list rather than a single directory since `--preset` and `--rules` combine. Order is the
+   * order they are REPORTED and merged in, never a precedence: an id two of them define is refused
+   * by `mergeRuleSets` rather than resolved, so nothing here can silently substitute one rule for
+   * another. Non-empty by construction — the parser leaves `rulesDirectory` at its default whenever
+   * nothing else names a source.
+   */
   const located = yield* Effect.result(
     Effect.try({
       catch: String,
-      try: (): string => {
-        if (options.preset !== undefined) {
-          return presetDirectory(options.preset, PACKAGED_RULES_ROOT)
-        }
-        return options.rulesPackage === undefined
-          ? options.rulesDirectory
-          : packageRulesDirectory(options.rulesPackage, projectDirectory)
-      },
+      try: (): readonly string[] => [
+        ...(options.preset === undefined ? [] : [presetDirectory(options.preset, PACKAGED_RULES_ROOT)]),
+        ...(options.rulesPackage === undefined
+          ? options.rulesDirectory === undefined
+            ? []
+            : [options.rulesDirectory]
+          : [packageRulesDirectory(options.rulesPackage, projectDirectory)]),
+      ],
     }),
   )
 
@@ -423,7 +434,34 @@ const program = Effect.gen(function* () {
 
   // Inert under `Run`/`Doctor` when the resolution failed: `respond` returns before it reads this,
   // and `diagnose` returns before it loads from it.
-  const rulesDirectory = located._tag === 'Failure' ? options.rulesDirectory : located.success
+  const directories: readonly string[] =
+    located._tag === 'Failure' ? [options.rulesDirectory ?? DEFAULT_RULES_DIRECTORY] : located.success
+
+  /**
+   * The one directory a freeze can govern, and the one a write into a rule document is judged
+   * against: the LAST, which is the caller's own.
+   *
+   * A preset and a `pkg:` specifier both resolve inside `node_modules`, which git does not track
+   * here, so freezing either is already a no-op — `resolveRulesPath` classifies it as outside the
+   * project repository and the working tree stays in effect. Pointing the freeze at the caller's
+   * own directory when there is one is therefore strictly more coverage than before, never less.
+   */
+  const rulesDirectory = directories.at(-1) ?? DEFAULT_RULES_DIRECTORY
+
+  /** The sources loaded ahead of `rulesDirectory` — a preset, and never frozen. */
+  const shippedDirectories = directories.slice(0, -1)
+
+  /**
+   * Every rule source, with the committed bytes attached to the only one that can have any.
+   *
+   * The shipped directories deliberately get none: they are inside `node_modules`, so a `documents`
+   * map read from the project's ref holds nothing of theirs, and handing it over would load a preset
+   * as an empty rule set the moment a freeze was in effect.
+   */
+  const ruleSources = (frozenRules: ReadonlyMap<string, string> | undefined): readonly RuleSource[] => [
+    ...shippedDirectories.map((directory) => ({ directory })),
+    { directory: rulesDirectory, documents: frozenRules },
+  ]
 
   /**
    * The freeze for whichever mode is running, built from the same command line every time.
@@ -475,7 +513,7 @@ const program = Effect.gen(function* () {
 
     const prepared = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(rulesDirectory, heldBy(frozen.rules))
+        const loaded = yield* loadRuleSources(ruleSources(heldBy(frozen.rules)))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
@@ -547,7 +585,7 @@ const program = Effect.gen(function* () {
 
     const resolved = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRules(rulesDirectory, heldBy(frozen.rules))
+        const loaded = yield* loadRuleSources(ruleSources(heldBy(frozen.rules)))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
@@ -586,6 +624,7 @@ const program = Effect.gen(function* () {
       freeze: yield* freezeFor(),
       projectDirectory,
       rulesDirectory,
+      shippedDirectories,
       unresolvedRules,
       version: VERSION,
     })
@@ -607,6 +646,7 @@ const program = Effect.gen(function* () {
     // rules, which `--preset` and `pkg:` both put inside node_modules.
     projectDirectory,
     rulesDirectory,
+    shippedDirectories,
     unresolvedRules,
     warnUnscoped: options.warnUnscoped,
   })

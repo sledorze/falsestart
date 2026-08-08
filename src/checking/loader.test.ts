@@ -1,7 +1,9 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, effect, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path } from 'effect'
-import { loadRules, readRuleDocuments } from './loader.ts'
+import type { RuleGroup } from './loader.ts'
+import { loadRules, loadRuleSources, mergeRuleSets, readRuleDocuments } from './loader.ts'
+import type { Rule } from './rule.ts'
 
 const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer)
 
@@ -334,6 +336,108 @@ layer(platform)('reading a rule tree from disk', (it) => {
           expect([...documents.keys()]).toEqual(['_utils/shared.yml', 'a.yml', 'b/c.yml'])
           expect(documents.get('a.yml')).toBe(rule('a'))
         }),
+    ),
+  )
+})
+
+describe('merging rule sets from several directories', () => {
+  const ruleOf = (id: string): Rule => ({ id, language: 'tsx', rule: { pattern: '$X as any' } })
+
+  const group = (directory: string, ids: readonly string[]): RuleGroup => ({ directory, rules: ids.map(ruleOf) })
+
+  effect('keeps every rule, in the order the sources were given', () =>
+    Effect.gen(function* () {
+      const merged = yield* mergeRuleSets([group('preset', ['alpha', 'beta']), group('own', ['gamma'])])
+
+      expect(merged.map((entry) => entry.id)).toEqual(['alpha', 'beta', 'gamma'])
+    }),
+  )
+
+  effect('refuses an id two sources both define, naming both directories', () =>
+    Effect.gen(function* () {
+      // Letting one silently shadow the other is the substitution this codebase exists to prevent:
+      // whichever lost would carry a `files` glob nobody is enforcing, and nothing would say so.
+      const outcome = yield* Effect.result(mergeRuleSets([group('preset', ['no-as-any']), group('own', ['no-as-any'])]))
+
+      expect(outcome._tag).toBe('Failure')
+      const reasons = outcome._tag === 'Failure' ? outcome.failure.reasons.join('\n') : ''
+      expect(reasons).toContain('no-as-any')
+      expect(reasons).toContain('preset')
+      expect(reasons).toContain('own')
+    }),
+  )
+
+  effect('reports every clashing id rather than only the first', () =>
+    Effect.gen(function* () {
+      const outcome = yield* Effect.result(
+        mergeRuleSets([group('preset', ['one', 'two']), group('own', ['one', 'two'])]),
+      )
+
+      expect(outcome._tag === 'Failure' && outcome.failure.reasons).toHaveLength(2)
+    }),
+  )
+
+  effect('passes a single source through untouched', () =>
+    Effect.gen(function* () {
+      expect((yield* mergeRuleSets([group('own', ['alpha'])])).map((entry) => entry.id)).toEqual(['alpha'])
+    }),
+  )
+})
+
+layer(platform)('loading several rule sources at once', (it) => {
+  it.effect('reads every source and returns them as one set', () =>
+    withTree({ 'a.yml': rule('alpha') }, (first) =>
+      withTree({ 'b.yml': rule('beta') }, (second) =>
+        Effect.gen(function* () {
+          const loaded = yield* loadRuleSources([{ directory: first }, { directory: second }])
+
+          expect(loaded.map((entry) => entry.id)).toEqual(['alpha', 'beta'])
+        }),
+      ),
+    ),
+  )
+
+  it.effect('collects the failures of every source before reporting any of them', () =>
+    withTree({ 'bad.yml': 'id: 7\nlanguage: tsx' }, (broken) =>
+      withTree({ 'also-bad.yml': 'language: nope' }, (alsoBroken) =>
+        Effect.gen(function* () {
+          // Both, not just the first: fixing a rule set one message per run is how the last few
+          // stop getting fixed, which is the discipline `loadRules` already applies inside one tree.
+          const error = yield* Effect.flip(loadRuleSources([{ directory: broken }, { directory: alsoBroken }]))
+
+          expect(error.reasons.join('\n')).toContain('bad.yml')
+          expect(error.reasons.join('\n')).toContain('also-bad.yml')
+        }),
+      ),
+    ),
+  )
+
+  it.effect('reports a broken source even when another source loaded cleanly', () =>
+    withTree({ 'a.yml': rule('alpha') }, (fine) =>
+      withTree({ 'bad.yml': 'id: 7\nlanguage: tsx' }, (broken) =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip(loadRuleSources([{ directory: fine }, { directory: broken }]))
+
+          expect(error.reasons.join('\n')).toContain('bad.yml')
+        }),
+      ),
+    ),
+  )
+
+  it.effect('reads the committed bytes of the source that has them, and the working tree for the rest', () =>
+    withTree({ 'a.yml': rule('working-tree') }, (working) =>
+      withTree({ 'b.yml': rule('shipped') }, (shipped) =>
+        Effect.gen(function* () {
+          const loaded = yield* loadRuleSources([
+            { directory: shipped },
+            { directory: working, documents: new Map([['a.yml', rule('committed')]]) },
+          ])
+
+          // The frozen map belongs to ONE source. Applying it to the other would load a preset as
+          // an empty rule set the moment a freeze was in effect.
+          expect(loaded.map((entry) => entry.id)).toEqual(['shipped', 'committed'])
+        }),
+      ),
     ),
   )
 })

@@ -24,7 +24,8 @@ import {
   loadConfigFile,
   loadDefaultConfig,
 } from '../config/index.ts'
-import { appliesTo, fallbacks, loadRules, readRuleDocuments } from '../checking/index.ts'
+import type { RuleGroup, RuleSource } from '../checking/index.ts'
+import { appliesTo, fallbacks, loadRules, mergeRuleSets, readRuleDocuments } from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
 import { divergence } from '../freezing/index.ts'
 import type { FailurePolicy } from './respond.ts'
@@ -65,7 +66,19 @@ export interface DiagnoseOptions {
    */
   readonly freeze?: FreezeOutcome | undefined
   readonly projectDirectory: string
+  /**
+   * The caller's own rules, and the only source a freeze can govern. With `--preset` combined with
+   * `--rules`, the preset arrives in `shippedDirectories`.
+   */
   readonly rulesDirectory: string
+  /**
+   * Rule directories loaded IN ADDITION to `rulesDirectory`, ahead of it, always from the working
+   * tree. See `RespondOptions.shippedDirectories`.
+   *
+   * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published, so a required field
+   * here is a compile error in every caller that predates it.
+   */
+  readonly shippedDirectories?: readonly string[] | undefined
   /**
    * Why the caller could not resolve a rules source at all, when it could not.
    *
@@ -145,6 +158,7 @@ export const diagnose = (
       freeze,
       projectDirectory,
       rulesDirectory,
+      shippedDirectories,
       unresolvedRules,
       version,
     } = options
@@ -213,21 +227,72 @@ export const diagnose = (
       return { healthy: false, lines }
     }
 
-    const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
-    if (loaded._tag === 'Failure') {
-      lines.push(`rules    ${rulesDirectory}`, `         COULD NOT LOAD — ${loaded.failure.reasons.join('; ')}`)
+    // The shipped sources deliberately get no frozen documents: they sit inside `node_modules`,
+    // which the project's ref does not track. See `RespondOptions.shippedDirectories`.
+    const sources: readonly RuleSource[] = [
+      ...(shippedDirectories ?? []).map((directory) => ({ directory })),
+      { directory: rulesDirectory, documents: frozenRules },
+    ]
+    const perSource = yield* Effect.all(
+      sources.map((source) =>
+        loadRules(source.directory, source.documents).pipe(
+          Effect.map((rules): RuleGroup => ({ directory: source.directory, rules })),
+          Effect.result,
+        ),
+      ),
+    )
+    // One pass, for the reason `loadRuleSources` gives: filtering twice leaves the second filter's
+    // losing arm unreachable, which is a branch no test can defend.
+    const groups: RuleGroup[] = []
+    const failed: string[] = []
+    for (const outcome of perSource) {
+      if (outcome._tag === 'Failure') {
+        failed.push(...outcome.failure.reasons)
+      } else {
+        groups.push(outcome.success)
+      }
+    }
+
+    if (failed.length > 0) {
+      lines.push(
+        ...block(
+          'rules',
+          sources.map((source) => [source.directory, ''] as const),
+        ),
+        `         COULD NOT LOAD — ${failed.join('; ')}`,
+      )
       return { healthy: false, lines }
     }
+
+    // Reported here rather than left to `mergeRuleSets`'s message alone: a clash between a preset
+    // and the caller's own rules is a fact about the INSTALLATION, which is what this command reads.
+    const clashing = yield* Effect.result(mergeRuleSets(groups))
+    if (clashing._tag === 'Failure') {
+      lines.push(`rules    OVERLAPPING SOURCES — ${clashing.failure.reasons.join('; ')}`)
+      return { healthy: false, lines }
+    }
+    const loaded = { _tag: 'Success', success: clashing.success } as const
     // How many of them can actually stop a write, which is the question "N loaded" stops one word
     // short of. Both counts print even when one is zero: the reader who needs to learn that advisory
     // rules exist is precisely the one whose set has none, so a clause that appeared only when an
     // advisory rule was already there would be invisible to them. `?? 'error'` is the same
     // defaulting the engine applies, written out here rather than imported so this line reads as
     // what it reports.
-    const blocking = loaded.success.filter((rule) => (rule.severity ?? 'error') === 'error').length
-    lines.push(
-      `rules    ${rulesDirectory} — ${loaded.success.length} loaded (${blocking} block, ${loaded.success.length - blocking} advise)`,
-    )
+    // One row per SOURCE. A single total across two directories cannot answer the question this
+    // block exists for — "did my own rules load, or only the preset?" — and that is exactly the
+    // failure a combined `--preset --rules` invocation can have while looking healthy.
+    const describeGroup = (group: RuleGroup): readonly [string, string] => {
+      const blocking = group.rules.filter((rule) => (rule.severity ?? 'error') === 'error').length
+      // The whole row goes in the LABEL. `block` pads a label to 8 columns, which silently does
+      // nothing to a directory path — so a row split label/text renders `…/clean-code— 6 loaded`,
+      // with the separating space eaten. Observed against the real binary; the tests that read the
+      // row with `toContain(directory)` were all green through it.
+      return [
+        `${group.directory} — ${group.rules.length} loaded (${blocking} block, ${group.rules.length - blocking} advise)`,
+        '',
+      ]
+    }
+    lines.push(...block('rules', groups.map(describeGroup)))
 
     const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(paths.basename(configPath))
     const configured = yield* Effect.result(
