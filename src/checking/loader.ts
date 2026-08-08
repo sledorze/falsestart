@@ -258,17 +258,18 @@ export interface RuleSource {
  * sources the project's frozen documents left the whole suite green at 698 tests while
  * `--list-rules` and `scan` failed outright against any repository with a live freeze.
  *
- * The invariant: a SHIPPED source never receives `documents`. Those directories live inside the
- * installed package, so a map read from the project's ref holds nothing of theirs — handing it over
- * loads a preset as an EMPTY rule set the moment a freeze is in effect, which is silent in exactly
- * the way this codebase exists to prevent.
+ * The invariant: each source carries its OWN documents, never another's. A preset that a repository
+ * vendors is committed and comes from the ref like anything else; one in `node_modules` is not
+ * tracked and reads the working tree. Handing the caller's frozen map to a shipped source loads that
+ * preset as an EMPTY rule set the moment a freeze is in effect — silent in exactly the way this
+ * codebase exists to prevent, and green across the whole suite when it happened.
  */
 export const ruleSourcesOf = (options: {
   readonly frozenRules?: ReadonlyMap<string, string> | undefined
   readonly rulesDirectory: string
-  readonly shippedDirectories?: readonly string[] | undefined
+  readonly shipped?: readonly RuleSource[] | undefined
 }): readonly RuleSource[] => [
-  ...(options.shippedDirectories ?? []).map((directory) => ({ directory })),
+  ...(options.shipped ?? []),
   { directory: options.rulesDirectory, documents: options.frozenRules },
 ]
 

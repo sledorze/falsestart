@@ -54,9 +54,35 @@ export type Frozen =
   | { readonly _tag: 'Unfrozen'; readonly reason: string }
   | { readonly _tag: 'Broken'; readonly reason: string }
 
+/**
+ * A rule source that ships with falsestart, classified the same way the caller's own directory is.
+ *
+ * Kept beside its directory because the caller has to know WHICH source a verdict belongs to: it
+ * decides which documents that source loads, and a refusal has to name it.
+ */
+export interface ShippedSource {
+  readonly directory: string
+  readonly source: Frozen
+}
+
 export interface FreezeOutcome {
   readonly config: Frozen
   readonly rules: Frozen
+  /**
+   * The `--preset` sources, when any were named.
+   *
+   * Classified rather than assumed. A preset usually resolves inside `node_modules`, which the
+   * project's repository does not track — but a repository that VENDORS its falsestart install
+   * commits those documents, and falsestart's own repository is such a repository. A refusal keyed
+   * on "a preset was named" rather than on where the path actually sits told this repo that
+   * `rules/clean-code` was "outside the project repository", with six of its documents in
+   * `git ls-files`.
+   *
+   * OPTIONAL, because an invocation that names no preset genuinely has none — and because
+   * `FreezeOutcome` is published, so a required field is a compile error in every caller that
+   * predates it.
+   */
+  readonly shipped?: readonly ShippedSource[] | undefined
 }
 
 /** Which config the ref is asked about: the default names, or the one `--config` gave. */
@@ -106,11 +132,12 @@ export interface FreezeInput {
   /**
    * Rule directories loaded ALONGSIDE `rulesDirectory` that ship with falsestart — a `--preset`.
    *
-   * They are never frozen, because they live inside the installed package rather than the project,
-   * and no ref of the project's repository holds them. Naming them here is what lets `require`
-   * still refuse: see the refusal below.
+   * Each carries its resolved `RulesPath`, exactly as `rulesDirectory` carries `rulesPath`, because
+   * each is classified by the same `classifyRules`. Whether one of them can be verified against the
+   * ref is a question about where the path SITS, and only the caller can resolve that against the
+   * real filesystem.
    */
-  readonly shippedDirectories?: readonly string[] | undefined
+  readonly shipped?: readonly { readonly directory: string; readonly path: RulesPath }[] | undefined
   readonly workTree: WorkTree
 }
 
@@ -168,7 +195,19 @@ const broken = (reason: string): Frozen => ({ _tag: 'Broken', reason })
  */
 const byMode = (mode: FreezeMode, reason: string): Frozen => (mode === 'require' ? broken(reason) : unfrozen(reason))
 
-const both = (verdict: Frozen): FreezeOutcome => ({ config: verdict, rules: verdict })
+/**
+ * One verdict for every source, for the failures that precede any per-source question — no work
+ * tree, no readable repository, `--freeze off`. The shipped sources are carried so a caller never
+ * has to special-case their absence.
+ */
+const both = (verdict: Frozen, shipped: readonly string[] = []): FreezeOutcome => ({
+  config: verdict,
+  rules: verdict,
+  shipped: shipped.map((directory) => ({ directory, source: verdict })),
+})
+
+/** Just the directories, for the failures that answer before any of them is classified. */
+const shippedNames = (input: FreezeInput): readonly string[] => (input.shipped ?? []).map((source) => source.directory)
 
 const anchorRefusal = (evidence: FreezeEvidence): string =>
   `no verified anchor between ${evidence.projectDirectory} and the filesystem root: ` +
@@ -330,11 +369,11 @@ export const classifyRules = (options: ClassifyRulesOptions): Effect.Effect<Froz
 export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
   Effect.gen(function* () {
     if (input.mode === 'off') {
-      return both(unfrozen('--freeze off'))
+      return both(unfrozen('--freeze off'), shippedNames(input))
     }
 
     if (input.workTree._tag === 'Absent') {
-      return both(byMode(input.mode, `${input.projectDirectory} is not inside a git work tree`))
+      return both(byMode(input.mode, `${input.projectDirectory} is not inside a git work tree`), shippedNames(input))
     }
 
     // git declining to say WHICH repository this is, while a repository demonstrably exists, is a
@@ -346,13 +385,14 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
         broken(
           `git would not say which repository ${input.projectDirectory} is in, and one exists: ${input.workTree.stderr.trim()}`,
         ),
+        shippedNames(input),
       )
     }
 
     // Which repository is authoritative could not be established. That is not an absence — it is a
     // freeze that cannot say what it would be enforcing — so it refuses in every mode.
     if (input.repository._tag === 'Ambiguous') {
-      return both(broken(input.repository.reason))
+      return both(broken(input.repository.reason), shippedNames(input))
     }
 
     const evidence = {
@@ -364,62 +404,74 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
     }
 
     if (input.repository.anchor === 'unverified' && input.mode === 'require') {
-      return both(broken(anchorRefusal(evidence)))
-    }
-
-    /**
-     * A shipped rule set cannot be verified against the project's ref, so `require` refuses.
-     *
-     * `require`'s whole contract is that nothing gets judged which the ref cannot account for. A
-     * preset was already covered when it was the only source — `classifyRules` sees it as `Outside`
-     * and `byMode` turns that into `Broken`. Combining it with a `--rules` directory moved the
-     * classification onto the directory, and the preset stopped being classified AT ALL: the report
-     * said `frozen`, exited 0, and six unverified rules were in effect with nothing naming them.
-     *
-     * Only the `rules` half refuses. The project's own config is still perfectly freezable, and the
-     * docstring above this function is the reason the two are classified independently.
-     */
-    const shipped = input.shippedDirectories ?? []
-    if (input.mode === 'require' && shipped.length > 0) {
-      return {
-        config: classifyConfig({ evidence, objects: [], source: input.config }),
-        rules: broken(
-          `${shipped.join(', ')} ships with falsestart and is outside the project repository at ` +
-            `${evidence.toplevel}, so ${input.ref} cannot account for it — --freeze require refuses ` +
-            `to judge with a rule set it cannot verify. Drop --preset, or use --freeze auto.`,
-        ),
-      }
+      return both(broken(anchorRefusal(evidence)), shippedNames(input))
     }
 
     const requests = [input.ref, ...configRequests(input.ref, input.config)]
     const answered = yield* Effect.result(parseBatchObjects(input.probe(requests).stdout, requests))
     if (answered._tag === 'Failure') {
-      return both(broken(`could not read ${input.ref} from ${evidence.toplevel}: ${answered.failure}`))
+      return both(
+        broken(`could not read ${input.ref} from ${evidence.toplevel}: ${answered.failure}`),
+        shippedNames(input),
+      )
     }
 
     const [probed, ...configObjects] = answered.success
     if (isAbsent(probed)) {
       if (input.refExplicit) {
-        return both(broken(`${input.ref} does not resolve`))
+        return both(broken(`${input.ref} does not resolve`), shippedNames(input))
       }
       // `for-each-ref` prints a ref in a repository whose HEAD was repointed and prints nothing in a
       // freshly `git init`ed one, both exiting 0 — so the discriminator is output emptiness. It
       // raises the cost of that escape by one command; it does not close it, because no probe inside
       // a git directory survives an agent that can write inside that git directory.
       return input.namedRefs().stdout.length === 0
-        ? both(byMode(input.mode, `${evidence.toplevel} has no commit yet`))
-        : both(broken('HEAD does not resolve in a repository that has refs'))
+        ? both(byMode(input.mode, `${evidence.toplevel} has no commit yet`), shippedNames(input))
+        : both(broken('HEAD does not resolve in a repository that has refs'), shippedNames(input))
     }
 
-    return {
-      config: classifyConfig({ evidence, objects: configObjects, source: input.config }),
-      rules: yield* classifyRules({
-        directory: input.rulesDirectory,
+    const classify = (directory: string, path: RulesPath) =>
+      classifyRules({
+        directory,
         evidence,
         isDocument: input.isDocument,
         listTree: input.listTree,
-        path: input.rulesPath,
+        path,
         readBlobs: input.readBlobs,
-      }),
+      })
+
+    return {
+      config: classifyConfig({ evidence, objects: configObjects, source: input.config }),
+      rules: yield* classify(input.rulesDirectory, input.rulesPath),
+      // The SAME classification the caller's own directory gets, and deliberately so. A preset
+      // usually sits in `node_modules` and comes back `Unfrozen` under `auto` or `Broken` under
+      // `require` — but a repository that vendors its install commits those documents, and there
+      // the ref accounts for them exactly as it does for anything else. Asking where the path sits
+      // is the only way to tell the two apart; asking whether a preset was NAMED cannot.
+      shipped: yield* Effect.all(
+        (input.shipped ?? []).map((source) =>
+          classify(source.directory, source.path).pipe(
+            Effect.map((frozen): ShippedSource => ({ directory: source.directory, source: frozen })),
+          ),
+        ),
+      ),
     }
+  })
+
+/**
+ * What each shipped source holds under this freeze, in the shape a loader takes.
+ *
+ * The mapping lives here rather than in each caller because it is the one place that knows a
+ * shipped source is classified independently: a vendored preset the ref tracks yields its committed
+ * documents, and one in `node_modules` yields none and reads the working tree. Two copies of that
+ * would eventually disagree, and the disagreement is silent — an empty rule set looks exactly like
+ * a clean one.
+ */
+export const shippedRuleSources = (
+  outcome: FreezeOutcome | undefined,
+  directories: readonly string[],
+): readonly { readonly directory: string; readonly documents: ReadonlyMap<string, string> | undefined }[] =>
+  directories.map((directory) => {
+    const held = outcome?.shipped?.find((entry) => entry.directory === directory)?.source
+    return { directory, documents: held?._tag === 'Frozen' ? held.documents : undefined }
   })

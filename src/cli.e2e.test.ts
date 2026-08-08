@@ -983,11 +983,15 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('a preset along
     ),
   )
 
-  // `require` means "judge nothing the ref cannot account for". A preset was already covered when it
-  // was the only source; combining it with a directory moved the classification onto the directory
-  // and left the preset unclassified — the report said `frozen`, exited 0, and six unverified rules
-  // were in effect with nothing naming them.
-  it.effect('refuses to judge under --freeze require, because a preset cannot be verified', () =>
+  // `require` means "judge nothing the ref cannot account for". Combining a preset with a directory
+  // moved the classification onto the directory and left the preset unclassified — the report said
+  // `frozen`, exited 0, and six unverified rules were in effect with nothing naming them.
+  //
+  // The refusal is STRUCTURAL, from the same `classifyRules` the caller's own directory goes
+  // through: this preset really is outside this repository. A first attempt refused on "a preset was
+  // named" instead, and told falsestart's own repo that `rules/clean-code` was outside itself with
+  // six of those documents in `git ls-files`.
+  it.effect('refuses to judge under --freeze require, because THIS preset is outside the repository', () =>
     withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
       Effect.gen(function* () {
         yield* commitAll(root)
@@ -1004,7 +1008,7 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('a preset along
         )
 
         expect(judged.stdout).toContain('"permissionDecision":"deny"')
-        expect(judged.stdout).toContain('ships with falsestart')
+        expect(judged.stdout).toContain('outside the project repository')
         expect(diagnosed.exitCode).toBe(1)
       }),
     ),

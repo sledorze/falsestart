@@ -27,7 +27,7 @@ import {
 import type { RuleGroup } from '../checking/index.ts'
 import { appliesTo, fallbacks, loadRules, mergeRuleSets, readRuleDocuments, ruleSourcesOf } from '../checking/index.ts'
 import type { FreezeOutcome, Frozen } from '../freezing/index.ts'
-import { divergence } from '../freezing/index.ts'
+import { divergence, shippedRuleSources } from '../freezing/index.ts'
 import type { FailurePolicy } from './respond.ts'
 import type { AgentId } from './decide.ts'
 import { contractFor, decide } from './decide.ts'
@@ -72,8 +72,7 @@ export interface DiagnoseOptions {
    */
   readonly rulesDirectory: string
   /**
-   * Rule directories loaded IN ADDITION to `rulesDirectory`, ahead of it, always from the working
-   * tree. See `RespondOptions.shippedDirectories`.
+   * Rule sources loaded IN ADDITION to `rulesDirectory`, ahead of it. See `RespondOptions.shipped`.
    *
    * OPTIONAL for the reason `changelogPath` is: `DiagnoseOptions` is published, so a required field
    * here is a compile error in every caller that predates it.
@@ -227,7 +226,11 @@ export const diagnose = (
       return { healthy: false, lines }
     }
 
-    const sources = ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories })
+    const sources = ruleSourcesOf({
+      frozenRules,
+      rulesDirectory,
+      shipped: shippedRuleSources(freeze, shippedDirectories ?? []),
+    })
     const perSource = yield* Effect.all(
       sources.map((source) =>
         loadRules(source.directory, source.documents).pipe(
@@ -338,10 +341,11 @@ export const diagnose = (
     // describe. `healthy` follows the same split the classification does: `Unfrozen` is a stated
     // policy and stays healthy; `Broken` is a guard that could not do its job and does not.
     if (freeze !== undefined) {
-      const frozenRef = [freeze.rules, freeze.config].flatMap((source) =>
+      const shippedFrozen = (freeze.shipped ?? []).map((entry) => entry.source)
+      const frozenRef = [freeze.rules, freeze.config, ...shippedFrozen].flatMap((source) =>
         source._tag === 'Frozen' ? [source.ref] : [],
       )[0]
-      const unverified = [freeze.rules, freeze.config].some(
+      const unverified = [freeze.rules, freeze.config, ...shippedFrozen].some(
         (source) => source._tag === 'Frozen' && source.anchor === 'unverified',
       )
       const committedConfig =
@@ -352,6 +356,15 @@ export const diagnose = (
       const rows: (readonly [string, string])[] = [
         ...(frozenRef === undefined ? [] : [['ref', frozenRef] as const]),
         ...(unverified ? [['anchor', anchorWarning(projectDirectory)] as const] : []),
+        // A row per shipped source, because each is classified independently and the reader cannot
+        // otherwise tell a vendored preset the ref really holds from one that is simply unverified.
+        ...(freeze.shipped ?? []).map(
+          (entry) =>
+            [
+              'shipped',
+              describeFrozen(entry.source, `${countOf(entry.source)} document(s) from ${entry.directory}`),
+            ] as const,
+        ),
         ['rules', describeFrozen(freeze.rules, `${countOf(freeze.rules)} document(s) from ${rulesDirectory}`)],
         ['config', describeFrozen(freeze.config, committedConfig)],
       ]
@@ -379,7 +392,7 @@ export const diagnose = (
         }
       }
 
-      if ([freeze.rules, freeze.config].some((source) => source._tag === 'Broken')) {
+      if ([freeze.rules, freeze.config, ...shippedFrozen].some((source) => source._tag === 'Broken')) {
         return { healthy: false, lines }
       }
     }
@@ -406,11 +419,20 @@ export const diagnose = (
     const reach = PROBE_PATHS.map(
       (path) => [path, scoped.success.filter((rule) => appliesTo(rule, path)).length] as const,
     )
-    lines.push('scope')
-    for (const [path, count] of reach) {
-      lines.push(`         ${`${count}`.padStart(3)} rule(s) apply to ${path}`)
-    }
-    lines.push('')
+    // WHICH directory those probe paths are relative to, said outright — including the part this
+    // command cannot answer.
+    //
+    // Every count below depends on the anchor, and `--doctor` reads no payload, so it can only name
+    // the fallback. Stating just this directory would be a claim about judged writes that is false
+    // whenever the payload names a different one, and that disagreement is the failure mode: every
+    // repo-relative glob then admits nothing, silently, in an installation this report calls healthy.
+    lines.push(
+      'scope',
+      `         paths below are matched relative to ${projectDirectory}`,
+      "         a judged write uses the payload's cwd when it carries one, and this directory when it does not",
+      ...reach.map(([path, count]) => `         ${`${count}`.padStart(3)} rule(s) apply to ${path}`),
+      '',
+    )
 
     // Reported, NOT failed. "Misses five `src/` paths" is not "misses everything": a rule set scoped
     // to `lib/**` or a monorepo's `packages/*/src/**` blocks perfectly well and probes zero here.

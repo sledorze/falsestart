@@ -153,7 +153,10 @@ Rules are ast-grep documents needing `id`, `language`, and `rule`, optionally `m
 rule worked examples of both kinds — the must-not-fire examples are the ones that catch a rule
 turning into a nuisance.
 
-`files` globs match the path relative to the project root the hook reports, so `src/**/*.ts` works
+`files` globs match the path relative to the `cwd` the payload carries, or — when it carries none,
+which Claude Code always does but another agent may not — the directory falsestart runs in; before,
+a payload without `cwd` matched the absolute path raw and every repo-relative glob silently admitted
+nothing. `--doctor` prints both halves above the scope block. So `src/**/*.ts` works
 as written; a file outside that root keeps its absolute path. Notebooks scope by the notebook's own
 path, so a `**/*.ts` rule does not see TypeScript in a `.ipynb` cell.
 

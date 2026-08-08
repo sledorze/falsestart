@@ -37,10 +37,18 @@ import type {
   ConfigSource,
   FreezeMode,
   FreezeOutcome,
+  Frozen,
   GitAnswer,
   WorkTree,
 } from './freezing/index.ts'
-import { containedPath, enclosingGitDirectory, freeze, resolveAnchor, resolveRulesPath } from './freezing/index.ts'
+import {
+  containedPath,
+  enclosingGitDirectory,
+  freeze,
+  resolveAnchor,
+  resolveRulesPath,
+  shippedRuleSources,
+} from './freezing/index.ts'
 
 /**
  * Carries a non-zero exit out of the program. A typed error rather than a bare failure, so the
@@ -310,7 +318,15 @@ const resolveFreeze = (options: {
       repository,
       rulesDirectory,
       rulesPath: yield* resolveRulesPath({ named: rulesDirectory, projectReal, toplevelReal }),
-      shippedDirectories,
+      // Resolved here for the reason `rulesPath` is: only this file may touch the real filesystem,
+      // and where a shipped directory actually SITS is what decides whether the ref accounts for it.
+      shipped: yield* Effect.all(
+        shippedDirectories.map((directory) =>
+          resolveRulesPath({ named: directory, projectReal, toplevelReal }).pipe(
+            Effect.map((resolved) => ({ directory, path: resolved })),
+          ),
+        ),
+      ),
       workTree,
     })
   })
@@ -452,8 +468,12 @@ const program = Effect.gen(function* () {
   /** The sources loaded ahead of `rulesDirectory` — a preset, and never frozen. */
   const shippedDirectories = directories.slice(0, -1)
 
-  const ruleSources = (frozenRules: ReadonlyMap<string, string> | undefined) =>
-    ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories })
+  const ruleSources = (outcome: FreezeOutcome) =>
+    ruleSourcesOf({
+      frozenRules: heldBy(outcome.rules),
+      rulesDirectory,
+      shipped: shippedRuleSources(outcome, shippedDirectories),
+    })
 
   /**
    * The freeze for whichever mode is running, built from the same command line every time.
@@ -475,11 +495,12 @@ const program = Effect.gen(function* () {
     })
 
   /** The documents a frozen source holds, or nothing when the working tree is what is in effect. */
-  const heldBy = (source: FreezeOutcome[keyof FreezeOutcome]) =>
-    source._tag === 'Frozen' ? source.documents : undefined
+  const heldBy = (source: Frozen) => (source._tag === 'Frozen' ? source.documents : undefined)
 
   const brokenFreeze = (outcome: FreezeOutcome): string | undefined =>
-    [outcome.rules, outcome.config].flatMap((source) => (source._tag === 'Broken' ? [source.reason] : []))[0]
+    [outcome.rules, outcome.config, ...(outcome.shipped ?? []).map((entry) => entry.source)].flatMap((source) =>
+      source._tag === 'Broken' ? [source.reason] : [],
+    )[0]
 
   if (options._tag === 'Scan') {
     // Paths on stdin only when asked for. Reading it unconditionally is how `--rules --doctor`
@@ -506,7 +527,7 @@ const program = Effect.gen(function* () {
 
     const prepared = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRuleSources(ruleSources(heldBy(frozen.rules)))
+        const loaded = yield* loadRuleSources(ruleSources(frozen))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))
@@ -578,7 +599,7 @@ const program = Effect.gen(function* () {
 
     const resolved = yield* Effect.result(
       Effect.gen(function* () {
-        const loaded = yield* loadRuleSources(ruleSources(heldBy(frozen.rules)))
+        const loaded = yield* loadRuleSources(ruleSources(frozen))
         const configured =
           options.configPath === undefined
             ? yield* loadDefaultConfig(projectDirectory, heldBy(frozen.config))

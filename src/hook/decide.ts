@@ -45,6 +45,26 @@ const defer = (): Decision => ({ _tag: 'Defer' })
 export interface DecideOptions {
   readonly agent?: AgentId | undefined
   /**
+   * The directory to anchor a rule's `files` globs to when the payload names none.
+   *
+   * Rules are authored project-relative (`src/**\/*.ts`) while a hook reports an absolute path, so
+   * something has to say which prefix to strip. The payload's `cwd` says it — except when the
+   * payload does not carry one, and then the absolute path was matched raw and every repo-relative
+   * glob silently admitted nothing: the rule loads, validates, reports on nothing, and an unguarded
+   * file is indistinguishable from a clean one. Claude Code always sends `cwd`; the Copilot envelope
+   * is provisional and any other caller may not.
+   *
+   * The payload still WINS when it names one, deliberately. Both are legitimate anchors and only the
+   * rule's author knows which their globs were written against: a hook command that runs in a
+   * subdirectory (`cd packages/app && falsestart --rules ../../rules`) while the payload names the
+   * repository root is a real, working configuration, and preferring this field silently stopped it
+   * blocking — measured, deny to exit 0 with nothing on either stream.
+   *
+   * OPTIONAL: `DecideOptions` is published, so a caller that predates this keeps the behaviour it
+   * was written against.
+   */
+  readonly projectDirectory?: string | undefined
+  /**
    * Say so when a judged write lands on a path no rule is scoped to.
    *
    * Off by default, and the default is the interesting part. The honest version of this signal is
@@ -332,7 +352,8 @@ export type JudgedTarget =
   | {
       readonly _tag: 'Write'
       readonly content: string
-      /** The agent's working directory, when it named one. Rules are scoped relative to it. */
+      /** The agent's working directory, when it named one. Rules are scoped relative to it, and
+       * only when it is absent does `DecideOptions.projectDirectory` stand in. */
       readonly cwd: string | undefined
       readonly path: string
     }
@@ -500,8 +521,11 @@ export const decide = (
     }
     // The payload reports an absolute path; rules are written relative to the project. Scoping on
     // the raw absolute path makes every repo-relative glob silently never match.
+    //
+    // The payload's `cwd` when it carries one, and only then the caller's project directory. See
+    // `DecideOptions.projectDirectory` for why that order and not the other.
     const { content, cwd, path } = target
-    const scopingPath = toScopingPath(path, cwd)
+    const scopingPath = toScopingPath(path, cwd ?? options.projectDirectory)
 
     // Deliberately before the check rather than after it. A path no rule admits produces no
     // findings, so the two are equivalent in outcome — but reading it here says the condition is

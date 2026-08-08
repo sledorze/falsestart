@@ -32,10 +32,10 @@ falsestart never sees.
 preset AND a `--rules` source: `--preset clean-code --rules ./.falsestart/rules` is the shipped set
 plus the repo's own, from one hook entry — which is also what lets a single config re-scope rules
 from both. Nothing is ranked between them; an id both define is refused, naming both directories.
-Between the two `--rules` forms the `pkg:` one still wins whichever came first, and only the
-`--rules` source can be frozen (a preset resolves inside node_modules, which the repository does not
-track) — under `--freeze require` a preset is REFUSED whether or not a `--rules` directory is named
-alongside it, since no ref accounts for it. Layering more than one preset or more than one `--rules` source still means two hook
+Between the two `--rules` forms the `pkg:` one still wins whichever came first. EVERY source is
+frozen independently and structurally, by where its path sits: a preset in node_modules is untracked
+(working tree under `auto`, refused under `require`), while one a repository VENDORS is committed and
+is genuinely frozen from the ref. `--doctor` prints a `shipped` row per preset saying which. Layering more than one preset or more than one `--rules` source still means two hook
 entries. The `.falsestart/rules` default applies only when nothing else names a source, so
 `--preset all` alone still loads exactly the preset. `--doctor` reports what was
 resolved, says how many loaded rules block and how many advise, probes five paths for reachability, and names any rule whose override covers fewer

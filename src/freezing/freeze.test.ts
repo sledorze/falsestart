@@ -12,7 +12,7 @@
 import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
 import type { FreezeInput, FreezeMode, GitAnswer } from './freeze.ts'
-import { containedPath, divergence, freeze } from './freeze.ts'
+import { containedPath, divergence, freeze, shippedRuleSources } from './freeze.ts'
 
 const encoder = new TextEncoder()
 
@@ -653,37 +653,136 @@ describe('what the working tree has that the ref does not', () => {
 })
 
 describe('a rule source that ships with falsestart, alongside a freezable one', () => {
-  effect('refuses to judge under require, because no ref of this repository holds it', () =>
-    Effect.gen(function* () {
-      // `require` means "judge nothing the ref cannot account for". A preset was already covered
-      // when it was the ONLY source — `classifyRules` sees it as `Outside` and `byMode` turns that
-      // into `Broken` — but combining it with a `--rules` directory moves the classification onto
-      // the directory, and the preset stops being classified at all: the report said `frozen`,
-      // exited 0, and six unverified rules were in effect with nothing naming them.
-      const outcome = yield* freeze(inputFor({ mode: 'require', shippedDirectories: ['/pkg/rules/clean-code'] }))
+  const shippedAt = (path: FreezeInput['shipped']) => ({ shipped: path })
 
-      expect(outcome.rules._tag).toBe('Broken')
-      expect(outcome.rules._tag === 'Broken' && outcome.rules.reason).toContain('/pkg/rules/clean-code')
+  effect('refuses under require when the ref genuinely does not account for it', () =>
+    Effect.gen(function* () {
+      // The usual case: a preset resolves inside `node_modules`, outside the repository entirely.
+      const outcome = yield* freeze(
+        inputFor({
+          mode: 'require',
+          ...shippedAt([{ directory: '/pkg/rules/clean-code', path: { _tag: 'Outside' } }]),
+        }),
+      )
+
+      const [only] = outcome.shipped ?? []
+      expect(only?.source._tag).toBe('Broken')
+      expect(only?.source._tag === 'Broken' && only.source.reason).toContain('outside the project repository')
     }),
   )
 
-  effect('leaves auto alone, where a shipped source has always read the working tree', () =>
+  // The finding this shape exists for. A repository that VENDORS its falsestart install commits
+  // those documents — falsestart's own repository is one, with six of them in `git ls-files` — and a
+  // refusal keyed on "a preset was named" rather than on where the path SITS told it the directory
+  // was outside itself. Structural, never nominal: the same question `rulesDirectory` is asked.
+  effect('freezes a vendored preset the ref really does hold, rather than refusing it by name', () =>
     Effect.gen(function* () {
-      // The negative. Refusing under `auto` would make `--preset` unusable in every repository that
-      // has a commit, which is every repository the freeze applies to at all.
-      const outcome = yield* freeze(inputFor({ mode: 'auto', shippedDirectories: ['/pkg/rules/clean-code'] }))
+      const outcome = yield* freeze(
+        inputFor({
+          listTree: () => answer(tree(`100644 blob ${'a'.repeat(40)}\tvendor/rules/r.yml`)),
+          mode: 'require',
+          readBlobs: () => answer(object('a'.repeat(40), 'id: vendored\nlanguage: tsx\nrule:\n  pattern: x\n')),
+          ...shippedAt([{ directory: './vendor/rules', path: { _tag: 'Contained', relative: 'vendor/rules' } }]),
+        }),
+      )
 
-      expect(outcome.rules._tag).not.toBe('Broken')
+      const [only] = outcome.shipped ?? []
+      expect(only?.source._tag).toBe('Frozen')
+      expect(only?.source._tag === 'Frozen' && [...only.source.documents.keys()]).toEqual(['r.yml'])
     }),
   )
 
-  effect('does not invent the refusal when nothing shipped alongside', () =>
+  effect('leaves it unfrozen rather than broken under auto', () =>
     Effect.gen(function* () {
-      // This fixture's rules tree is untracked, so `require` refuses it anyway — the point is WHICH
-      // refusal. Asserting the tag alone would pass against a rule that fired for the wrong reason.
-      const outcome = yield* freeze(inputFor({ mode: 'require', shippedDirectories: [] }))
+      // The negative. `auto` reads the working tree for a source the ref cannot account for, which
+      // is what a `node_modules` preset has always done; refusing there would make `--preset`
+      // unusable in every repository that has a commit.
+      const outcome = yield* freeze(
+        inputFor({ mode: 'auto', ...shippedAt([{ directory: '/pkg/rules', path: { _tag: 'Outside' } }]) }),
+      )
 
-      expect(outcome.rules._tag === 'Broken' && outcome.rules.reason).not.toContain('ships with falsestart')
+      expect(outcome.shipped?.[0]?.source._tag).toBe('Unfrozen')
     }),
   )
+
+  effect('classifies the config from the real probe rather than from no evidence', () =>
+    Effect.gen(function* () {
+      // Regression. The refusal used to sit ABOVE the ref probe and hand `classifyConfig` an empty
+      // objects array, so a committed config came back `Frozen` holding nothing — the repository's
+      // whole scope policy vanished from the report — and a ref that does not resolve came back
+      // `frozen` too. Measured against a real repository, four distinct wrong answers.
+      const jsonConfig = object('b'.repeat(40), '{"rules":{}}')
+      const committed = answer(bytes(commit(), missing('HEAD:falsestart.config.ts'), jsonConfig))
+      const outcome = yield* freeze(
+        inputFor({
+          mode: 'require',
+          probe: () => committed,
+          ...shippedAt([{ directory: '/pkg/rules', path: { _tag: 'Outside' } }]),
+        }),
+      )
+
+      expect(outcome.config._tag).toBe('Frozen')
+      expect(outcome.config._tag === 'Frozen' && [...outcome.config.documents.keys()]).toEqual([
+        'falsestart.config.json',
+      ])
+    }),
+  )
+
+  effect('carries the same verdict to every shipped source when the failure precedes them', () =>
+    Effect.gen(function* () {
+      // `--freeze off`, no work tree, an unreadable repository: answered before any path is
+      // classified. The shipped sources still get a verdict, so no caller has to special-case their
+      // absence and read `undefined` as "fine".
+      const outcome = yield* freeze(
+        inputFor({
+          mode: 'off',
+          shipped: [{ directory: '/pkg/rules', path: { _tag: 'Outside' } }],
+        }),
+      )
+
+      expect(outcome.shipped).toEqual([
+        { directory: '/pkg/rules', source: { _tag: 'Unfrozen', reason: '--freeze off' } },
+      ])
+    }),
+  )
+
+  effect('reports no shipped source when none was named', () =>
+    Effect.gen(function* () {
+      expect((yield* freeze(inputFor({ mode: 'require' }))).shipped ?? []).toEqual([])
+    }),
+  )
+})
+
+describe('what each shipped source holds under a freeze', () => {
+  const frozenAt = (documents: Readonly<Record<string, string>>) =>
+    ({ _tag: 'Frozen', anchor: 'verified', documents: new Map(Object.entries(documents)), ref: 'HEAD' }) as const
+
+  it("hands each directory its own committed documents, never another's", () => {
+    // The bug this shape prevents: one `documents` map shared across sources loads a preset as an
+    // EMPTY rule set the moment a freeze is live, which is silent and looks exactly like a clean
+    // rule tree.
+    const outcome = {
+      config: { _tag: 'Unfrozen' as const, reason: 'none' },
+      rules: frozenAt({ 'own.yml': 'id: own\n' }),
+      shipped: [{ directory: './vendor', source: frozenAt({ 'v.yml': 'id: vendored\n' }) }],
+    }
+
+    expect(shippedRuleSources(outcome, ['./vendor'])).toEqual([
+      { directory: './vendor', documents: new Map([['v.yml', 'id: vendored\n']]) },
+    ])
+  })
+
+  it('gives no documents to a source the ref does not hold', () => {
+    const outcome = {
+      config: { _tag: 'Unfrozen' as const, reason: 'none' },
+      rules: { _tag: 'Unfrozen' as const, reason: 'none' },
+      shipped: [{ directory: '/pkg/rules', source: { _tag: 'Unfrozen' as const, reason: 'outside' } }],
+    }
+
+    expect(shippedRuleSources(outcome, ['/pkg/rules'])).toEqual([{ directory: '/pkg/rules', documents: undefined }])
+  })
+
+  it('reads the working tree when there is no freeze at all', () => {
+    expect(shippedRuleSources(undefined, ['/pkg/rules'])).toEqual([{ directory: '/pkg/rules', documents: undefined }])
+  })
 })

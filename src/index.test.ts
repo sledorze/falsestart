@@ -80,6 +80,7 @@ describe('library surface', () => {
       'ruleSourcesOf',
       'samplePath',
       'scan',
+      'shippedRuleSources',
       'toScopingPath',
       'validateConfig',
       'writeBaseline',

@@ -1865,3 +1865,30 @@ layer(platform)('judging with more than one rule source', (it) => {
     ),
   )
 })
+
+layer(platform)('a shipped source the freeze could not read', (it) => {
+  it.effect('denies, exactly as an unreadable rules directory does', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        // A preset the ref cannot account for is a rule set nobody verified. Judging with it is
+        // precisely what `--freeze require` exists to prevent, and it must not depend on which of
+        // the two sources happened to be the unverifiable one.
+        const response = yield* respond({
+          freeze: () =>
+            Effect.succeed({
+              config: nothingToFreeze,
+              rules: nothingToFreeze,
+              shipped: [{ directory: '/pkg/rules', source: { _tag: 'Broken' as const, reason: 'outside the repo' } }],
+            }),
+          input: writeOf('const x = 1'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+          shippedDirectories: ['/pkg/rules'],
+        })
+
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('outside the repo')
+      }),
+    ),
+  )
+})

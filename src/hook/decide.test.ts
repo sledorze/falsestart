@@ -194,11 +194,74 @@ describe('project-relative scoping', () => {
     }),
   )
 
-  effect('falls back to the absolute path when the payload carries no cwd', () =>
+  effect('falls back to the absolute path when nothing names a project directory', () =>
     Effect.gen(function* () {
       const decision = yield* decide(yield* rulesOf(noAsAny), writePayload('const x = value as any'))
 
       expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  const repoRelative = `${noAsAny}files:\n  - 'packages/*/src/**/*.ts'\n`
+  const writtenAt = (path: string, cwd?: string) => ({
+    ...(cwd === undefined ? {} : { cwd }),
+    tool_input: { content: 'const x = value as any', file_path: path },
+    tool_name: 'Write',
+  })
+
+  // The hole. Without an anchor the absolute path is matched raw, so every repo-relative glob
+  // admits nothing — the rule loads, validates and reports on nothing, which is exactly what a
+  // clean file looks like. Claude Code always sends `cwd`; the Copilot envelope is provisional and
+  // any other caller may not.
+  effect("anchors on the caller's project directory when the payload names none", () =>
+    Effect.gen(function* () {
+      const scoped = yield* rulesOf(repoRelative)
+
+      const decision = yield* decide(scoped, writtenAt('/repo/packages/app/src/widget.ts'), {
+        projectDirectory: '/repo',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  effect('still admits nothing when neither the payload nor the caller names one', () =>
+    Effect.gen(function* () {
+      // The negative that says the fix is the ANCHOR and not a loosening of the glob.
+      const scoped = yield* rulesOf(repoRelative)
+
+      expect((yield* decide(scoped, writtenAt('/repo/packages/app/src/widget.ts')))._tag).toBe('Defer')
+    }),
+  )
+
+  // Deliberately NOT overridden. Both are legitimate anchors and only the rule's author knows which
+  // their globs were written against — `cd packages/app && falsestart --rules ../../rules` with the
+  // payload naming the repository root is a real, working configuration, and preferring the
+  // project directory silently stopped it blocking. Measured: deny became exit 0 with nothing on
+  // either stream.
+  effect('lets the payload cwd win over the project directory when both are present', () =>
+    Effect.gen(function* () {
+      const scoped = yield* rulesOf(repoRelative)
+
+      const decision = yield* decide(scoped, writtenAt('/repo/packages/app/src/widget.ts', '/repo'), {
+        projectDirectory: '/repo/packages/app',
+      })
+
+      expect(decision._tag).toBe('Deny')
+    }),
+  )
+
+  effect('does not drag a path outside the anchor into scope', () =>
+    Effect.gen(function* () {
+      // Relativising is not the same as assuming: a write somewhere else entirely keeps its
+      // absolute path, so a repo-relative glob still does not admit it.
+      const scoped = yield* rulesOf(repoRelative)
+
+      const decision = yield* decide(scoped, writtenAt('/elsewhere/packages/app/src/widget.ts'), {
+        projectDirectory: '/repo',
+      })
+
+      expect(decision._tag).toBe('Defer')
     }),
   )
 })

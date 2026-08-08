@@ -757,6 +757,7 @@ layer(platform)('documentation covers the source', (it) => {
           Effect.succeed({
             config: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
             rules: { _tag: 'Broken', reason: 'HEAD does not resolve in a repository that has refs' },
+            shipped: [],
           }),
         input: JSON.stringify({
           tool_input: { content: 'const x = y as any', file_path: '/r/a.ts' },
@@ -770,6 +771,7 @@ layer(platform)('documentation covers the source', (it) => {
         freeze: {
           config: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
           rules: { _tag: 'Frozen', anchor: 'unverified', documents: new Map(), ref: 'HEAD' },
+          shipped: [],
         },
         projectDirectory: 'rules',
         rulesDirectory: 'rules',
