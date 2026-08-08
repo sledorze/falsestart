@@ -487,7 +487,8 @@ That is the complete set of Claude Code built-ins that carry file content — th
 Under `--agent copilot`. The envelope has two documented spellings and falsestart reads both:
 `toolName`/`toolArgs` when the hook config names the event `preToolUse`, and `tool_name`/`tool_input`
 when it names it `PreToolUse`. `toolArgs` may arrive as a JSON-encoded string rather than an object.
-`cwd` is spelled `cwd` in both, so every repo-relative glob works unchanged.
+Neither spelling of `cwd` is used for scoping: globs are matched relative to the directory
+falsestart runs in, so every repo-relative glob works unchanged under either envelope.
 
 | tool     | path field | content field |
 | -------- | ---------- | ------------- |

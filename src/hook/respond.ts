@@ -461,7 +461,7 @@ export const respond = (
       return refuse(emit, eitherFrozen, options.failure, scoped.failure.reasons.join('\n'))
     }
 
-    const decision = yield* decide(scoped.success, parsed.success, { agent, warnUnscoped })
+    const decision = yield* decide(scoped.success, parsed.success, { agent, projectDirectory, warnUnscoped })
 
     const note =
       outcome?.rules._tag === 'Frozen'

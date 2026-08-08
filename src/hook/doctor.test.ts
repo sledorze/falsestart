@@ -825,3 +825,27 @@ layer(platform)('the freeze block over more than one rule source', (it) => {
     ),
   )
 })
+
+layer(platform)('which directory the scope block is relative to', (it) => {
+  it.effect('names the project directory the probe paths are matched against', () =>
+    withTree({ 'a.yml': committed }, (rules) =>
+      withTree({}, (elsewhere) =>
+        Effect.gen(function* () {
+          // Without this the block is a list of counts against paths with no stated anchor, and the
+          // anchor is the whole question when a rule reports zero.
+          // `projectDirectory` deliberately NOT the same directory as `rulesDirectory`: bound to one
+          // temp dir, the assertion cannot tell which of the two the report actually named, and the
+          // whole suite stayed green with `--doctor` printing the rules directory as the anchor.
+          // Under `--preset` the two are genuinely unrelated, so that mutation would have printed a
+          // node_modules path.
+          const report = (yield* run({ projectDirectory: elsewhere, rulesDirectory: rules })).lines.join('\n')
+
+          expect(report).toContain(`paths below are matched relative to ${elsewhere}`)
+          expect(report).not.toContain(`relative to ${rules}`)
+          // The half this command cannot answer, because it reads no payload.
+          expect(report).toContain("a judged write uses the payload's cwd when it carries one")
+        }),
+      ),
+    ),
+  )
+})
