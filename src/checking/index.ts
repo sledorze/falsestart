@@ -9,7 +9,16 @@ export type { GrammarFallback } from './engine.ts'
 export { checkFile, fallbacks } from './engine.ts'
 export type { RuleDescription } from './listing.ts'
 export { describeRules, RuleDescriptionSchema, ruleListText } from './listing.ts'
-export { isRuleDocument, loadRules, readRuleDocuments, RuleLoadError } from './loader.ts'
+export type { RuleGroup, RuleSource } from './loader.ts'
+export {
+  isRuleDocument,
+  loadRules,
+  loadRuleSources,
+  mergeRuleSets,
+  readRuleDocuments,
+  RuleLoadError,
+  ruleSourcesOf,
+} from './loader.ts'
 export type { Violation } from './matcher.ts'
 export type { ParsedSource } from './matcher.ts'
 export { findViolations, findViolationsIn, MatchError, parseSource } from './matcher.ts'

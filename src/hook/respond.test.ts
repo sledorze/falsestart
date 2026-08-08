@@ -1811,3 +1811,57 @@ layer(platform)('registered at an event falsestart does not implement', (it) => 
     ),
   )
 })
+
+layer(platform)('judging with more than one rule source', (it) => {
+  const noDateNow = `id: no-date-now\nlanguage: tsx\nseverity: error\nmessage: 'Date.now() is not injectable'\nrule:\n  pattern: Date.now()\nfiles:\n  - '**/*.{ts,tsx}'\n`
+
+  it.effect("blocks with a rule from a shipped source as well as the caller's own", () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (own) =>
+      withRules({ 'no-date-now.yml': noDateNow }, (shipped) =>
+        Effect.gen(function* () {
+          const judge = (content: string) =>
+            respond({
+              input: writeOf(content),
+              projectDirectory: own,
+              rulesDirectory: own,
+              shippedDirectories: [shipped],
+            })
+
+          // Both halves, because a union that quietly loaded only one of them would look exactly
+          // like the feature working from either side alone.
+          expect((yield* judge('const x = value as any')).stdout).toContain('no-as-any')
+          expect((yield* judge('const t = Date.now()')).stdout).toContain('no-date-now')
+        }),
+      ),
+    ),
+  )
+
+  it.effect('reports both directories when one of two sources cannot be loaded', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (own) =>
+      withRules({}, (sibling) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          // A SIBLING temp root. `path.join(own, 'absent')` makes `own` a substring of the absent
+          // path, which the `cannot read …` reason already carries — so the assertion below passed
+          // against the single-directory message this change replaced.
+          const absent = path.join(sibling, 'absent')
+          const response = yield* respond({
+            input: writeOf('const x = value as any'),
+            projectDirectory: own,
+            rulesDirectory: own,
+            shippedDirectories: [absent],
+          })
+
+          // The HEADER line, not the whole stderr. Every reason `loadRules` produces already names
+          // the document or directory it failed on, so asserting over the whole message is
+          // satisfied by the reasons alone — it passed unchanged against the single-directory
+          // message this change replaced.
+          const [header = ''] = (response.stderr ?? '').split('\n')
+          expect(header).toContain('could not load rules from')
+          expect(header).toContain(absent)
+          expect(header).toContain(own)
+        }),
+      ),
+    ),
+  )
+})

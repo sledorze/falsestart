@@ -23,7 +23,9 @@ a reason to touch a file. Each rule is evaluated against one file's syntax tree,
 a question about the rest of the repository.
 
 Rules come from three places: `--preset all|clean-code|effect` for the shipped corpus, `--rules
-<dir>` for your own, and `--rules pkg:<name>` for another package's. Where each rule applies is
+<dir>` for your own, and `--rules pkg:<name>` for another package's. A preset COMBINES with a
+`--rules` source in one invocation — `--preset clean-code --rules ./.falsestart/rules` loads both —
+and an id defined by both is refused rather than silently shadowed. Where each rule applies is
 re-scopable per repo through a typed `falsestart.config.ts`.
 
 Both are read from `HEAD` rather than from the working tree by default, so a session that can write

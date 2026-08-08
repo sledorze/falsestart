@@ -125,6 +125,9 @@ A starter corpus ships in [`rules/`](./rules): `clean-code/` is generic TypeScri
 assumes an Effect codebase. Reach them with `--preset`, or copy the ones you want into your own
 directory and use `--rules` — what is enforced is a directory listing, not a config file.
 
+The two combine: `--preset clean-code --rules ./.falsestart/rules` loads the shipped set and your
+own from one hook entry. A rule id defined by both is refused rather than silently shadowed.
+
 Where each rule applies is yours to set, without editing any rule:
 
 ```ts

@@ -651,3 +651,39 @@ describe('what the working tree has that the ref does not', () => {
     expect(divergence(new Map([['a.yml', 'one']]), new Map([['a.yml', 'one']]))).toEqual([])
   })
 })
+
+describe('a rule source that ships with falsestart, alongside a freezable one', () => {
+  effect('refuses to judge under require, because no ref of this repository holds it', () =>
+    Effect.gen(function* () {
+      // `require` means "judge nothing the ref cannot account for". A preset was already covered
+      // when it was the ONLY source — `classifyRules` sees it as `Outside` and `byMode` turns that
+      // into `Broken` — but combining it with a `--rules` directory moves the classification onto
+      // the directory, and the preset stops being classified at all: the report said `frozen`,
+      // exited 0, and six unverified rules were in effect with nothing naming them.
+      const outcome = yield* freeze(inputFor({ mode: 'require', shippedDirectories: ['/pkg/rules/clean-code'] }))
+
+      expect(outcome.rules._tag).toBe('Broken')
+      expect(outcome.rules._tag === 'Broken' && outcome.rules.reason).toContain('/pkg/rules/clean-code')
+    }),
+  )
+
+  effect('leaves auto alone, where a shipped source has always read the working tree', () =>
+    Effect.gen(function* () {
+      // The negative. Refusing under `auto` would make `--preset` unusable in every repository that
+      // has a commit, which is every repository the freeze applies to at all.
+      const outcome = yield* freeze(inputFor({ mode: 'auto', shippedDirectories: ['/pkg/rules/clean-code'] }))
+
+      expect(outcome.rules._tag).not.toBe('Broken')
+    }),
+  )
+
+  effect('does not invent the refusal when nothing shipped alongside', () =>
+    Effect.gen(function* () {
+      // This fixture's rules tree is untracked, so `require` refuses it anyway — the point is WHICH
+      // refusal. Asserting the tag alone would pass against a rule that fired for the wrong reason.
+      const outcome = yield* freeze(inputFor({ mode: 'require', shippedDirectories: [] }))
+
+      expect(outcome.rules._tag === 'Broken' && outcome.rules.reason).not.toContain('ships with falsestart')
+    }),
+  )
+})

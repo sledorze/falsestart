@@ -47,6 +47,7 @@ const run = (options: {
   freeze?: FreezeOutcome
   projectDirectory?: string
   rulesDirectory?: string
+  shippedDirectories?: readonly string[]
   unresolvedRules?: string
 }) =>
   diagnose({
@@ -57,6 +58,7 @@ const run = (options: {
     freeze: options.freeze,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
+    shippedDirectories: options.shippedDirectories,
     unresolvedRules: options.unresolvedRules,
     version: '0.0.0-test',
   })
@@ -696,5 +698,78 @@ layer(platform)('the active agent contract', (it) => {
       expect(diagnosis.healthy).toBeTruthy()
       expect(diagnosis.lines.some((line) => line.includes('was blocked'))).toBeTruthy()
     }),
+  )
+})
+
+layer(platform)('a report over more than one rule source', (it) => {
+  const ruleNamed = (id: string) => `id: ${id}\nlanguage: tsx\nseverity: error\nrule:\n  pattern: $X as any\n`
+
+  it.effect('gives each source its own row rather than one combined total', () =>
+    withTree({ 'own.yml': ruleNamed('mine') }, (own) =>
+      withTree({ 'shipped.yml': ruleNamed('theirs') }, (shipped) =>
+        Effect.gen(function* () {
+          const { lines } = yield* run({
+            configPath: 'empty.config.json',
+            rulesDirectory: own,
+            shippedDirectories: [shipped],
+          })
+          const rows = lines.filter((line) => line.includes('1 loaded'))
+
+          // Two rows, each naming its own directory. One total across both cannot answer the
+          // question this block exists for — "did my own rules load, or only the preset?"
+          expect(rows).toHaveLength(2)
+          // The count is asserted against the directory it belongs to, not merely somewhere in the
+          // same string: `toContain(shipped)` alone stayed green while the row rendered
+          // `…/clean-code— 6 loaded`, the separating space eaten by the report's column padding.
+          expect(rows.join('\n')).toContain(`${shipped} — 1 loaded`)
+          expect(rows.join('\n')).toContain(`${own} — 1 loaded`)
+        }),
+      ),
+    ),
+  )
+
+  it.effect('refuses an installation whose two sources define the same rule id', () =>
+    withTree({ 'own.yml': ruleNamed('no-as-any') }, (own) =>
+      withTree({ 'shipped.yml': ruleNamed('no-as-any') }, (shipped) =>
+        Effect.gen(function* () {
+          const diagnosis = yield* run({
+            configPath: 'empty.config.json',
+            rulesDirectory: own,
+            shippedDirectories: [shipped],
+          })
+
+          expect(diagnosis.healthy).toBeFalsy()
+          expect(diagnosis.lines.join('\n')).toContain('OVERLAPPING SOURCES')
+          expect(diagnosis.lines.join('\n')).toContain('no-as-any')
+        }),
+      ),
+    ),
+  )
+
+  it.effect('names every source when one of them will not load', () =>
+    withTree({ 'own.yml': ruleNamed('mine') }, (own) =>
+      withTree({}, (sibling) =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path
+          // A SIBLING temp root, never `path.join(own, 'absent')`. That spelling makes `own` a
+          // substring of the absent path, which already appears in the `cannot read …` reason — so
+          // `toContain(own)` was satisfied by the reason alone and the test passed with the whole
+          // per-source block deleted.
+          const absent = path.join(sibling, 'absent')
+          const diagnosis = yield* run({
+            configPath: 'empty.config.json',
+            rulesDirectory: own,
+            shippedDirectories: [absent],
+          })
+
+          expect(diagnosis.healthy).toBeFalsy()
+          expect(diagnosis.lines.join('\n')).toContain('COULD NOT LOAD')
+          // Both directories: "one of your two sources is broken" is not actionable without saying
+          // which two were tried, and only the broken one appears in the reason.
+          expect(diagnosis.lines.join('\n')).toContain(absent)
+          expect(diagnosis.lines.join('\n')).toContain(own)
+        }),
+      ),
+    ),
   )
 })

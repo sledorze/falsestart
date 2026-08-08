@@ -103,6 +103,14 @@ export interface FreezeInput {
   /** The path the command line named, as written — it is what a reader recognises. */
   readonly rulesDirectory: string
   readonly rulesPath: RulesPath
+  /**
+   * Rule directories loaded ALONGSIDE `rulesDirectory` that ship with falsestart — a `--preset`.
+   *
+   * They are never frozen, because they live inside the installed package rather than the project,
+   * and no ref of the project's repository holds them. Naming them here is what lets `require`
+   * still refuse: see the refusal below.
+   */
+  readonly shippedDirectories?: readonly string[] | undefined
   readonly workTree: WorkTree
 }
 
@@ -357,6 +365,30 @@ export const freeze = (input: FreezeInput): Effect.Effect<FreezeOutcome> =>
 
     if (input.repository.anchor === 'unverified' && input.mode === 'require') {
       return both(broken(anchorRefusal(evidence)))
+    }
+
+    /**
+     * A shipped rule set cannot be verified against the project's ref, so `require` refuses.
+     *
+     * `require`'s whole contract is that nothing gets judged which the ref cannot account for. A
+     * preset was already covered when it was the only source — `classifyRules` sees it as `Outside`
+     * and `byMode` turns that into `Broken`. Combining it with a `--rules` directory moved the
+     * classification onto the directory, and the preset stopped being classified AT ALL: the report
+     * said `frozen`, exited 0, and six unverified rules were in effect with nothing naming them.
+     *
+     * Only the `rules` half refuses. The project's own config is still perfectly freezable, and the
+     * docstring above this function is the reason the two are classified independently.
+     */
+    const shipped = input.shippedDirectories ?? []
+    if (input.mode === 'require' && shipped.length > 0) {
+      return {
+        config: classifyConfig({ evidence, objects: [], source: input.config }),
+        rules: broken(
+          `${shipped.join(', ')} ships with falsestart and is outside the project repository at ` +
+            `${evidence.toplevel}, so ${input.ref} cannot account for it — --freeze require refuses ` +
+            `to judge with a rule set it cannot verify. Drop --preset, or use --freeze auto.`,
+        ),
+      }
     }
 
     const requests = [input.ref, ...configRequests(input.ref, input.config)]

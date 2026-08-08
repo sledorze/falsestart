@@ -21,7 +21,7 @@
  */
 import { Effect, FileSystem, Path, Schema } from 'effect'
 import { applyScopeOverrides, loadConfigFile, loadDefaultConfig } from '../config/index.ts'
-import { isRuleDocument, loadRules } from '../checking/index.ts'
+import { isRuleDocument, loadRuleSources, ruleSourcesOf } from '../checking/index.ts'
 import type { Frozen, FreezeOutcome } from '../freezing/index.ts'
 import { containedPath } from '../freezing/index.ts'
 import type { AgentId } from './decide.ts'
@@ -281,7 +281,24 @@ export interface RespondOptions {
    * wrong answer this tool exists to prevent.
    */
   readonly projectDirectory: string
+  /**
+   * The caller's own rules, and the only source a freeze can govern.
+   *
+   * When `--preset` is combined with `--rules`, this is the `--rules` directory; the preset arrives
+   * in `shippedDirectories`.
+   */
   readonly rulesDirectory: string
+  /**
+   * Rule directories loaded IN ADDITION to `rulesDirectory`, ahead of it, always from the working
+   * tree.
+   *
+   * Only a `--preset` lands here, and it is never frozen because it lives inside `node_modules`,
+   * which the project's ref does not track. Absent means "just `rulesDirectory`" — the 0.2.0
+   * behaviour, so a library call that predates this is unchanged. OPTIONAL for the reason `failure`
+   * is: `RespondOptions` is published, and a required field here is a compile error in every caller
+   * written before it existed.
+   */
+  readonly shippedDirectories?: readonly string[] | undefined
   /**
    * What a git ref committed, resolved on demand.
    *
@@ -404,13 +421,14 @@ export const respond = (
     // A failure on EITHER frozen source has to deny, and the overrides step reads both.
     const eitherFrozen = [frozenRules, frozenConfig].some((documents) => documents !== undefined)
 
-    const loaded = yield* Effect.result(loadRules(rulesDirectory, frozenRules))
+    const sources = ruleSourcesOf({ frozenRules, rulesDirectory, shippedDirectories: options.shippedDirectories })
+    const loaded = yield* Effect.result(loadRuleSources(sources))
     if (loaded._tag === 'Failure') {
       return refuse(
         emit,
         frozenRules !== undefined,
         options.failure,
-        `could not load rules from ${rulesDirectory}\n${loaded.failure.reasons.join('\n')}`,
+        `could not load rules from ${sources.map((source) => source.directory).join(', ')}\n${loaded.failure.reasons.join('\n')}`,
       )
     }
 

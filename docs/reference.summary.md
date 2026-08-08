@@ -28,10 +28,16 @@ are touched, so it costs what a deferred call costs, and it never denies. `Bash`
 falsestart never sees.
 
 **Command line:** `--preset all|clean-code|effect`, `--rules <dir>`, `--rules pkg:<name>`,
-`--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--agent <name>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads one
-rule source: a preset and any `--rules` are refused together rather than ranked, and between the two
-`--rules` forms the `pkg:` one wins whichever came first — so layering two rule sets means two hook
-entries. `--doctor` reports what was
+`--config <file>`, `--doctor`, `--list-rules`, `--fail <policy>`, `--agent <name>`, `--warn-unscoped`, `--version`, `--help`. One invocation loads a
+preset AND a `--rules` source: `--preset clean-code --rules ./.falsestart/rules` is the shipped set
+plus the repo's own, from one hook entry — which is also what lets a single config re-scope rules
+from both. Nothing is ranked between them; an id both define is refused, naming both directories.
+Between the two `--rules` forms the `pkg:` one still wins whichever came first, and only the
+`--rules` source can be frozen (a preset resolves inside node_modules, which the repository does not
+track) — under `--freeze require` a preset is REFUSED whether or not a `--rules` directory is named
+alongside it, since no ref accounts for it. Layering more than one preset or more than one `--rules` source still means two hook
+entries. The `.falsestart/rules` default applies only when nothing else names a source, so
+`--preset all` alone still loads exactly the preset. `--doctor` reports what was
 resolved, says how many loaded rules block and how many advise, probes five paths for reachability, and names any rule whose override covers fewer
 extensions than it ships with — an override REPLACES `files` rather than merging, so a restated
 glob that omits an extension silently unguards it. It also names the changelog shipped inside the

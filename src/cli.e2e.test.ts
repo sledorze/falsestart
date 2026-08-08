@@ -105,6 +105,21 @@ files:
 `
 
 /**
+ * A rule no shipped preset defines, so a union invocation loading it proves the caller's own
+ * directory was read rather than the preset alone.
+ */
+const noDateNow = `
+id: no-date-now
+language: tsx
+severity: error
+message: 'Date.now() is not injectable'
+rule:
+  pattern: Date.now()
+files:
+  - '**/*.{ts,tsx}'
+`
+
+/**
  * A rule with BOTH scope keys, for the override test.
  *
  * Its own fixture rather than the shared `noAsAny`, which carries no `ignores` at all — asserting
@@ -460,6 +475,92 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe('')
+      }),
+    ),
+  )
+
+  // A preset and a repo's own rules in ONE invocation. Refused outright until now, which forced
+  // "preset plus my own rules" to be two hook entries with a duplicated matcher — and made both of
+  // them auto-discover the same config, where an override for a rule the OTHER entry loaded is a
+  // hard error. Both halves are asserted, because a union that quietly loaded only one of them
+  // would look exactly like the flag working.
+  it.effect('loads a preset and a rules directory together, and blocks with either', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const args = ['--preset', 'clean-code', '--rules', directory, '--config', configPath]
+
+        const own = yield* runCliRaw(
+          args,
+          payloadFor({ content: 'const t = Date.now()', file_path: `${directory}/src/a.ts` }),
+        )
+        expect(own.stdout).toContain('no-date-now')
+
+        const preset = yield* runCliRaw(
+          args,
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+        expect(preset.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('refuses a repo rule whose id a preset already defines, naming both directories', () =>
+    withRules({ 'clash.yml': noAsAny }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        // Whichever silently lost would carry a `files` glob nobody is enforcing.
+        expect(result.exitCode).toBe(1)
+        expect(result.stderr).toContain('no-as-any')
+        expect(result.stderr).toContain(directory)
+      }),
+    ),
+  )
+
+  // The reason the union is worth having, stated as a test. Two hook entries both auto-discover the
+  // repo's one config; the entry that did not load the preset rejects the override and bails, so a
+  // config naming `no-as-any` broke the `--rules` entry outright. One invocation loads both, so the
+  // override resolves.
+  it.effect('accepts a config override naming a preset rule when the preset is loaded alongside', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const path = yield* Path.Path
+        const configPath = path.join(directory, 'shared.config.json')
+        yield* fs.writeFileString(configPath, JSON.stringify({ rules: { 'no-as-any': { files: ['**/*.ts'] } } }))
+
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath],
+          payloadFor({ content: 'const x = v as any', file_path: `${directory}/src/a.ts` }),
+        )
+
+        expect(result.stderr).not.toContain('OVERRIDES REJECTED')
+        expect(result.stderr).not.toContain('no rule named')
+        expect(result.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  it.effect('--doctor reports both rule sources, not just one', () =>
+    withRules({ 'no-date-now.yml': noDateNow }, (directory) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(directory)
+        const result = yield* runCliRaw(
+          ['--preset', 'clean-code', '--rules', directory, '--config', configPath, '--doctor'],
+          '',
+        )
+
+        expect(result.exitCode).toBe(0)
+        // Each count asserted against the directory it belongs to. `toContain(directory)` alone was
+        // satisfied by the `config` line — `withEmptyConfig` writes inside `directory` — so the test
+        // stayed green with the second row removed entirely.
+        expect(result.stdout).toContain('/clean-code — 6 loaded')
+        expect(result.stdout).toContain(`${directory} — 1 loaded`)
       }),
     ),
   )
@@ -833,6 +934,97 @@ const ancestorsOf = (start: string): readonly string[] => {
 
 const violation = (root: string, content = 'const x = v as any') =>
   payloadFor({ content, file_path: `${root}/src/a.ts` })
+
+/** A rule no preset defines, so loading it proves the project's own directory was read. */
+const PROJECT_ONLY_RULE = `
+id: no-date-now
+language: tsx
+severity: error
+message: 'PROJECT ONLY RULE'
+rule:
+  pattern: Date.now()
+files:
+  - '**/*.ts'
+`
+
+layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('a preset alongside a frozen directory', (it) => {
+  // The wiring this exists for lives in `cli.ts`, which is excluded from the coverage ratchet and
+  // from mutation testing — so it is reachable only from here. Handing the project's frozen
+  // documents to the shipped source instead of only to the caller's own loads the preset as an
+  // EMPTY rule set, and every in-process test stays green: measured at 698 passing while
+  // `--list-rules` and `scan` failed against any repository with a live freeze.
+  it.effect("reads the preset from the working tree while the caller's directory is frozen", () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const listed = yield* runIn(root, ['--list-rules', '--preset', 'clean-code', '--rules', './rules'], '')
+
+        expect(listed.exitCode).toBe(0)
+        // Both halves. The preset's rules come from the working tree, because no ref of THIS
+        // repository holds them; the project's own come from the commit.
+        expect(listed.stdout).toContain('"no-as-any"')
+        expect(listed.stdout).toContain('"no-date-now"')
+      }),
+    ),
+  )
+
+  it.effect('judges with both sources under a live freeze', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const own = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules'], violation(root, 'Date.now()'))
+        const shipped = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules'], violation(root))
+
+        expect(own.stdout).toContain('PROJECT ONLY RULE')
+        expect(shipped.stdout).toContain('no-as-any')
+      }),
+    ),
+  )
+
+  // `require` means "judge nothing the ref cannot account for". A preset was already covered when it
+  // was the only source; combining it with a directory moved the classification onto the directory
+  // and left the preset unclassified — the report said `frozen`, exited 0, and six unverified rules
+  // were in effect with nothing naming them.
+  it.effect('refuses to judge under --freeze require, because a preset cannot be verified', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const judged = yield* runIn(
+          root,
+          ['--preset', 'clean-code', '--rules', './rules', '--freeze', 'require'],
+          violation(root),
+        )
+        const diagnosed = yield* runIn(
+          root,
+          ['--preset', 'clean-code', '--rules', './rules', '--freeze', 'require', '--doctor'],
+          '',
+        )
+
+        expect(judged.stdout).toContain('"permissionDecision":"deny"')
+        expect(judged.stdout).toContain('ships with falsestart')
+        expect(diagnosed.exitCode).toBe(1)
+      }),
+    ),
+  )
+
+  // The negative that says where the refusal stops. `auto` is the default, and refusing there would
+  // make `--preset` unusable in every repository that has a commit.
+  it.effect('still judges with both sources under the default freeze mode', () =>
+    withProject({ 'rules/r.yml': PROJECT_ONLY_RULE }, (root) =>
+      Effect.gen(function* () {
+        yield* commitAll(root)
+
+        const result = yield* runIn(root, ['--preset', 'clean-code', '--rules', './rules', '--doctor'], '')
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout).toContain('frozen — 1 document(s)')
+      }),
+    ),
+  )
+})
 
 layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 180_000 })('the freeze, end to end', (it) => {
   // T60 — the issue's first vector.

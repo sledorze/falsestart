@@ -78,7 +78,7 @@ export type Options =
       readonly failure: FailurePolicy | undefined
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
-      readonly rulesDirectory: string
+      readonly rulesDirectory: string | undefined
     })
   | (Freezing & {
       /**
@@ -89,7 +89,7 @@ export type Options =
       readonly configPath: string | undefined
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
-      readonly rulesDirectory: string
+      readonly rulesDirectory: string | undefined
     })
   | (Freezing & {
       /**
@@ -105,7 +105,7 @@ export type Options =
       readonly paths: readonly string[]
       readonly preset: Preset | undefined
       readonly rulesPackage: string | undefined
-      readonly rulesDirectory: string
+      readonly rulesDirectory: string | undefined
       readonly writeBaseline: boolean
     })
   | (Freezing & {
@@ -124,7 +124,7 @@ export type Options =
       readonly preset: Preset | undefined
       /** Set when `--rules pkg:<name>` was used; the caller resolves it against the project. */
       readonly rulesPackage: string | undefined
-      readonly rulesDirectory: string
+      readonly rulesDirectory: string | undefined
       /** Report judged writes that land where no rule is scoped. See `DecideOptions`. */
       readonly warnUnscoped: boolean
     })
@@ -139,14 +139,19 @@ Usage:
 
 Options:
   --rules <dir>   Directory of ast-grep rule documents, searched recursively.
-                  Defaults to ${DEFAULT_RULES_DIRECTORY}.
+                  Defaults to ${DEFAULT_RULES_DIRECTORY}, unless --preset
+                  names a rule set, in which case there is no default.
   --preset <name> Use rules shipped with falsestart: all, clean-code, effect.
-                  Mutually exclusive with --rules.
+                  Combines with --rules: both rule sets are loaded into one
+                  invocation, so a repo gets the shipped rules plus its own
+                  from a single hook entry. A rule id defined by both is
+                  refused rather than resolved by precedence.
   --rules pkg:<n> Use rules from an installed package, e.g.
                   --rules pkg:@acme/falsestart-rules, or a subdirectory of
                   its rules with pkg:@acme/falsestart-rules/strict. The
                   package is expected to keep them in a rules/ directory,
-                  as this one does.
+                  as this one does. Combines with --preset the same way;
+                  given alongside the directory form it still wins.
   --config <file> Per-repo scope overrides (.ts, .mts, .js, .mjs or .json).
                   Optional; without it falsestart looks for
                   falsestart.config.{ts,mts,js,mjs,json} and proceeds with no
@@ -324,11 +329,10 @@ export const parseArguments = (args: readonly string[]): Options => {
   const scanning = args[0] === 'scan'
   const rest = scanning ? args.slice(1) : args
 
-  let rulesDirectory = DEFAULT_RULES_DIRECTORY
+  let namedDirectory: string | undefined
   let configPath: string | undefined = NO_EXPLICIT_CONFIG
   let preset: Preset | undefined
   let rulesPackage: string | undefined
-  let sawRules = false
   let doctor = false
   let listRules = false
   let version = false
@@ -432,7 +436,6 @@ export const parseArguments = (args: readonly string[]): Options => {
     }
 
     if (argument === '--rules') {
-      sawRules = true
       if (value.startsWith(PACKAGE_PREFIX)) {
         const specifier = value.slice(PACKAGE_PREFIX.length)
         if (specifier.length === 0) {
@@ -440,7 +443,7 @@ export const parseArguments = (args: readonly string[]): Options => {
         }
         rulesPackage = specifier
       } else {
-        rulesDirectory = value
+        namedDirectory = value
       }
     } else if (argument === '--config') {
       configPath = value
@@ -475,12 +478,6 @@ export const parseArguments = (args: readonly string[]): Options => {
       return { _tag: 'Invalid', problem: `unknown preset: ${value} (expected ${PRESETS.join(', ')})` }
     }
     consumedValue = true
-  }
-
-  // Refused rather than ranked: silently preferring one when both are given would run a different
-  // rule set than the caller named, which is the failure this tool exists to prevent.
-  if (preset !== undefined && sawRules) {
-    return { _tag: 'Invalid', problem: '--preset and --rules cannot be combined' }
   }
 
   // Refused for the same reason, one step milder. `--warn-unscoped` reports on the path a real
@@ -566,6 +563,22 @@ export const parseArguments = (args: readonly string[]): Options => {
   if (version) {
     return { _tag: 'Version' }
   }
+
+  /**
+   * The local directory that is a rule SOURCE, as opposed to the fallback nobody asked for.
+   *
+   * `undefined` in two cases, and the distinction matters because sources are now unioned rather
+   * than ranked. A `pkg:` specifier is the `--rules` source, so the directory form loses to it
+   * exactly as it always did — that ordering-independent precedence is documented behaviour, and
+   * turning it into a union here would silently load a second rule set from a path the caller
+   * mentioned only to be overridden. And with a preset named and no `--rules` given at all, there
+   * is nothing to add: `--preset all` has always loaded precisely the preset, so quietly folding in
+   * `.falsestart/rules` would enforce rules nobody asked this invocation for.
+   */
+  const rulesDirectory =
+    rulesPackage !== undefined
+      ? undefined
+      : (namedDirectory ?? (preset === undefined ? DEFAULT_RULES_DIRECTORY : undefined))
 
   if (scanning) {
     return {
