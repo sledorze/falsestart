@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appliesTo, grammarFor, toScopingPath } from './scope.ts'
+import { appliesTo, grammarFor, toScopingPath, canAnchor } from './scope.ts'
 
 const scoped = (files?: readonly string[], ignores?: readonly string[]) => ({
   ...(files === undefined ? {} : { files }),
@@ -181,5 +181,25 @@ describe('choosing a grammar for a file', () => {
     expect(grammarFor('tsx', 'Makefile')).toBe('tsx')
     expect(grammarFor('tsx', 'src/a.vue')).toBe('tsx')
     expect(grammarFor('tsx', 'src/a.')).toBe('tsx')
+  })
+})
+
+describe('a root that is not a root', () => {
+  it('leaves the path alone rather than slicing its leading separator off', () => {
+    // `''`, `'.'` and `'/'` all normalise to nothing. Unguarded, the prefix became `/` — which every
+    // absolute path starts with — so `/repo/src/a.ts` scoped as `repo/src/a.ts` and no repo-relative
+    // glob matched it. Silent, and indistinguishable from a clean file.
+    for (const root of ['', '.', './', '/', '//']) {
+      expect(toScopingPath('/repo/src/a.ts', root)).toBe('/repo/src/a.ts')
+    }
+  })
+
+  it('says which strings can anchor a glob at all', () => {
+    for (const useless of [undefined, '', '   ', '.', './', '/', '//']) {
+      expect(canAnchor(useless)).toBeFalsy()
+    }
+    for (const usable of ['/repo', '/repo/', 'C:/repo', 'relative/dir']) {
+      expect(canAnchor(usable)).toBeTruthy()
+    }
   })
 })

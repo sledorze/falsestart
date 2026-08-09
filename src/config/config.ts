@@ -11,9 +11,9 @@
  * author's test-file exemption, because losing an exemption widens a rule, and a rule that
  * suddenly polices files it never did is indistinguishable from a bug.
  *
- * An override for a rule that is not loaded is refused rather than ignored: a typo'd id would
- * otherwise be a scope change that silently never happens, which is exactly the failure this tool
- * exists to catch elsewhere.
+ * An override for a rule that is not loaded is REPORTED rather than refused — see
+ * `findUnappliedOverrides` for why that reversed, which is a story about what the refusal cost
+ * rather than about whether a typo matters.
  */
 import { Data, Effect, Schema } from 'effect'
 import type { Rule } from '../checking/index.ts'
@@ -91,6 +91,17 @@ const readOverride = (value: unknown, path: string): ScopeOverride | string => {
     return `${path}.ignores must be an array of glob strings`
   }
 
+  // Refused for the reason `parseRule` refuses it: the globs are matched as an OR, so a leading `!`
+  // admits everything it does not name rather than excluding it — an override written to carve out
+  // test files silently widened the rule to Markdown, to `.js`, and to the tests themselves.
+  const negated = [...files, ...(isGlobList(ignores) ? ignores : [])].filter((glob) => glob.startsWith('!'))
+  if (negated.length > 0) {
+    return (
+      `${path}: ${negated.join(', ')} — a leading ! is not an exclusion here. The globs are matched as an OR, ` +
+      'so a negated one admits everything it does not name. Put exclusions in `ignores`.'
+    )
+  }
+
   return {
     files,
     ...(ignores === undefined ? {} : { ignores }),
@@ -154,27 +165,41 @@ export const parseConfig = (source: string, origin: string): Effect.Effect<Confi
  *
  * Rules keep their order and everything the override does not name.
  */
-export const applyScopeOverrides = (
-  rules: readonly Rule[],
-  config: Config,
-): Effect.Effect<readonly Rule[], ConfigError> =>
-  Effect.suspend(() => {
-    const known = new Set(rules.map((rule) => rule.id))
-    const unknown = Object.keys(config.rules)
-      .filter((id) => !known.has(id))
-      .map((id) => `no rule named ${id} is loaded, so its scope override would do nothing`)
-
-    if (unknown.length > 0) {
-      return Effect.fail(new ConfigError({ reasons: unknown }))
-    }
-
-    return Effect.succeed(
+export const applyScopeOverrides = (rules: readonly Rule[], config: Config): Effect.Effect<readonly Rule[]> =>
+  Effect.suspend(() =>
+    Effect.succeed(
       rules.map((rule) => {
         const override = config.rules[rule.id]
         return override === undefined ? rule : { ...rule, ...override }
       }),
-    )
-  })
+    ),
+  )
+
+/**
+ * The overrides that named a rule this invocation did not load.
+ *
+ * Reported rather than refused, and that is a reversal. Refusing looked right — a typo'd id is a
+ * scope change that silently never happens, which is the failure this tool exists to catch
+ * elsewhere. What it missed is what the refusal COSTS, because this error is raised on the judging
+ * path: the guard fails open, so the run exits 1 and the write proceeds **unchecked**, and under
+ * `--fail closed` it denies every write in the repository instead. A scope override that does not
+ * apply became a guard that does not run.
+ *
+ * It is also an ordinary state rather than a mistake. Two hook entries — a preset in one, the repo's
+ * own tree in the other — auto-discover the SAME config file, so each of them necessarily sees
+ * overrides for rules only the other loaded. `--preset` and `--rules` combining removes the common
+ * case; it does not remove two local trees, two packages, or two presets.
+ *
+ * So the id is named, loudly, in `--doctor` — where a fact about the RULE SET belongs, for the
+ * reason `fallbacks` is stated there and not on every tool call — and the run proceeds. This follows
+ * `findNarrowedScopes`: reported, never refused, because only the reader knows whether a particular
+ * override was meant for this invocation.
+ */
+export const findUnappliedOverrides = (rules: readonly Rule[], config: Config): readonly string[] => {
+  const loaded = new Set(rules.map((rule) => rule.id))
+
+  return Object.keys(config.rules).filter((id) => !loaded.has(id))
+}
 
 export interface NarrowedScope {
   /** Extensions the shipped rule covered and the override does not. Never empty. */

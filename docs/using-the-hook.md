@@ -628,9 +628,11 @@ rather have the opposite, add `--fail closed` to the hook command:
 { "type": "command", "command": "npx falsestart --preset all --fail closed" }
 ```
 
-What changes: a rule tree or a `pkg:` rules package that will not load, a config that will not load
-or whose override names a rule that is not loaded, and a rule that cannot run at match time all deny
-the write instead of reporting it. What does not: a malformed hook payload and a refused command line
+What changes: a rule tree or a `pkg:` rules package that will not load, a config that will not load,
+and a rule that cannot run at match time all deny the write instead of reporting it. An override
+naming a rule this invocation did not load is **not** among them — the rules loaded and the config
+loaded, so the write can be checked, and denying on it turned a config written for a sibling hook
+entry into a repository-wide outage. What does not: a malformed hook payload and a refused command line
 are never the reason to deny, a tool call falsestart does not judge stays silent, and a freeze refusal
 denies either way — `--fail open` is not an off switch for `--freeze`. "Never the reason" is the exact
 claim: a broken rule tree denies whatever payload arrives, malformed ones included, naming the rule
@@ -668,7 +670,8 @@ Rules can come from three places:
 | Your own repo           | `--rules ./rules` — any directory, searched recursively |
 | Another package         | `--rules pkg:@acme/falsestart-rules`                    |
 
-`--preset` and `--rules` are mutually exclusive; giving both is refused rather than ranked.
+`--preset` combines with `--rules`: both sets load into one invocation, and a rule id defined by
+both is refused rather than ranked.
 
 A package specifier may name a subdirectory — `pkg:@acme/falsestart-rules/strict` — to take part of
 a rule set. The package is expected to keep its rules in a `rules/` directory, as falsestart does,
@@ -917,10 +920,11 @@ The one part of the layout that is not free-form is where shared matchers live: 
 directory is recognised only at the top of the tree `--rules` names. **Shared matchers** below has
 the rule and what a misplaced one does.
 
-`--rules` names one rule source per invocation and cannot be combined with `--preset`, so layering
-two trees means two hook entries, one per tree. That is not purely a limitation: each entry carries
-its own rules, its own config and therefore its own severity policy, which is what makes the "blocks
-here, advises there" arrangement above expressible at all.
+`--preset` and `--rules` load together, but each is single-valued: a second `--rules` replaces the
+first rather than adding to it. So a preset plus your own tree is one entry, while two local trees,
+two packages, or two presets still mean two hook entries. That is not purely a limitation: each entry
+carries its own rules, its own config and therefore its own severity policy, which is what makes the
+"blocks here, advises there" arrangement above expressible at all.
 
 There is a cost to know before splitting a tree that way. A `_utils/` at the root is not in scope when
 an entry points at one subdirectory of it, and a rule referencing a matcher it cannot see fails to
@@ -997,9 +1001,17 @@ there would belong to falsestart rather than to you. None present means no overr
 rule: silently picking one of two configs is the kind of quiet wrong answer this tool exists to
 prevent. A config named explicitly with `--config` must exist.
 
-An override naming a rule that is not loaded is an error rather than a no-op, because a typo'd id
-would otherwise be a scope change that silently never happens. `ShippedRuleId` is exported if you
-want that caught at compile time instead.
+An override naming a rule that is not loaded is **named by `--doctor`** and the run proceeds. It used
+to be an error, on the reasoning that a typo'd id is a scope change that silently never happens —
+which was true, and beside the point: the same check runs on the judging path, where the guard fails
+open. A config written for a sibling hook entry therefore meant exit 1 with the write proceeding
+**unchecked**, and under `--fail closed` a denial of every write in the repository. It is also an
+ordinary state rather than a mistake: two hook entries auto-discover the same config file, so each
+necessarily sees overrides for rules only the other loaded.
+
+`--doctor` names the ids so they are not silent either. A typo looks exactly like the sibling entry's
+rule and only you can tell them apart. `ShippedRuleId` is exported if you want typos caught at
+compile time instead.
 
 This is the supported answer when a rule fires somewhere it should not. Editing the rule documents
 under `node_modules` is not: the next install undoes it.
@@ -1024,6 +1036,13 @@ ignores:
 
 Scope every rule with `files`. A rule with no `files` runs against every path, including ones
 where its language makes no sense.
+
+**Exclusions go in `ignores`, never a `!` glob.** The globs in `files` are matched as an OR, so
+`files: ['src/**/*.ts', '!**/*.test.ts']` admits every path that is _not_ a test file — the rule then
+fires on Markdown, on `.js` outside `src`, and on the very test files the negation was written to
+exempt. It reads exactly like the exclusion syntax other tools have, which is what made it dangerous,
+so a leading `!` in `files` or `ignores` is now refused at load, in a rule document and in a config
+override alike.
 
 Globs are matched against the path **relative to the `cwd` the payload carries**, so `src/**/*.ts`
 works as written. A file outside that directory keeps its absolute path, and a rule can still reach

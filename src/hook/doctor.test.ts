@@ -164,15 +164,20 @@ layer(platform)('the doctor', (it) => {
     }),
   )
 
-  it.effect('fails, and names the rule, when an override targets something not loaded', () =>
+  it.effect('names an override that targets something not loaded, without calling the guard broken', () =>
     Effect.gen(function* () {
       // The repo's own config overrides `no-json-global`, which the clean-code set does not contain.
-      // This exact combination silently disabled the guard during a dogfooding run: the CLI exits 1,
-      // the agent runtime swallows stderr, and every write is allowed with no visible cause.
+      // This used to FAIL, and the failure was the problem: the same check runs on the judging path,
+      // where the guard fails open — so the CLI exited 1, the agent runtime swallowed stderr, and
+      // every write was allowed with no visible cause. Under `--fail closed` it denied them all.
+      //
+      // It is also an ordinary state: two hook entries share one config file, so each necessarily
+      // sees overrides for rules only the other loaded. Named here, where nothing is judged, and a
+      // typo looks exactly the same as the sibling entry's rule — only the reader can tell.
       const diagnosis = yield* run({ rulesDirectory: 'rules/clean-code' })
 
-      expect(diagnosis.healthy).toBeFalsy()
       expect(diagnosis.lines.join('\n')).toContain('no-json-global')
+      expect(diagnosis.lines.join('\n')).toContain('the override does nothing')
     }),
   )
 
@@ -1005,6 +1010,81 @@ layer(platform)('probing the paths the caller actually has', (it) => {
         const diagnosis = yield* run({ projectDirectory: rules, rulesDirectory: rules })
 
         expect(diagnosis.lines.join('\n')).toContain('monorepo-rule')
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
+  )
+})
+
+layer(platform)('a rule set that cannot guard anything', (it) => {
+  it.effect('fails when the source the caller named holds no rules at all', () =>
+    withTree({ 'README.md': '# not a rule' }, (rules) =>
+      Effect.gen(function* () {
+        // The state this whole command exists to catch: registered, silent, enforcing nothing. A
+        // MISSING directory already exits 1; an empty one reported `0 loaded` and exited 0, and
+        // every judged write under it was allowed in silence.
+        //
+        // No inference is needed here, which is what separates it from `no rule applies to any
+        // probed path` — that one stays green because a rule set scoped to `lib/**` genuinely
+        // guards something. Zero rules guards nothing, whatever the layout.
+        const diagnosis = yield* run({ projectDirectory: rules, rulesDirectory: rules })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('0 loaded')
+        expect(diagnosis.lines.join('\n')).toContain('NOTHING TO ENFORCE')
+      }),
+    ),
+  )
+
+  it.effect('counts rules across every source before calling the set empty', () =>
+    withTree({ 'README.md': '# not a rule' }, (own) =>
+      withTree({ 'a.yml': committed }, (shipped) =>
+        Effect.gen(function* () {
+          // The negative. An empty `--rules` directory beside a preset that loaded is not an empty
+          // rule set, and failing there would refuse a perfectly good `--preset X --rules ./mine`.
+          const diagnosis = yield* run({
+            projectDirectory: own,
+            rulesDirectory: own,
+            shippedDirectories: [shipped],
+          })
+
+          expect(diagnosis.lines.join('\n')).not.toContain('NOTHING TO ENFORCE')
+        }),
+      ),
+    ),
+  )
+})
+
+layer(platform)('a named path covered only by rules that cannot block', (it) => {
+  const advisory = `id: advises-only\nlanguage: tsx\nseverity: warning\nmessage: nope\nrule:\n  pattern: $X as any\nfiles: ['src/**/*.ts']\n`
+
+  it.effect('says so, rather than reporting the path as guarded', () =>
+    withTree({ 'a.yml': advisory, 'src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // `--path` is a CI gate for "is this guarded". A rule that only advises is in scope and can
+        // never block, so a bare count answered a different question than the one being asked — and
+        // this is the flag built to end false-greens.
+        const diagnosis = yield* run({
+          probePaths: ['src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).toContain('advise only')
+      }),
+    ),
+  )
+
+  it.effect('stays quiet when a blocking rule covers the path too', () =>
+    withTree({ 'a.yml': advisory, 'b.yml': committed, 'src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          probePaths: ['src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).not.toContain('advise only')
         expect(diagnosis.healthy).toBeTruthy()
       }),
     ),

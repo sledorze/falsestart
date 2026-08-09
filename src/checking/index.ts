@@ -29,6 +29,7 @@ export { SHIPPED_RULE_IDS } from './rule-ids.generated.ts'
 export type { FileScope } from './scope.ts'
 export {
   appliesTo,
+  canAnchor,
   extensionGlobGroup,
   grammarFor,
   matchesAny,

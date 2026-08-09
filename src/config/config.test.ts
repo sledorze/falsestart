@@ -1,6 +1,13 @@
 import { describe, effect, expect, it } from '@effect/vitest'
 import { Effect } from 'effect'
-import { applyScopeOverrides, findNarrowedScopes, makeConfig, makeConfigUnsafe, parseConfig } from './config.ts'
+import {
+  applyScopeOverrides,
+  findNarrowedScopes,
+  findUnappliedOverrides,
+  makeConfig,
+  makeConfigUnsafe,
+  parseConfig,
+} from './config.ts'
 import type { Rule } from '../checking/rule.ts'
 
 const ruleOf = (id: string, files?: readonly string[], ignores?: readonly string[]): Rule => ({
@@ -163,24 +170,23 @@ describe('applying scope overrides', () => {
     }),
   )
 
-  effect('refuses an override for a rule that is not loaded', () =>
+  effect('does not refuse an override for a rule that is not loaded', () =>
     Effect.gen(function* () {
-      // A typo'd rule id would otherwise be a scope change that silently never happens.
-      const error = yield* Effect.flip(applyScopeOverrides(rules, { rules: { 'no-as-anyy': { files: ['x'] } } }))
+      // This asserted the opposite until the cost of the refusal was measured. It is raised on the
+      // JUDGING path, where the guard fails open — so refusing meant exit 1 with the write
+      // proceeding unchecked, and under `--fail closed` a denial of every write in the repository.
+      // A typo in a scope override became a guard that does not run.
+      const scoped = yield* applyScopeOverrides(rules, { rules: { 'no-as-anyy': { files: ['x'] } } })
 
-      expect(error.reasons.join(', ')).toContain('no-as-anyy')
+      expect(scoped).toEqual(rules)
     }),
   )
 
-  effect('reports every unknown rule id at once', () =>
-    Effect.gen(function* () {
-      const error = yield* Effect.flip(
-        applyScopeOverrides(rules, { rules: { ghost: { files: ['x'] }, phantom: { files: ['y'] } } }),
-      )
+  it('names every unapplied rule id at once, so none of them is silent', () => {
+    const unapplied = findUnappliedOverrides(rules, { rules: { ghost: { files: ['x'] }, phantom: { files: ['y'] } } })
 
-      expect(error.reasons).toHaveLength(2)
-    }),
-  )
+    expect(unapplied).toEqual(['ghost', 'phantom'])
+  })
 
   effect('returns the rules unchanged when there are no overrides', () =>
     Effect.gen(function* () {
@@ -319,4 +325,57 @@ describe('narrowed scope', () => {
     // rules that are simply not there.
     expect(findNarrowedScopes([shipped], [])).toEqual([])
   })
+})
+
+describe('an override for a rule this invocation did not load', () => {
+  effect('applies the ones it can and leaves the rest alone', () =>
+    Effect.gen(function* () {
+      // Refused outright before, and the refusal was worse than the problem it named. Two hook
+      // entries — a preset in one, a repo tree in the other — auto-discover the SAME config, so the
+      // entry that did not load a rule saw an override for it and bailed. At judge time that is
+      // exit 1 with the write proceeding UNCHECKED, and under `--fail closed` it denies every write
+      // in the repository. A scope override that does not apply became a guard that does not run.
+      const config = yield* parsed('{"rules":{"no-as-any":{"files":["src/**"]},"elsewhere":{"files":["lib/**"]}}}')
+
+      const scoped = yield* applyScopeOverrides([ruleOf('no-as-any')], config)
+
+      expect(scoped.map((rule) => rule.files)).toEqual([['src/**']])
+    }),
+  )
+
+  effect('names the ones it could not apply, so they are not silent either', () =>
+    Effect.gen(function* () {
+      const config = yield* parsed('{"rules":{"no-as-any":{"files":["src/**"]},"typo-here":{"files":["lib/**"]}}}')
+
+      expect(findUnappliedOverrides([ruleOf('no-as-any')], config)).toEqual(['typo-here'])
+    }),
+  )
+
+  effect('reports nothing when every override found its rule', () =>
+    Effect.gen(function* () {
+      const config = yield* parsed('{"rules":{"no-as-any":{"files":["src/**"]}}}')
+
+      expect(findUnappliedOverrides([ruleOf('no-as-any')], config)).toEqual([])
+    }),
+  )
+})
+
+describe('a negated glob in a scope override', () => {
+  effect('is refused, for the reason a rule document refuses it', () =>
+    Effect.gen(function* () {
+      // An override carries the same `files`/`ignores` shape and reaches the same matcher, so the
+      // same OR semantics apply: `'!**/*.test.ts'` admits everything that is not a test file.
+      const error = yield* Effect.flip(parsed('{"rules":{"no-as-any":{"files":["src/**","!**/*.test.ts"]}}}'))
+
+      expect(error.reasons.join('\n')).toContain('ignores')
+    }),
+  )
+
+  effect('leaves a literal ! elsewhere in the glob alone', () =>
+    Effect.gen(function* () {
+      const config = yield* parsed('{"rules":{"no-as-any":{"files":["weird!dir/**"]}}}')
+
+      expect(config.rules['no-as-any']?.files).toEqual(['weird!dir/**'])
+    }),
+  )
 })

@@ -173,6 +173,13 @@ export const matchesAny = (globs: readonly string[], filePath: string): boolean 
   picomatch.isMatch(filePath, [...globs], { dot: true })
 
 /**
+ * Whether a string can anchor a repo-relative glob at all.
+ *
+ * `''`, `'   '`, `'.'`, `'./'` and `'/'` all normalise to nothing and cannot. They matter because a
+ * hook payload's `cwd` is somebody else's field: `??` guards only `undefined`, so an empty string
+ * sailed through as an anchor and silently disabled every repo-relative rule.
+ */
+/**
  * Re-expresses a path the way rule globs are written.
  *
  * Rules are authored relative to a project (`src/**\/*.ts`), but a write-time hook reports an
@@ -184,6 +191,9 @@ export const matchesAny = (globs: readonly string[], filePath: string): boolean 
  * reach it with a leading `**\/`, and inventing a relative path for something that is not actually
  * inside the project would be worse than leaving it alone.
  */
+export const canAnchor = (candidate: string | undefined): boolean =>
+  candidate !== undefined && normalise(toPosixPath(candidate.trim())).replace(/\/+$/, '') !== ''
+
 export const toScopingPath = (filePath: string, root: string | undefined): string => {
   const path = normalise(toPosixPath(filePath))
   if (root === undefined) {
@@ -191,6 +201,13 @@ export const toScopingPath = (filePath: string, root: string | undefined): strin
   }
 
   const base = normalise(toPosixPath(root)).replace(/\/+$/, '')
+  // A root that normalises to nothing — `''`, `'.'`, `'/'` — is not a root. Left unguarded it built
+  // the prefix `/`, which every absolute path starts with, so the leading separator was sliced off
+  // and `/repo/src/a.ts` scoped as `repo/src/a.ts`: no repo-relative glob matches that, and the
+  // rule reported nothing, which is exactly what a clean file looks like.
+  if (base === '') {
+    return path
+  }
   // The separator is required: without it `/repo` would swallow `/repo-other`.
   const prefix = `${base}/`
 

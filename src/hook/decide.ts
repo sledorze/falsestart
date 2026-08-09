@@ -31,7 +31,7 @@
  */
 import { Effect, Schema } from 'effect'
 import type { Finding, Rule } from '../checking/index.ts'
-import { appliesTo, checkFile, toScopingPath } from '../checking/index.ts'
+import { appliesTo, canAnchor, checkFile, toScopingPath } from '../checking/index.ts'
 
 export type Decision =
   /** Findings that do not block, but that the author should still see. */
@@ -525,7 +525,7 @@ export const decide = (
     // The payload's `cwd` when it carries one, and only then the caller's project directory. See
     // `DecideOptions.projectDirectory` for why that order and not the other.
     const { content, cwd, path } = target
-    const scopingPath = toScopingPath(path, cwd ?? options.projectDirectory)
+    const scopingPath = toScopingPath(path, canAnchor(cwd) ? cwd : options.projectDirectory)
 
     // Deliberately before the check rather than after it. A path no rule admits produces no
     // findings, so the two are equivalent in outcome — but reading it here says the condition is

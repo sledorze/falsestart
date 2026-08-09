@@ -422,8 +422,6 @@ export const respond = (
 
     const frozenRules = documentsOf(outcome?.rules)
     const frozenConfig = documentsOf(outcome?.config)
-    // A failure on EITHER frozen source has to deny, and the overrides step reads both.
-    const eitherFrozen = [frozenRules, frozenConfig].some((documents) => documents !== undefined)
 
     const sources = ruleSourcesOf({
       frozenRules,
@@ -454,14 +452,16 @@ export const respond = (
       return refuse(emit, frozenConfig !== undefined, options.failure, configured.failure.reasons.join('\n'))
     }
 
-    const scoped = yield* Effect.result(applyScopeOverrides(loaded.success, configured.success))
-    if (scoped._tag === 'Failure') {
-      // No path prefix: overrides only exist when a config file supplied them, so a `configPath ??`
-      // fallback here would be a branch no input can reach. The reasons name the rule themselves.
-      return refuse(emit, eitherFrozen, options.failure, scoped.failure.reasons.join('\n'))
-    }
+    // An override naming a rule this invocation did not load no longer refuses. It used to, and the
+    // refusal landed HERE, on the judging path, where the guard fails open — so a config written for
+    // a sibling hook entry meant exit 1 and the write proceeding unchecked, and under
+    // `--fail closed` a denial of every write in the repository. Nothing about the write was wrong.
+    //
+    // Silent here on purpose: it is a fact about the RULE SET, not about this tool call, so it is
+    // stated once in `--doctor` rather than on every judged write, exactly as a grammar fallback is.
+    const scoped = yield* applyScopeOverrides(loaded.success, configured.success)
 
-    const decision = yield* decide(scoped.success, parsed.success, { agent, projectDirectory, warnUnscoped })
+    const decision = yield* decide(scoped, parsed.success, { agent, projectDirectory, warnUnscoped })
 
     const note =
       outcome?.rules._tag === 'Frozen'
