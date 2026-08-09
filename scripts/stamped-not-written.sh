@@ -6,17 +6,24 @@
 # four summaries went stale under a green check in a single week; every one was caught by a reviewer
 # reading the prose, never by a tool.
 #
-# INTERIM. This belongs in cairn, not here — see sledorze/cairn#131, which reports the same failure
-# ("three doc summaries re-stamped without their prose actually being updated") and is open.
+# This belongs HERE and not in cairn, which a first pass got backwards.
 #
-# Two reasons this is the wrong home. It reverse-engineers a layout cairn owns: change the sidecar
-# suffix and the grep below matches nothing, so the guard passes VACUOUSLY — a silent-failure guard,
-# which is the bug class it exists to prevent. And it can only fire at commit time, because the git
-# index is all it has to read. cairn needs no git at all: its sidecar records the SOURCE hash and
-# nothing else, so adding the summary's own hash would let `check` detect this on every run,
-# including one where nothing is ever committed.
+# It is a policy, not an invariant. Every cairn check is a property of the tree — the summary exists,
+# its hash matches, the link resolves. "A human rewrote the digest" is a claim about how a commit was
+# made, and measured over sixty commits it is false 21% of the time with everything correct: 18 of 86
+# doc edits changed a source without its summary, median four added lines, almost all a row appended
+# to a reference table. Shipped to every cairn adopter that is a check firing on one doc edit in
+# five, mostly wrongly, and a check that noisy gets disabled.
 #
-# Delete this script when cairn can answer the question itself.
+# It also needs the git INDEX, which cairn's model has no concept of: cairn compares the working tree
+# against a ref, and the question here only exists while something is staged.
+#
+# The known cost of keeping it local: the grep below encodes a sidecar layout cairn owns, so a change
+# to that layout makes this pass vacuously. `.cairn/**` is committed and its shape is visible in any
+# diff, which is the mitigation — not a strong one, and the reason to re-check it on a cairn upgrade.
+#
+# sledorze/cairn#131 covers the upstream half with a better shape than a new check: scoped and
+# interactive stamping prevents the reflex rather than detecting it, so it has nothing to suppress.
 #
 # `.cairn/refs/**` is excluded: those sidecars record the hashes of files a doc LINKS to, so one
 # changing means a cited source moved, not that this summary's prose is now wrong.

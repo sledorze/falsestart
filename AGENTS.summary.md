@@ -43,8 +43,9 @@ right parent.
 Three guards exist because prose went false under a green `check`. `pnpm stamp` is NOT a
 remediation — it clears a stale-summary report without changing a byte of the digest, so `pre-commit`
 runs `scripts/stamped-not-written.sh`, which refuses a commit staging a summary's sidecar without the
-summary (`SUMMARIES_REVIEWED=1` is the explicit opt-out) — interim, and belongs in cairn: see
-cairn#131. `--refs` only protects prose that LINKS to
+summary (`SUMMARIES_REVIEWED=1` is the explicit opt-out). It stays LOCAL and should not become a cairn
+check: it is a policy rather than a tree invariant, needs the git index cairn never reads, and was
+measured false 21% of the time on correct work. `--refs` only protects prose that LINKS to
 the code it describes, so the two behaviour docs now carry link blocks to the parser, decision path,
 diagnostic and freeze — they tracked zero source files while the architecture doc tracked eight, and
 they held every false sentence. And an enumeration a document calls exhaustive needs a test: the

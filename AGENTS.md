@@ -124,14 +124,27 @@ single week, every one caught by a reviewer reading the prose rather than by a t
 now runs `scripts/stamped-not-written.sh`, which refuses a commit that stages a summary's sidecar
 without staging the summary — the one question the hashes cannot ask.
 
-That script is **interim, and in the wrong repository**: cairn already has this open as
-[cairn#131](https://github.com/sledorze/cairn/issues/131), whose own text reports "three doc
-summaries re-stamped without their prose actually being updated". It lives here only because the
-guard was needed today. It reverse-engineers a sidecar layout cairn owns — change the suffix and its
-grep matches nothing and it passes vacuously — and it can only fire at commit time. cairn needs no
-git for this: the sidecar records the SOURCE hash and nothing else, so recording the summary's own
-hash alongside would let `check` detect the state on every run. Delete the script when cairn ships
-that.
+That script **stays here, and should not become a cairn check** — a first pass concluded the
+opposite and the measurement reversed it.
+
+It is a policy, not an invariant. Every check cairn ships is a property of the tree: the summary
+exists, its hash matches, the link resolves, the referenced content has not drifted. "A human
+rewrote the digest when the source changed" is a claim about how a commit was made, and over sixty
+commits here it was **false 21% of the time while everything was correct** — 18 of 86 doc edits
+changed a source without its summary, median four added lines, almost all of them a row appended to
+a reference table. That is the most common doc edit in this repo and it never changes the digest. A
+published check firing on one doc edit in five, mostly wrongly, is one adopters disable — which is
+the reasoning `--warn-unscoped` is off by default for, applied to cairn.
+
+It also needs the git INDEX. cairn compares the working tree against a ref and reads commit history;
+it never inspects what is staged, and the guard's question only exists at the moment of staging.
+
+What cairn genuinely lacked was already there or already filed. Cause 1 was closed by arming
+`--refs`, a feature cairn has shipped all along and this repo had simply never pointed at its
+behaviour docs. Cause 3 was closed by a test here, as this file already prescribed.
+[cairn#131](https://github.com/sledorze/cairn/issues/131) covers the remaining ground with a better
+shape than a new check — scoped and interactive stamping, which PREVENTS the reflex instead of
+detecting it afterwards, and so has no false positives to suppress.
 
 **Link a behaviour doc to the code that decides the behaviour.** `--refs` is only armed on the docs
 that actually carry `[text](../src/x.ts)` links. `architecture.md` carried eight and stayed correct;
