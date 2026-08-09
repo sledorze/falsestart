@@ -1,5 +1,5 @@
 ---
-'@sledorze/falsestart': patch
+'@sledorze/falsestart': minor
 ---
 
 Registered at another hook event, falsestart says so instead of emitting a document that is ignored

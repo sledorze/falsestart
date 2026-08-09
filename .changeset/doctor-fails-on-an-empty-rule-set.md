@@ -1,5 +1,5 @@
 ---
-'@sledorze/falsestart': patch
+'@sledorze/falsestart': minor
 ---
 
 `--doctor` now fails when no rule loaded from any source, and two shipped documents that said

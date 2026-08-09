@@ -1,5 +1,5 @@
 ---
-'@sledorze/falsestart': patch
+'@sledorze/falsestart': minor
 ---
 
 `toScopingPath` now normalises `./` prefixes, doubled separators and interior `./` segments, so

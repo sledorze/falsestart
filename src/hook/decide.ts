@@ -68,11 +68,15 @@ export interface DecideOptions {
    * Say so when a judged write lands on a path no rule is scoped to.
    *
    * Off by default, and the default is the interesting part. The honest version of this signal is
-   * noisy: measured against the shipped presets, it fires on every `.md`, `.json`, `.yml` and
-   * `.js` write, and additionally on every test file under `clean-code`, whose four rules all
-   * ignore them. Under `all` or `effect` test files stay quiet, because three Effect rules exist
-   * specifically to judge them — so how noisy this is depends on the preset, and it is never
-   * quiet in a repo that writes documentation.
+   * noisy: measured against all three shipped presets, it fires on every `.md`, `.json` and `.yml`
+   * write, and additionally on every test file under `clean-code`, whose rules all ignore them.
+   * Under `all` or `effect` test files stay quiet, because three Effect rules exist specifically to
+   * judge them — so how noisy this is depends on the preset, and it is never quiet in a repo that
+   * writes documentation.
+   *
+   * `.js` used to be on that list and no longer is: 0.2.0 gave `clean-code` its first rules that
+   * reach JavaScript, so every preset now covers a `.js` write. Re-measured rather than re-asserted,
+   * because a noise claim is exactly the kind that rots when the rule set grows.
    *
    * A warning that appears on most writes is one the reader learns to skip, and a signal that has
    * been trained away is worse than no signal, because it still looks like coverage. So this is a

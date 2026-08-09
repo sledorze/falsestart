@@ -9,11 +9,11 @@
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "07400679d2292a56d3ed21171e22c0f9a99d2d3526880282052ed522c1813d44",
+      "hash": "72fa410b6044036682a43bfda804df784f75af3458f9be7e3b16f57d917644e6",
       "target": "../src/cli/options.ts"
     },
     {
-      "hash": "0eac837038e03277dea9241def5c16caeee8d784f9470a22a09d56b14e92b629",
+      "hash": "4255b220f3c31f8450e53b31cf7ae530af252e3b11edadd0709327501c6a2256",
       "target": "../src/hook/decide.ts"
     },
     {
