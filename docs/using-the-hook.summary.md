@@ -172,9 +172,15 @@ nothing. `--doctor` prints both halves above the scope block. So `src/**/*.ts` w
 as written; a file outside that root keeps its absolute path. Notebooks scope by the notebook's own
 path, so a `**/*.ts` rule does not see TypeScript in a `.ipynb` cell.
 
+A rule can match a COMMENT: `kind: comment` plus `regex` forbids a suppression directive, covering
+`//`, `/* */`, JSDoc and trailing comments under one `comment` kind — and never firing on a string
+carrying the same text, which is the argument for doing it structurally rather than with grep. A `#!`
+shebang and the Annex B `<!-- -->` form are separate kinds it does not see.
+
 A matcher shared by several rules lives in a `_utils/` directory at the top level of the tree
 `--rules` names — not inside a category — and is referenced by `matches:`. Those documents need only
 `id` and `rule`, are not rules themselves, and lose a name collision to a rule's own `utils:` block.
+
 Only the first path segment is recognised: a nested `_utils/` is loaded as a rule, fails validation
 for the fields a fragment does not carry, and takes the whole tree down with a message naming the
 missing `language` rather than the misplaced directory.

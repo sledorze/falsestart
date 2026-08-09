@@ -22,6 +22,10 @@ file only when its own `files`/`ignores` globs admit the path — matching conte
 a reason to touch a file. Each rule is evaluated against one file's syntax tree, so a rule cannot ask
 a question about the rest of the repository.
 
+Comments are nodes too: `kind: comment` with a `regex` forbids a suppression directive an agent
+writes to silence another tool, and never fires on a string carrying the same text — which is what a
+grep-based hook cannot manage.
+
 Rules come from three places: `--preset all|clean-code|effect` for the shipped corpus, `--rules
 <dir>` for your own, and `--rules pkg:<name>` for another package's. A preset COMBINES with a
 `--rules` source in one invocation — `--preset clean-code --rules ./.falsestart/rules` loads both —
