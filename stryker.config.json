@@ -19,5 +19,5 @@
   "jsonReporter": {
     "fileName": "reports/mutation/mutation.json"
   },
-  "_thresholdComment": "Break 88 applies to a FULL `pnpm mutation` run, which nothing invokes automatically \u2014 it is a local reading, not a gate. The automatic gate is scripts/mutate-changed.sh on pre-push, which scores only the changed files against a floor of 70, because --mutate <file> scores the whole file and three files sit below 88. Raise 88 when a full run beats it: the first pass found 95 survivors at 100% line coverage, so there is room."
+  "_thresholdComment": "Break 88 applies to a FULL `pnpm mutation` run, which nothing invokes automatically \u2014 it is a local reading, not a gate. The automatic gate is scripts/mutate-changed.sh, on pre-push locally and in the `mutation` job of .github/workflows/ci.yml on every pull request, which scores only the changed files against a floor of 70, because --mutate <file> scores the whole file and three files sit below 88. Raise 88 when a full run beats it: the first pass found 95 survivors at 100% line coverage, so there is room."
 }

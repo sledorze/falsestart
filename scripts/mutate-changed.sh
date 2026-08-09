@@ -27,8 +27,23 @@ cd "$repo"
 # A floor, not the bar. Lowest committed per-file score is 76.5; this catches a collapse.
 FLOOR=70
 
+# WHY THE SKIP IS OPT-OUT. Exiting 0 with no base is right on a laptop: a branch with no `main` to
+# compare against has no "what this branch changed" to score, and a pre-push hook must not refuse a
+# push it has nothing to say about. It is catastrophic in CI, where a default `actions/checkout`
+# clones with `fetch-depth: 1` and no `origin/main` exists at all — so the obvious CI job takes this
+# branch on every pull request, prints `skipping`, and goes green having mutated nothing. A guard
+# against tests that cannot fail, which is itself a check that cannot fail.
+#
+# `MUTATION_REQUIRE_BASE=1` says the base is a precondition of this invocation rather than a
+# convenience, so its absence is the failure it actually is. Set by the workflow, not by the hook.
 base="$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || true)"
 if [ -z "$base" ]; then
+  if [ -n "${MUTATION_REQUIRE_BASE:-}" ]; then
+    echo "mutation: no merge-base with origin/main or main, and MUTATION_REQUIRE_BASE is set." >&2
+    echo "mutation: refusing to report success on a comparison that never happened. Fetch the" >&2
+    echo "mutation: default branch with its history (actions/checkout with fetch-depth: 0)." >&2
+    exit 1
+  fi
   echo "mutation: no main branch to diff against, skipping"
   exit 0
 fi

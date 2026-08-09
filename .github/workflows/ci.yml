@@ -47,3 +47,48 @@ jobs:
       - run: pnpm build
       # Dogfood: cairn checks this repo's own docs/ (summaries + dead links).
       - run: pnpm check
+
+  # Mutation testing on what the pull request changed — the only mechanism here that notices a test
+  # which cannot fail. `pnpm coverage:ci` above proves a line RAN; it never proves a test would
+  # object if that line were wrong, and both are green on an assertion about something the
+  # implementation does not control. Until this job existed the check ran nowhere a merge could see:
+  # `lefthook.yml`'s pre-push is skipped by `git push --no-verify`, by `LEFTHOOK=0`, by a clone where
+  # `pnpm install` never ran the `prepare` script, and by every merge performed in the GitHub UI.
+  #
+  # Blocking, deliberately. It costs roughly a minute per changed source file on top of a ~1 minute
+  # install, and scores the WHOLE of each changed file rather than the diff, against a floor of 70
+  # (see scripts/mutate-changed.sh). A pull request touching many source files is correspondingly
+  # slower; that is the price of the signal, and `timeout-minutes` bounds the worst case rather than
+  # hiding it.
+  mutation:
+    # Pull requests only. On a push to `main` the merge-base with `origin/main` is HEAD itself, the
+    # diff is empty, and the job would report success having scored nothing.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          # The default depth of 1 leaves no `origin/main` and no merge-base, which is precisely the
+          # state in which the script's own fallback is `exit 0`. Without full history this job would
+          # pass on every pull request without mutating a single file.
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6.0.9
+      - uses: actions/setup-node@v7
+        with:
+          # One version, not the matrix: mutation score is a property of the tests, not of the
+          # runtime, and paying for it twice buys nothing.
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Belt and braces: `fetch-depth: 0` is documented to create the remote-tracking branches, but
+      # this job's whole value depends on `origin/main` existing, so it is fetched explicitly rather
+      # than assumed. Cheap, and it fails loudly here rather than degrading into a silent skip.
+      - run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+      # MUTATION_REQUIRE_BASE turns "no base to compare against" from a skip into a failure. Without
+      # it, every way this job could lose its history — a shallow clone, a fetch that did not run, a
+      # renamed default branch — is reported as a pass.
+      - run: pnpm mutation:changed
+        env:
+          MUTATION_REQUIRE_BASE: '1'
