@@ -1,7 +1,7 @@
 {
   "refs": [
     {
-      "hash": "eb9ba7ecbe1110d33cf9ced3c902b9adb5b380a30d12bd99dcec590c2539241e",
+      "hash": "3d108c4782e699309dbe9e202de1e2f113a1107cf34d93aea3ffff9cecf612b2",
       "target": ".github/workflows/ci.yml"
     },
     {

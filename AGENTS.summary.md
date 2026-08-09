@@ -37,7 +37,10 @@ format:check, typecheck, coverage:ci, build, docs — it must cover every gate C
 green while the merge is red). `lefthook` is ADVISORY and gates nothing — `--no-verify`, `LEFTHOOK=0`
 and a clone that never installed the hooks all skip it, and no hook runs on a merge made in the
 GitHub UI; `.github/workflows/ci.yml` is the only guard a merge can see (codeql.yml's job is gated
-off), and it now runs `pnpm mutation:changed` there rather than only in `pre-push`. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
+off), and it now runs `pnpm mutation:changed` there rather than only in `pre-push`, plus a
+pull-request-only deletions report against the base branch — `pnpm check`'s `--report-deletions`
+keeps cairn's default of comparing the WORKING TREE against HEAD, which inspects nothing on a CI
+checkout, so it had never reported a deletion here. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
 oxlint's callee resolution. See every new test fail before trusting it — write it first, or revert the implementation and watch
 it go red; a test only ever observed passing is a claim, not a check, and four in one change passed
 for reasons unrelated to the code. A green suite at 100% coverage left 269 of 3141 mutants alive on

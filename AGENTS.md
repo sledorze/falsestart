@@ -103,8 +103,18 @@ hash says a file changed, never that a list of its contents is complete.
   still does — though its clean-run wording changed from "no drifted" to "no broken" references.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
-  On in `pnpm check`, comparing against the working tree; pass `--deletions-since <ref>` to check
-  deletions already committed on a branch. This exists because a lossy dedup here removed the only
+  On in `pnpm check`, which leaves the default `--deletions-since HEAD` — a comparison of the
+  WORKING TREE against HEAD. That is the right default locally and inspects nothing in CI, where a
+  checkout has no uncommitted deletion in it: the flag ran on every pull request here and reported
+  on none of them, printing its `Nothing deleted since the compared ref — nothing to check` line
+  each time. That line is the check saying so, and it read as boilerplate for as long as it took
+  someone to look. `ci.yml` therefore runs a second, pull-request-only step passing
+  `--deletions-since` against the base branch, which is the only comparison that sees a deletion
+  already committed on the branch — pinned in `src/guards.test.ts`, together with the cairn
+  behaviour it depends on, because the difference between the two invocations is the entire value
+  and neither one is visible in the other's output. It stays a separate step rather than being
+  folded into `pnpm check` so that local `verify` and CI keep running the identical command.
+  This exists because a lossy dedup here removed the only
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - Three checks are **config-only**, with no flag of their own — enabled by naming them in
   `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
@@ -353,7 +363,8 @@ check is branch protection, which lives outside this repository and cannot be re
 tick nobody made mandatory blocks nothing — **adding the `mutation` job to the required set is a
 manual step, and until someone does it that job reports rather than blocks**, while
 `dependabot-auto-merge.yml` merges as soon as the currently-required checks pass.) CI runs
-lint, format:check, typecheck, coverage:ci, build, check — and, since the `mutation` job was added,
+lint, format:check, typecheck, coverage:ci, build, check, a pull-request-only deletions report
+against the base branch (see `--report-deletions` above) — and, since the `mutation` job was added,
 `pnpm mutation:changed` on every pull request. That job is where the "a test that cannot fail" guard
 lives now; before it, that guard ran only in the skippable hook, which is the same as nowhere.
 
