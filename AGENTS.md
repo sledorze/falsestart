@@ -154,7 +154,14 @@ the prose to be re-read. The links exist to be hashed, not followed.
 Enforced by `src/documented.test.ts` rather than by the convention alone, because the convention
 alone did not hold: a forty-line document of pure invention was added to `docs/`, given a
 one-character summary and a line in `docs/_SUMMARY.md`, stamped, and passed `pnpm check` and the
-whole suite. Every markdown file in `docs/` must now cite at least one `../src/**.ts` file, with two
+whole suite. Every markdown file in `docs/` must now cite at least one file under `src/`, RESOLVED
+from wherever the document sits — `../src/x.ts` at the top of `docs/`, `../../src/x.ts` one
+directory down — rather than matched at a fixed depth. That distinction is not pedantry: the first
+version of this test read the directory recursively but matched a single `../`, so the same document
+with the same valid citation passed in `docs/` and failed in `docs/guides/`, accusing the doc of
+citing nothing while `cairn check --links-only` resolved the link. It cuts the other way too — a
+citation with the wrong number of `../` lands on a `src/` directory beneath `docs/` that does not
+exist, and no longer counts merely because the tail of the string looks right. Two
 exemptions that are structural rather than editorial — a `.summary.md`, whose parent carries the
 citations, and `_SUMMARY.md`, which is a link index. `overview.md` is exempt by name as the
 one-paragraph front door; if it ever describes behaviour, delete the exemption.
@@ -250,7 +257,8 @@ Re-tested against the current doc set, since a rejection is only as good as its 
   verified, `✗ no link ("cites_code") to an existing file`. It is weaker than the test that replaced
   it: adding `[the overview](./overview.md)` to the same fiction satisfied it (`✅ Coverage OK`),
   because any resolvable path counts, including a sibling doc. `src/documented.test.ts` demands a
-  `../src/**.ts` citation specifically, needs no config, and runs in the suite CI already gates on.
+  citation that RESOLVES under `src/` specifically, needs no config, and runs in the suite CI already
+  gates on.
 - `checks.docCoverage` — unchanged and still rejected, for the reason already recorded: it cannot
   express "cites entry points and nothing below them", which is the actual convention here.
 - `checks.freshness` — unchanged and still rejected. Age is a proxy; `--refs` is the causal signal.

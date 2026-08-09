@@ -16,7 +16,8 @@ AGENTS.md describes, and verified by editing `ci.yml` and watching `pnpm check` 
 Claims naming neither a link nor a declared target still belong in `src/documented.test.ts`. Three
 config-only checks exist and none is enabled: `checks.coverage` (doc-kind rules) does report an
 invented document that cites nothing, but is satisfied by a link to any sibling doc, so a test
-demanding a `../src/**.ts` citation replaced it; `checks.docCoverage` (is this source file linked
+demanding a citation that resolves under `src/` — from any depth, so a doc in a `docs/`
+subdirectory is judged by where its link lands rather than by a fixed number of `../` — replaced it; `checks.docCoverage` (is this source file linked
 from a doc) contradicts the rule that documents cite entry points and nothing below them; and
 `checks.freshness` (commit age) is a proxy for the staleness `--refs` already detects from content.
 `refs.scope` is not adopted either — it makes `--refs` quieter, and nothing here is too noisy yet.
