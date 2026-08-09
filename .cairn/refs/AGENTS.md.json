@@ -1,15 +1,15 @@
 {
   "refs": [
     {
-      "hash": "8305543815b792e0b18137f442727a3136bfb6dec33d0e9318b9bffb1f6208fe",
+      "hash": "eb9ba7ecbe1110d33cf9ced3c902b9adb5b380a30d12bd99dcec590c2539241e",
       "target": ".github/workflows/ci.yml"
     },
     {
-      "hash": "b54a3cd9b7f1b5aa687ceb683fa6a0ca60f6fc325c29c1054d5335e00abcc63d",
+      "hash": "afb697f976b139487cac4cacd2ecaf3358f91665e77c7087f5c8777bead38e89",
       "target": "lefthook.yml"
     },
     {
-      "hash": "76a4f21f4f3791d89edb6fe5760404991e22a697a8dacad358ff7550c94c63c9",
+      "hash": "0bf6505a9c17f01eaab876c62e8af7bf3a95a1cd327551a58369a4983bef617b",
       "target": "scripts/mutate-changed.sh"
     },
     {

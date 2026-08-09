@@ -22,6 +22,7 @@ import { parse } from 'yaml'
 
 const SCRIPT = `${process.cwd()}/scripts/mutate-changed.sh`
 const WORKFLOW = `${process.cwd()}/.github/workflows/ci.yml`
+const MANIFEST = `${process.cwd()}/package.json`
 
 interface Ran {
   readonly exitCode: number
@@ -106,6 +107,35 @@ const branchThatWeakensATestWithNoSubject = Effect.gen(function* () {
   return root
 })
 
+/**
+ * `main` → `parent` (adds `src/parent.ts`) → `child` (adds `src/child.ts`), checked out at `child`.
+ *
+ * The stack AGENTS.md prescribes — "if work B depends on work A landing first, branch B off A's
+ * branch, not off `main`" — and the shape that makes a hard-coded `main` score the wrong thing.
+ */
+const aStackedBranch = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-mutation-' }))
+
+  yield* fs.makeDirectory(`${root}/src`, { recursive: true })
+  yield* fs.writeFileString(`${root}/src/base.ts`, 'export const base = 1\n')
+  yield* run('git', ['init', '-q', '-b', 'main', '.'], root)
+  yield* run('git', ['config', 'user.email', 'test@example.com'], root)
+  yield* run('git', ['config', 'user.name', 'test'], root)
+  yield* run('git', ['add', '-A'], root)
+  yield* run('git', ['commit', '-qm', 'first'], root)
+  yield* run('git', ['checkout', '-q', '-b', 'parent'], root)
+  yield* fs.writeFileString(`${root}/src/parent.ts`, 'export const parent = 2\n')
+  yield* run('git', ['add', '-A'], root)
+  yield* run('git', ['commit', '-qm', 'parent work'], root)
+  yield* run('git', ['checkout', '-q', '-b', 'child'], root)
+  yield* fs.writeFileString(`${root}/src/child.ts`, 'export const child = 3\n')
+  yield* run('git', ['add', '-A'], root)
+  yield* run('git', ['commit', '-qm', 'child work'], root)
+
+  return root
+})
+
 /** Every `run:` string in the workflow, paired with the job and step that carries it. */
 const workflowSteps = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -120,12 +150,14 @@ interface Step {
   readonly uses?: string | undefined
   readonly env?: Readonly<Record<string, string>> | undefined
   readonly with?: Readonly<Record<string, unknown>> | undefined
+  readonly 'continue-on-error'?: boolean | undefined
 }
 
 interface Job {
   readonly steps: readonly Step[]
   readonly env?: Readonly<Record<string, string>> | undefined
   readonly if?: string | undefined
+  readonly 'continue-on-error'?: boolean | undefined
 }
 
 layer(NodeServices.layer)('the mutation guard', (it) => {
@@ -187,6 +219,25 @@ layer(NodeServices.layer)('the mutation guard', (it) => {
     }).pipe(Effect.scoped),
   )
 
+  /**
+   * A stacked branch diffed against `main` scores its parent's files too. Not a hole — it is
+   * stricter, not weaker — but a pull request then waits on a score for work it did not do, at
+   * about a minute a file, and a red tick it cannot act on is a tick people learn to ignore.
+   */
+  it.effect('diffs against the branch it was actually opened against', () =>
+    Effect.gen(function* () {
+      const root = yield* aStackedBranch
+
+      const stacked = yield* run('bash', [SCRIPT], root, { MUTATION_BASE_REF: 'parent' })
+      const wrong = yield* run('bash', [SCRIPT], root)
+
+      expect(stacked.output).toContain('src/child.ts')
+      expect(stacked.output).not.toContain('src/parent.ts')
+      // The default is still the default branch, which is what an ordinary pull request wants.
+      expect(wrong.output).toContain('src/parent.ts')
+    }).pipe(Effect.scoped),
+  )
+
   it.effect('is run by CI with that requirement turned on, against a fully fetched history', () =>
     Effect.gen(function* () {
       const steps = yield* workflowSteps
@@ -203,6 +254,46 @@ layer(NodeServices.layer)('the mutation guard', (it) => {
       const checkout = only?.job.steps.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
       // `fetch-depth: 1`, the default, is what makes `origin/main` absent in the first place.
       expect(checkout?.with?.['fetch-depth']).toBe(0)
+
+      // The three edits that turn this job into decoration, all of which a previous version of this
+      // test was green on. `|| true` and `continue-on-error` are what a maintainer reaches for when
+      // a job is slow or flaky, and both leave the tick green while the guard reports nothing; a
+      // narrowed `if:` stops the job running on the event it exists for. Pinned exactly rather than
+      // by substring, so a deliberate change has to come here and say so.
+      expect(only?.step.run?.trim()).toBe('pnpm mutation:changed')
+      expect(only?.step['continue-on-error']).toBeUndefined()
+      expect(only?.job['continue-on-error']).toBeUndefined()
+      expect(only?.job.if?.replaceAll(/\s+/g, ' ').trim()).toBe("github.event_name == 'pull_request'")
+
+      // And against the branch the pull request is actually merging into, not a hard-coded `main`.
+      expect(only?.step.env?.['MUTATION_BASE_REF'] ?? only?.job.env?.['MUTATION_BASE_REF']).toContain('github.base_ref')
+      expect(only?.job.steps.some((step) => (step.run ?? '').includes('github.base_ref'))).toBeTruthy()
+    }),
+  )
+
+  /**
+   * AGENTS.md: "a verify that omits a gate CI applies is a verify that can be green while the merge
+   * is red" — recorded there as observed rather than theorised, from the time `verify` ran
+   * `pnpm test` while CI ran `pnpm coverage:ci`. Adding the `mutation` job re-opened exactly that
+   * gap, and the paragraph stating the rule sat seventy lines above the paragraph breaking it.
+   *
+   * Asserted from both files rather than from a list restated in a third place, so a gate added to
+   * CI and forgotten in `verify` fails here rather than at somebody's merge.
+   */
+  it.effect('runs nothing that `pnpm verify` does not', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const manifest: unknown = JSON.parse(yield* fs.readFileString(MANIFEST))
+      const verify = (manifest as { readonly scripts: Readonly<Record<string, string>> }).scripts['verify'] ?? ''
+
+      const gates = (yield* workflowSteps)
+        .map(({ step }) => (step.run ?? '').trim())
+        // `pnpm install` is setup, not a gate, and a non-`pnpm` step is not a script `verify` could
+        // hold in the first place.
+        .filter((command) => command.startsWith('pnpm ') && !command.startsWith('pnpm install'))
+
+      expect(gates.length).toBeGreaterThan(0)
+      expect(gates.filter((gate) => !verify.includes(gate))).toEqual([])
     }),
   )
 })

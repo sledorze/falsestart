@@ -191,15 +191,25 @@ const citedSourceFiles = (markdown: string): readonly string[] =>
  * Classified by name rather than by content, which is the only classification that survives a new
  * document: whatever someone adds to `docs/` is in, unless it is one of the two kinds that are
  * structurally indexes rather than descriptions.
+ *
+ * `path` is relative to `docs/` and may name a subdirectory, which is why the exemptions compare
+ * the BASENAME. Matching the whole path exempted `_SUMMARY.md` and nothing else: a first version
+ * read `docs/` non-recursively, and a thirty-eight-line invention placed in `docs/guides/` passed
+ * it, `cairn check` and the whole suite — the same document, one directory deeper.
  */
-const isBehaviourDoc = (name: string): boolean =>
-  name.endsWith('.md') &&
-  // A summary is a digest of a doc that carries the citations itself.
-  !name.endsWith('.summary.md') &&
-  // The directory summary is a link index over its children.
-  name !== '_SUMMARY.md' &&
-  // The one-paragraph front door: it points at the other documents and describes no behaviour.
-  name !== 'overview.md'
+const isBehaviourDoc = (path: string): boolean => {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+
+  return (
+    name.endsWith('.md') &&
+    // A summary is a digest of a doc that carries the citations itself.
+    !name.endsWith('.summary.md') &&
+    // The directory summary is a link index over its children.
+    name !== '_SUMMARY.md' &&
+    // The one-paragraph front door: it points at the other documents and describes no behaviour.
+    path !== 'overview.md'
+  )
+}
 
 layer(platform)('documentation covers the source', (it) => {
   /**
@@ -216,7 +226,7 @@ layer(platform)('documentation covers the source', (it) => {
   it.effect('every behaviour doc cites at least one source file, so --refs has something to hash', () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
-      const documents = (yield* fs.readDirectory('docs')).filter((name) => isBehaviourDoc(name))
+      const documents = (yield* fs.readDirectory('docs', { recursive: true })).filter((path) => isBehaviourDoc(path))
       // The classifier is what this test is worth: widen an exemption until nothing is classified
       // and the assertion below passes over an empty set, which is the defect this file exists to
       // catch happening to the check that catches it.

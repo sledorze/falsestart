@@ -36,15 +36,22 @@ FLOOR=70
 #
 # `MUTATION_REQUIRE_BASE=1` says the base is a precondition of this invocation rather than a
 # convenience, so its absence is the failure it actually is. Set by the workflow, not by the hook.
-base="$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || true)"
+#
+# `MUTATION_BASE_REF` names the branch this work is actually being merged into, and the workflow
+# passes the pull request's own base. Hard-coding `main` is not a hole — it is stricter, not weaker —
+# but on the stacked branches AGENTS.md prescribes ("branch B off A's branch, not off `main`") it
+# scores the PARENT branch's files as well, so B waits about a minute a file for a score it cannot
+# act on, and a red tick nobody can act on is one people learn to ignore.
+base_ref="${MUTATION_BASE_REF:-main}"
+base="$(git merge-base HEAD "origin/$base_ref" 2>/dev/null || git merge-base HEAD "$base_ref" 2>/dev/null || true)"
 if [ -z "$base" ]; then
   if [ -n "${MUTATION_REQUIRE_BASE:-}" ]; then
-    echo "mutation: no merge-base with origin/main or main, and MUTATION_REQUIRE_BASE is set." >&2
-    echo "mutation: refusing to report success on a comparison that never happened. Fetch the" >&2
-    echo "mutation: default branch with its history (actions/checkout with fetch-depth: 0)." >&2
+    echo "mutation: no merge-base with origin/$base_ref or $base_ref, and MUTATION_REQUIRE_BASE is set." >&2
+    echo "mutation: refusing to report success on a comparison that never happened. Fetch that" >&2
+    echo "mutation: branch with its history (actions/checkout with fetch-depth: 0)." >&2
     exit 1
   fi
-  echo "mutation: no main branch to diff against, skipping"
+  echo "mutation: no $base_ref branch to diff against, skipping"
   exit 0
 fi
 
@@ -119,6 +126,13 @@ ln -s "$repo/node_modules" "$work/node_modules"
 # matters: a module reachable only through `cli.ts` or exercised only by the e2e suite (which spawns
 # a subprocess, so there is no import edge for vitest `--related` to follow) yields no tests, and
 # Stryker treats that as a configuration error rather than a pass.
+#
+# Its price, which is real: a source file that NO test reaches is then a pass here too. Measured —
+# committing a two-function `src/scanning/quota.ts` that nothing imports gives `Instrumented 1 source
+# file(s) with 11 mutant(s)`, `No tests were found`, exit 0. What catches that file is
+# `pnpm coverage:ci`, whose 100% thresholds report it at 0% and fail the run, so the pull request is
+# still red — by the other gate, not this one. Do not read a green mutation step as "these mutants
+# were killed" without looking at how many ran.
 node -e '
   const fs = require("fs")
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))

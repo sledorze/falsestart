@@ -43,7 +43,10 @@ for reasons unrelated to the code. A green suite at 100% coverage left 269 of 31
 this tree (score 91.40%), and a new module with a fixture-only test scores 0.00% at 100% coverage —
 that gap is what mutation testing is for. A changed `x.test.ts` now drags `x.ts` into that run,
 because a branch that only weakens a test used to skip the guard entirely; on a test-only diff read
-the survivors, since the per-file floor of 70 catches a collapse and not an erosion. Dogfood the real behaviour against the scenario a
+the survivors, since the per-file floor of 70 catches a collapse and not an erosion. It does not
+reach `src/cli.ts`, a test with no sibling implementation, or a source file no test imports (that
+last is `coverage:ci`'s catch, not this one), and making it BLOCK is a manual branch-protection
+step. Dogfood the real behaviour against the scenario a
 feature is meant to catch, including the negative case, then convert that proof into a permanent
 test. Treat a structural claim in a doc as unverified until checked, not merely re-read. Before
 pushing, get an adversarial review from ONE subagent prompted to refute, given the artifact rather
@@ -60,8 +63,9 @@ needs a test too: the shipped rules had one and stayed right, the exports had no
 seven.
 
 **No check here reads a document for truth, and none can.** A flatly false sentence inserted into
-`reference.md` — the inverse of what `--fail` does — passed `pnpm check` at exit 0 and 780 green
-tests once the documented `pnpm format && pnpm stamp` had run. The guards fire on the EDIT, never on
+`reference.md` — the inverse of what `--fail` does — passed `pnpm check` at exit 0 once the
+documented `pnpm format && pnpm stamp` had run, and passed all 28 assertions of the very test file
+that exists to pin documentation claims. The guards fire on the EDIT, never on
 its content. Adversarial review is therefore the PRIMARY control for prose truth, not a backstop;
 what tooling contributes is the precondition, that a doc cites code at all and that its enumerations
 are pinned.

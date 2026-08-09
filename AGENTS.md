@@ -222,7 +222,8 @@ it:
 It is the exact inverse of what `--fail` does. `pnpm check` failed at first — not on the sentence,
 but because `reference.md`'s own hash had moved — and the documented remediation, `pnpm format &&
 pnpm stamp`, cleared it: `✅ Markdown links OK`, `✅ Hierarchical summaries OK`, `✅ References OK`,
-exit 0, with all 780 tests passing. The guard fires on the EDIT, never on its content, and the fix
+exit 0. `src/documented.test.ts`, the file that exists to pin documentation claims, passed all 28 of
+its assertions over that text. The guard fires on the EDIT, never on its content, and the fix
 for the edit is one command.
 
 One thing did notice, and it is worth knowing exactly how far it goes.
@@ -312,14 +313,22 @@ but "an adjacent, superficially-similar file is provably left untouched."
 # Shipping one iteration well
 
 **Full local verify before every push, every time — not just before "done."**
-`pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage:ci && pnpm build && pnpm check`
-(`pnpm verify` runs all six — `format:check` is in there because CI enforces it, and a verify that
-omits a gate CI applies is a verify that can be green while the merge is red).
+`pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage:ci && pnpm build && pnpm check &&
+pnpm mutation:changed` (`pnpm verify` runs all seven — `format:check` is in there because CI enforces
+it, and a verify that omits a gate CI applies is a verify that can be green while the merge is red).
 
 That rule used to be broken by `verify` itself: it ran `pnpm test`, while CI and `pre-push` both run
 `pnpm coverage:ci`, whose 100% thresholds `pnpm test` does not apply. A change with uncovered
 branches therefore passed a full local `verify` and was rejected at push — observed, not theorised.
 `coverage:ci` runs the same tests, so nothing is lost by using the stricter one.
+
+It was broken again the moment CI gained the `mutation` job, in the same way, by the change that
+added the job — and by a reviewer's reading rather than by anything that could observe it. So the
+list is no longer maintained by hand: `src/guards.test.ts` reads both `package.json` and `ci.yml` and
+fails when a `pnpm` step CI runs is absent from `verify`. Two costs worth knowing. `mutation:changed`
+adds about a minute per changed source file, and nothing at all on a docs-only branch. And it scores
+`HEAD` in a disposable worktree, never your working tree, so run it after committing — before that
+it is answering about the previous commit.
 
 **`lefthook.yml` is advisory. It gates nothing.** `pre-commit` runs lint/format/docs and the stamp
 guard; `pre-push` runs typecheck+test+build+docs+coverage+mutation — and every one of those is
@@ -333,7 +342,9 @@ The only guard a merge can see is `.github/workflows/ci.yml`. `codeql.yml`'s sin
 `if: vars.codeql-enabled == 'true'`, which its own comment says is off until Advanced Security is
 enabled, and `dependabot-auto-merge.yml` merges rather than checks. (Whether CI is a _required_
 check is branch protection, which lives outside this repository and cannot be read from it; a green
-tick nobody made mandatory blocks nothing.) CI runs
+tick nobody made mandatory blocks nothing — **adding the `mutation` job to the required set is a
+manual step, and until someone does it that job reports rather than blocks**, while
+`dependabot-auto-merge.yml` merges as soon as the currently-required checks pass.) CI runs
 lint, format:check, typecheck, coverage:ci, build, check — and, since the `mutation` job was added,
 `pnpm mutation:changed` on every pull request. That job is where the "a test that cannot fail" guard
 lives now; before it, that guard ran only in the skippable hook, which is the same as nowhere.
@@ -381,7 +392,10 @@ mutated set, mapped by the file-role convention rather than by guessing which so
 Its limit, measured on that same branch: the run then reports `scope.ts` at 90.38% with 15 survivors
 and stays GREEN, because the floor of 70 catches a collapse and not an erosion, and `--mutate <file>`
 scores the whole file rather than the change. Read the survivor list on a test-only diff; the exit
-code is not the signal there.
+code is not the signal there. Three more things it does not reach: `src/cli.ts`, excluded from
+mutation entirely; a test with no sibling implementation, which has nothing to score; and a source
+file no test reaches at all, which Stryker's `allowEmpty` passes with zero mutants run — that last
+one is caught by `coverage:ci`'s 100% thresholds instead, by the other gate rather than this one.
 
 Its counterpart in the small: a new module with a test that calls every function and asserts only
 properties of its own fixture reports 100% coverage and a green suite, and scores **0.00%** with all

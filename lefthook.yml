@@ -99,9 +99,10 @@ pre-push:
     # of `isRecord` — nothing fed it `null`, an array, or a non-object, so all three guards could be
     # deleted with the suite green.
     #
-    # Scoped to changed files because a full run takes ~52s and, more importantly, because the score
-    # that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when the
-    # branch touched no mutatable source.
+    # Scoped to changed files because a full run takes 3m43s on this tree — it said ~52s here for
+    # months, measured when the suite was a fraction of its size — and, more importantly, because the
+    # score that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when
+    # the branch touched no mutatable source, and a changed `x.test.ts` counts as touching `x.ts`.
     #
     # It cannot touch your working tree. Stryker must run `inPlace` here (sandbox mode crashes on
     # TypeScript 7 — see stryker.config.json), which overwrites real files, so the script runs it in
