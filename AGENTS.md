@@ -67,6 +67,14 @@ belong in `src/documented.test.ts`, where several already live.
   with `export const appliesTo = () => true` and the check would stay green.
 - `cairn check --summaries-only` / `--links-only`.
 - `cairn check --links-only --fix` — auto-repair unambiguous dead links.
+- `cairn config` — print the RESOLVED config, where it came from, and the expanded roots. New in
+  0.10, and the way to answer "why is that doc not checked" without guessing. It also shows the keys
+  you never set: `onlyGitTracked`, `refs.scope`, `proseRefs.ignore`, `stampCommand`.
+- `stampCommand` is set in `.cairnrc.json`, and setting it is load-bearing rather than tidy. cairn
+  0.10's own agent guidance tells an agent to read that key and run what it names; unset, it falls
+  back to `--summaries-only --stamp` — which omits `--refs`, and stamps BEFORE the formatter runs.
+  The value here is `pnpm format && pnpm stamp`, so the ordering this file insists on is machine
+  readable rather than a paragraph an agent has to find.
 - `pnpm stamp` — write the `.cairn/` sidecar hashes of EXISTING summaries bottom-up, and of every
   source file the docs link to. It does **not** author prose; you write the content, then stamp.
   Re-stamping after a source change is the point, not a chore: it is where you say the doc's claim

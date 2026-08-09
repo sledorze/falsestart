@@ -50,3 +50,7 @@ the code it describes, so the two behaviour docs now carry link blocks to the pa
 diagnostic and freeze — they tracked zero source files while the architecture doc tracked eight, and
 they held every false sentence. And an enumeration a document calls exhaustive needs a test: the
 shipped rules had one and stayed right, the exports had none and were missing seven.
+
+`cairn config` (0.10) prints the resolved config and expanded roots — the way to answer "why is that
+doc not checked". `stampCommand` is set in `.cairnrc.json` because cairn's own agent guidance reads
+it: unset, it names a command that omits `--refs` and stamps before the formatter.

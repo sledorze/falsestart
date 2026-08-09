@@ -49,8 +49,12 @@ top-down, parents capture stale child hashes and `check` stays red.
 2. **Author directories deepest-first.** Walk from the deepest directories up to the
    roots. For each, write its `_SUMMARY.md`: orientation paragraph, then a linked line
    for every direct child (child `.summary.md` or doc, and each sub-dir's `_SUMMARY.md`).
-3. **Stamp mechanically.** Run `npx cairn check --summaries-only --stamp`.
-   It rewrites every `.cairn/` sidecar hash bottom-up. **Never hand-edit a sidecar** — it
+3. **Stamp mechanically.** Run this repo's configured stamp command (`stampCommand` in
+   `.cairnrc.json` — unset falls back to cairn's own `--summaries-only --stamp` flag,
+   see `cairn check --help`). A repo with a formatter often prefixes it, since stamping
+   before a later reformat hashes content the format step is about to change — check
+   config rather than assuming the plain default runs. It rewrites every `.cairn/`
+   sidecar hash bottom-up. **Never hand-edit a sidecar** — it
    is computed, not authored; a hand-typed hash is always wrong.
 4. **Verify.** Run `npx cairn check` and confirm exit 0.
 
