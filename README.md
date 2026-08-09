@@ -121,6 +121,8 @@ ignores:
 
 A rule only ever acts on files its own `files`/`ignores` globs admit. Matching content is never on its own a reason to touch a file. Each rule is evaluated against one file's syntax tree, so a rule cannot ask a question about the rest of the repository.
 
+Comments are nodes too, so `kind: comment` with a `regex` forbids a suppression directive an agent writes to silence another tool — and never fires on a string carrying the same text, which is what a grep-based hook cannot manage. See [Matching a comment](./docs/using-the-hook.md#matching-a-comment).
+
 A starter corpus ships in [`rules/`](./rules): `clean-code/` is generic TypeScript, `effect/`
 assumes an Effect codebase. Reach them with `--preset`, or copy the ones you want into your own
 directory and use `--rules` — what is enforced is a directory listing, not a config file.

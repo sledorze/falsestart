@@ -18,9 +18,10 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
+import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
 import { RuleDescriptionSchema } from './checking/listing.ts'
-import { RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
+import { parseRule, RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
 import { FREEZE_MODES } from './freezing/index.ts'
 import { parseArguments } from './cli/options.ts'
@@ -310,6 +311,46 @@ layer(platform)('documentation covers the source', (it) => {
       )
 
       expect(invalid.flat()).toEqual([])
+    }),
+  )
+
+  // The comment-matching recipe is a CLAIM about what ast-grep can do, published in a document that
+  // ships inside the package — and an adoption report reached the opposite conclusion ("rules match
+  // the AST, not comments") and gave up on it. So the snippet is not merely read here, it is run:
+  // parsed as a rule and put through the real engine, on the two inputs whose difference is the
+  // entire reason to do this structurally rather than with grep.
+  it.effect('the comment-matching recipe in the hook guide really matches a comment, and only a comment', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const markdown = yield* fs.readFileString('docs/using-the-hook.md')
+
+      const snippet = [...markdown.matchAll(/```yaml\n([\s\S]*?)```/g)]
+        .map((block) => block[1] ?? '')
+        .find((body) => body.includes('kind: comment'))
+      expect(snippet).toBeDefined()
+
+      const rule = yield* parseRule(snippet ?? '', 'docs/using-the-hook.md')
+
+      const findingsFor = (content: string, path = 'src/widget.ts') =>
+        checkFile([rule], { content, path }).pipe(Effect.map((findings) => findings.length))
+
+      // Every form the prose claims, in one file.
+      expect(yield* findingsFor('// eslint-disable-next-line\nconst a = 1')).toBe(1)
+      expect(yield* findingsFor('/* eslint-disable */\nconst a = 1')).toBe(1)
+      expect(yield* findingsFor('/** eslint-disable me */\nconst a = 1')).toBe(1)
+      expect(yield* findingsFor('const a = 1 // eslint-disable-line')).toBe(1)
+
+      // The claim that makes the recipe worth publishing: a STRING carrying the same text is a
+      // different node, so the rule never sees it. A text-matching hook cannot tell them apart.
+      expect(yield* findingsFor("const s = 'eslint-disable'")).toBe(0)
+      expect(yield* findingsFor('// an ordinary note\nconst a = 1')).toBe(0)
+
+      // The `files` glob, which is the line a reader copy-pastes. `checkFile` applies `appliesTo`,
+      // so this is a real scope check — and without it, narrowing the published glob to `**/*.ts`
+      // left this test green, leaving the eight extensions it advertises entirely unverified.
+      for (const extension of ['ts', 'tsx', 'js', 'jsx', 'mts', 'cts', 'mjs', 'cjs']) {
+        expect(yield* findingsFor('// eslint-disable-next-line\nconst a = 1', `src/widget.${extension}`)).toBe(1)
+      }
     }),
   )
 

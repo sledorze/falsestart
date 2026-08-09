@@ -1085,6 +1085,36 @@ Notebooks are scoped by the notebook's own path, not by the cell's language. A r
 `**/*.ts` will not see TypeScript typed into a `.ipynb` cell — add `**/*.ipynb` to its `files` if
 you want it to.
 
+### Matching a comment
+
+A comment is a node like any other, so a rule can match one — `kind: comment` selects it and `regex`
+says which. This is how you forbid a suppression directive an agent might write to silence another
+tool:
+
+<!-- prettier-ignore -->
+```yaml
+id: no-disable-directive
+language: tsx
+severity: error
+message: 'Fix the finding rather than suppressing it.'
+rule:
+  kind: comment
+  regex: '-disable'
+files:
+  - '**/*.{ts,tsx,js,jsx,mts,cts,mjs,cjs}'
+```
+
+One `comment` kind covers every form you will actually write — `//`, `/* */`, JSDoc, and a trailing
+comment on a line of code — so there is no separate kind for block comments. Two comment-shaped
+things are **not** `comment` nodes and this will not see them: a `#!` shebang line (`hash_bang_line`)
+and the Annex B `<!-- -->` form legal in a `.js` script (`html_comment`). Name those kinds
+separately if you need them.
+
+**And it does not fire on a string that happens to contain the same text.** `const s =
+'eslint-disable'` is a string node, not a comment node, so the rule never sees it. That is the reason
+to do this structurally rather than with a text-matching hook: grep cannot tell the two apart, and a
+rule that fires on documentation about suppression directives is a rule people turn off.
+
 ## Shared matchers
 
 A matcher needed by several rules goes in a `_utils/` directory at the **top level of the tree
