@@ -67,6 +67,14 @@ belong in `src/documented.test.ts`, where several already live.
   with `export const appliesTo = () => true` and the check would stay green.
 - `cairn check --summaries-only` / `--links-only`.
 - `cairn check --links-only --fix` — auto-repair unambiguous dead links.
+- `cairn config` — print the RESOLVED config, where it came from, and the expanded roots. New in
+  0.10, and the way to answer "why is that doc not checked" without guessing. It also shows the keys
+  you never set: `onlyGitTracked`, `refs.scope`, `proseRefs.ignore`, `stampCommand`.
+- `stampCommand` is set in `.cairnrc.json`, and setting it is load-bearing rather than tidy. cairn
+  0.10's own agent guidance tells an agent to read that key and run what it names; unset, it falls
+  back to `--summaries-only --stamp` — which omits `--refs`, and stamps BEFORE the formatter runs.
+  The value here is `pnpm format && pnpm stamp`, so the ordering this file insists on is machine
+  readable rather than a paragraph an agent has to find.
 - `pnpm stamp` — write the `.cairn/` sidecar hashes of EXISTING summaries bottom-up, and of every
   source file the docs link to. It does **not** author prose; you write the content, then stamp.
   Re-stamping after a source change is the point, not a chore: it is where you say the doc's claim
@@ -80,8 +88,8 @@ belong in `src/documented.test.ts`, where several already live.
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
   `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
-  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.9
-  still does.
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.10
+  still does — though its clean-run wording changed from "no drifted" to "no broken" references.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
   On in `pnpm check`, comparing against the working tree; pass `--deletions-since <ref>` to check
@@ -89,7 +97,7 @@ belong in `src/documented.test.ts`, where several already live.
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - Three checks are **config-only**, with no flag of their own — enabled by naming them in
   `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
-  0.7; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
+  0.7, and 0.10 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
   true at the upgrade. None of the three is enabled, and each for a reason worth keeping:
   - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
@@ -128,6 +136,44 @@ the prose to be re-read. The links exist to be hashed, not followed.
 "Every flag, export and shipped rule". The rules were pinned by a test and stayed right; the exports
 were pinned by nothing and were missing seven entries, six of them from that week's own work.
 `src/documented.test.ts` now pins them too.
+
+**`pnpm stamp` is not a remediation.** cairn reports a stale summary correctly; stamping clears the
+report without changing a byte of the digest, so the command that makes the complaint go away is
+cheaper than the work it is complaining about. Four summaries went stale under a green `check` in a
+single week, every one caught by a reviewer reading the prose rather than by a tool. `pre-commit`
+now runs `scripts/stamped-not-written.sh`, which refuses a commit that stages a summary's sidecar
+without staging the summary — the one question the hashes cannot ask. It covers FILE summaries only. Two things
+are exempt and both on purpose: `.cairn/refs/**`, which hashes a doc's link targets rather than its
+digest, and `_SUMMARY.md`, whose prose is a link index over the child SET while its hash is a Merkle
+hash over child CONTENT — so it goes stale on every descendant edit with its prose still correct.
+Including it was tried, after a review called the exclusion a coverage gap, and it fired immediately
+on a `_SUMMARY.md` that was right: near-100% false positives, which is how a check gets disabled.
+
+It is not a gate. `lefthook` is skippable with `--no-verify`, CI runs no lefthook at all, and
+`SUMMARIES_REVIEWED=1` is one word. It is a prompt at the moment the question is answerable, not a
+guarantee that it was answered.
+
+That script **stays here, and should not become a cairn check** — a first pass concluded the
+opposite and the measurement reversed it.
+
+It is a policy, not an invariant. Every check cairn ships is a property of the tree: the summary
+exists, its hash matches, the link resolves, the referenced content has not drifted. "A human
+rewrote the digest when the source changed" is a claim about how a commit was made, and over sixty
+commits here it was **false 21% of the time while everything was correct** — 18 of 86 doc edits
+changed a source without its summary, median four added lines, almost all of them a row appended to
+a reference table. That is the most common doc edit in this repo and it never changes the digest. A
+published check firing on one doc edit in five, mostly wrongly, is one adopters disable — which is
+the reasoning `--warn-unscoped` is off by default for, applied to cairn.
+
+It also needs the git INDEX. cairn compares the working tree against a ref and reads commit history;
+it never inspects what is staged, and the guard's question only exists at the moment of staging.
+
+What cairn genuinely lacked was already there or already filed. Cause 1 was closed by arming
+`--refs`, a feature cairn has shipped all along and this repo had simply never pointed at its
+behaviour docs. Cause 3 was closed by a test here, as this file already prescribed.
+[cairn#131](https://github.com/sledorze/cairn/issues/131) covers the remaining ground with a better
+shape than a new check — scoped and interactive stamping, which PREVENTS the reflex instead of
+detecting it afterwards, and so has no false positives to suppress.
 
 # Release convention
 

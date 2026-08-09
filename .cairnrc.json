@@ -14,5 +14,6 @@
     "fileSummarySuffix": ".summary.md"
   },
   "roots": ["."],
+  "stampCommand": "pnpm format && pnpm stamp",
   "thresholdLines": 30
 }

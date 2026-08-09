@@ -50,6 +50,15 @@ pre-commit:
       glob: '*.{md,ts}'
       run: pnpm check
 
+    # `cairn check` detects a stale summary; `pnpm stamp` clears it in one command. So the
+    # documented remediation satisfies the check without performing it, and four summaries went
+    # stale under a green check in one week — each caught by a reviewer reading the prose, never by
+    # a tool. This asks the one question the hashes cannot: did the digest change too?
+    summaries-written:
+      priority: 6
+      glob: '.cairn/**/*.summary.md.json'
+      run: ./scripts/stamped-not-written.sh
+
 # Check-only mirror (no auto-fix), for running the same gates locally without the auto-fixing.
 # NOT what CI runs — `.github/workflows/ci.yml` invokes the pnpm scripts directly, so a change here
 # does not change what blocks a merge. Usage: lefthook run ci
