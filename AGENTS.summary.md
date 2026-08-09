@@ -39,3 +39,9 @@ pushing, get an adversarial review from ONE subagent prompted to refute, given t
 than your reasoning, told that finding nothing is a valid answer — and verify each finding yourself,
 in a scratch directory outside this repo, before acting on it. One concern per PR, branched off the
 right parent.
+
+`--refs` only protects prose that LINKS to the code it describes: the two behaviour docs now carry
+link blocks to the parser, decision path, diagnostic, freeze and rule scoping — they tracked zero
+source files while the architecture doc tracked eight, and held every false sentence found. An
+enumeration a document calls exhaustive needs a test: the shipped rules had one and stayed right, the
+exports had none and were missing seven.

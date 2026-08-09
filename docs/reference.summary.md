@@ -145,3 +145,9 @@ repository, `--separate-git-dir` — `--doctor` prints `anchor UNVERIFIED` and `
 **Library:** the exported functions, error classes and constants, with the area each belongs to,
 plus the exported types. `AGENTS` and `AGENT_CONTRACTS` are exported so the contracts can be
 asserted against rather than copied. `effect` is a required peer; `@effect/platform-node` is optional.
+
+The page opens with links to the source files whose behaviour it describes — the parser, the decision
+path, the diagnostic, the freeze, rule scoping and per-repo config. They exist to be HASHED by
+`cairn check --refs`, not followed: a change to any of them fails the check and forces this prose to
+be re-read. Its "every flag, export and shipped rule" claim is pinned by tests for the rules and for
+the exports.

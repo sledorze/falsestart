@@ -4,6 +4,21 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 [Why falsestart is built this way](./architecture.md); to set it up see
 [Using the hook](./using-the-hook.md).
 
+<!--
+  The links below exist to be HASHED, not to be followed. `cairn check --refs` records the content
+  of every `[text](path)` target, so this page goes stale the moment one of these files changes —
+  which forces the prose describing their behaviour to be re-read rather than assumed.
+
+  Without them this page tracked ZERO source files while `architecture.md` tracked eight, and it is
+  this page that carries the behavioural claims: two of its sentences were false for a week under a
+  green `cairn check`, because nothing connected the prose to the code it described.
+-->
+
+The behaviour described here is decided by [the argument parser](../src/cli/options.ts),
+[the decision path](../src/hook/decide.ts), [the diagnostic](../src/hook/doctor.ts),
+[the freeze](../src/freezing/freeze.ts), [rule scoping](../src/checking/scope.ts) and
+[per-repo configuration](../src/config/config.ts).
+
 ## Command line
 
 | Flag                 | Meaning                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -721,6 +736,13 @@ syntactic matcher cannot tell a decoded value from a raw payload.
 | `grammarFor`                | function    | checking |
 | `matchesAny`                | function    | checking |
 | `applyScopeOverrides`       | function    | config   |
+| `canAnchor`                 | function    | checking |
+| `enclosingGitDirectory`     | function    | freezing |
+| `findUnappliedOverrides`    | function    | config   |
+| `loadRuleSources`           | function    | checking |
+| `mergeRuleSets`             | function    | checking |
+| `ruleSourcesOf`             | function    | checking |
+| `shippedRuleSources`        | function    | freezing |
 | `assessRule`                | function    | testing  |
 | `checkFile`                 | function    | checking |
 | `WRITE_TOOLS`               | constant    | hook     |
