@@ -5,17 +5,41 @@
       "target": "./architecture.md"
     },
     {
-      "hash": "7a212f2a0dc9bed3ca6925c8cb5965695f2cf382bd8c15e8bd4a0c7d60896466",
+      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
       "target": "./using-the-hook.md"
     },
     {
+      "hash": "07400679d2292a56d3ed21171e22c0f9a99d2d3526880282052ed522c1813d44",
+      "target": "../src/cli/options.ts"
+    },
+    {
+      "hash": "0eac837038e03277dea9241def5c16caeee8d784f9470a22a09d56b14e92b629",
+      "target": "../src/hook/decide.ts"
+    },
+    {
+      "hash": "31e7f2d07dc5a640012b46c88167b9e7b248e1015da36f59a1794f2fa1d232d3",
+      "target": "../src/hook/doctor.ts"
+    },
+    {
+      "hash": "b9448810aecc93ddc5bff868ae6887ed7e9863933323b098138fe75165cb8359",
+      "target": "../src/freezing/freeze.ts"
+    },
+    {
+      "hash": "ed2d57d782c0aca5ecbd244810663a703ef61960c8ee0695794c2903cbf9e3ca",
+      "target": "../src/checking/scope.ts"
+    },
+    {
+      "hash": "6862b0335f4216a9f0122eef8d5c0f3e52c0720a87e702efe1b4cae4b84c41c8",
+      "target": "../src/config/config.ts"
+    },
+    {
       "anchor": "when-a-write-was-not-checked-at-all",
-      "hash": "7a212f2a0dc9bed3ca6925c8cb5965695f2cf382bd8c15e8bd4a0c7d60896466",
+      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
       "target": "./using-the-hook.md"
     },
     {
       "anchor": "check-both-runtimes-enforce-the-same-thing",
-      "hash": "7a212f2a0dc9bed3ca6925c8cb5965695f2cf382bd8c15e8bd4a0c7d60896466",
+      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
       "target": "./using-the-hook.md"
     }
   ]

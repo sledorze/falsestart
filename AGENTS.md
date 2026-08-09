@@ -117,6 +117,18 @@ document into `docs/` and watching the check demand a summary for it.
 
 You author the prose. The tool only verifies and stamps — and it never touches your prose to do it.
 
+**Link a behaviour doc to the code that decides the behaviour.** `--refs` is only armed on the docs
+that actually carry `[text](../src/x.ts)` links. `architecture.md` carried eight and stayed correct;
+`reference.md` and `using-the-hook.md` carried **zero** — and those two held every false sentence
+found this week, green the whole time. Both now open with a block of links to the parser, the
+decision path, the diagnostic and the freeze, so a change to any of them fails `check` and forces
+the prose to be re-read. The links exist to be hashed, not followed.
+
+**An enumeration a document claims to be exhaustive about needs a test.** `reference.md` opens
+"Every flag, export and shipped rule". The rules were pinned by a test and stayed right; the exports
+were pinned by nothing and were missing seven entries, six of them from that week's own work.
+`src/documented.test.ts` now pins them too.
+
 # Release convention
 
 Releases are automated via [Changesets](https://github.com/changesets/changesets) (see
