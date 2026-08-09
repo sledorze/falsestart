@@ -80,8 +80,8 @@ belong in `src/documented.test.ts`, where several already live.
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
   `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
-  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.9
-  still does.
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.10
+  still does — though its clean-run wording changed from "no drifted" to "no broken" references.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
   On in `pnpm check`, comparing against the working tree; pass `--deletions-since <ref>` to check
@@ -89,7 +89,7 @@ belong in `src/documented.test.ts`, where several already live.
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - Three checks are **config-only**, with no flag of their own — enabled by naming them in
   `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
-  0.7; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
+  0.7, and 0.10 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
   true at the upgrade. None of the three is enabled, and each for a reason worth keeping:
   - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
