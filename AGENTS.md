@@ -124,6 +124,15 @@ single week, every one caught by a reviewer reading the prose rather than by a t
 now runs `scripts/stamped-not-written.sh`, which refuses a commit that stages a summary's sidecar
 without staging the summary — the one question the hashes cannot ask.
 
+That script is **interim, and in the wrong repository**: cairn already has this open as
+[cairn#131](https://github.com/sledorze/cairn/issues/131), whose own text reports "three doc
+summaries re-stamped without their prose actually being updated". It lives here only because the
+guard was needed today. It reverse-engineers a sidecar layout cairn owns — change the suffix and its
+grep matches nothing and it passes vacuously — and it can only fire at commit time. cairn needs no
+git for this: the sidecar records the SOURCE hash and nothing else, so recording the summary's own
+hash alongside would let `check` detect the state on every run. Delete the script when cairn ships
+that.
+
 **Link a behaviour doc to the code that decides the behaviour.** `--refs` is only armed on the docs
 that actually carry `[text](../src/x.ts)` links. `architecture.md` carried eight and stayed correct;
 `reference.md` and `using-the-hook.md` carried **zero** — and those two held every false sentence

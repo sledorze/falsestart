@@ -6,6 +6,18 @@
 # four summaries went stale under a green check in a single week; every one was caught by a reviewer
 # reading the prose, never by a tool.
 #
+# INTERIM. This belongs in cairn, not here — see sledorze/cairn#131, which reports the same failure
+# ("three doc summaries re-stamped without their prose actually being updated") and is open.
+#
+# Two reasons this is the wrong home. It reverse-engineers a layout cairn owns: change the sidecar
+# suffix and the grep below matches nothing, so the guard passes VACUOUSLY — a silent-failure guard,
+# which is the bug class it exists to prevent. And it can only fire at commit time, because the git
+# index is all it has to read. cairn needs no git at all: its sidecar records the SOURCE hash and
+# nothing else, so adding the summary's own hash would let `check` detect this on every run,
+# including one where nothing is ever committed.
+#
+# Delete this script when cairn can answer the question itself.
+#
 # `.cairn/refs/**` is excluded: those sidecars record the hashes of files a doc LINKS to, so one
 # changing means a cited source moved, not that this summary's prose is now wrong.
 set -euo pipefail
