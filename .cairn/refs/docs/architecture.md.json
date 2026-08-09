@@ -5,7 +5,7 @@
       "target": "./reference.md"
     },
     {
-      "hash": "c3e6eadfd418cbf78c1092e0a2a6da760721276a681458777ec8e3d7fb1996f9",
+      "hash": "f04d199a5a6fffd63d2bb8ed324c4161cfefc5e371a61530c8089f86c8a71540",
       "target": "./using-the-hook.md"
     },
     {
@@ -29,7 +29,7 @@
       "target": "../src/freezing/index.ts"
     },
     {
-      "hash": "1d91b5399550f4fb18d69d3ac2e388446eb420ea5663c3b61df405456213dda0",
+      "hash": "047d0a32e2e10ff4cda9f9572c2904499d80d1426ddf223ed815aed21db391a2",
       "target": "../src/cli/index.ts"
     },
     {
@@ -37,7 +37,7 @@
       "target": "../src/testing/index.ts"
     },
     {
-      "hash": "ee9e23b7a81e5d9fed42ebe7f80bebd258ecfb0cc1bb66dc71e622e2feb9f05d",
+      "hash": "15692fd65ee0436acfb12ebf77e317153f5cccd22111f6e7a40f8f211ec8a27b",
       "target": "../src/cli.ts"
     }
   ]

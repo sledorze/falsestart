@@ -151,13 +151,37 @@ const toPosixPath = (filePath: string): string => filePath.replaceAll('\\', '/')
  * scoping a hook to one package of a monorepo, emits exactly `./src/a.ts`, and `find . | xargs`
  * produces the same prefix.
  *
- * `..` is deliberately NOT resolved. Doing so would need the path to be anchored to a real
- * directory to be meaningful, and a scoping decision must not depend on the filesystem — that is
- * how a rule starts behaving differently depending on where the process was started.
+ * `..` is collapsed LEXICALLY — `sub/../src/a.ts` becomes `src/a.ts` — and that is not the same as
+ * resolving it. String arithmetic asks the disk nothing: `a/b/../c` is `a/c` whether or not any of
+ * it exists, so the rule this module states (a scoping decision must not depend on the filesystem)
+ * is untouched. `realpath` is what that rule forbids, and `scan` is where it is used.
+ *
+ * Leaving `..` in place was the earlier behaviour and it was silently fatal: no glob can match a
+ * path still carrying one, so a hook payload spelling a file `sub/../src/a.ts` was allowed with
+ * exit 0 and nothing on either stream — while `scan`, which realpaths first, denied the same file.
+ * Two enforcement points disagreeing, and the quiet one guards the writes.
+ *
+ * A leading `..` that cannot be collapsed is KEPT. Climbing above the root has no lexical answer,
+ * and inventing a parent would be a scoping decision made from nothing; the path simply fails to
+ * match, which `--warn-unscoped` can report.
  */
 const normalise = (path: string): string => {
   const absolute = path.startsWith('/')
-  const segments = path.split('/').filter((segment) => segment !== '' && segment !== '.')
+  const segments: string[] = []
+  for (const segment of path.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue
+    }
+    // Only ever cancels a real directory name. An unmatched `..`, or one already at the front, has
+    // nothing to cancel and stays — except at an absolute root, where `/..` is `/`.
+    const previous = segments.at(-1)
+    if (segment === '..' && previous !== undefined && previous !== '..') {
+      segments.pop()
+    } else if (segment !== '..' || !absolute) {
+      segments.push(segment)
+    }
+  }
+
   const joined = segments.join('/')
 
   return absolute ? `/${joined}` : joined

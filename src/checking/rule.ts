@@ -109,7 +109,28 @@ export const parseRule = (source: string, origin: string): Effect.Effect<Rule, R
      * `ignores` is the mechanism, and it is applied after `files` precisely so an exclusion cannot
      * widen anything.
      */
-    const negated = [...(rule.files ?? []), ...(rule.ignores ?? [])].filter((glob) => glob.startsWith('!'))
+    const scopeGlobs = [...(rule.files ?? []), ...(rule.ignores ?? [])]
+
+    /**
+     * An empty or blank glob is refused because it does not fail — it CRASHES.
+     *
+     * `picomatch.isMatch` throws on an empty pattern, and a throw is a defect: it escapes every
+     * `Effect.result` boundary, so `--fail closed` cannot deny it and `--doctor` cannot report it.
+     * Measured on every mode: exit 1, stdout 0 bytes, stderr 0 bytes. Under `--agent copilot` a
+     * non-zero exit denies every tool call in the session, with nothing anywhere saying why.
+     *
+     * One character in a file this repo tells people to write by hand.
+     */
+    const blank = scopeGlobs.filter((glob) => glob.trim().length === 0)
+    if (blank.length > 0) {
+      return yield* fail(
+        `files/ignores contains an empty glob. An empty pattern is not "match nothing" — it throws ` +
+          'inside the matcher, which kills the run with no output at all. Remove it, or write the ' +
+          'glob you meant.',
+      )
+    }
+
+    const negated = scopeGlobs.filter((glob) => glob.startsWith('!'))
     if (negated.length > 0) {
       return yield* fail(
         `${negated.join(', ')} — a leading ! is not an exclusion here. The globs are matched as an OR, ` +

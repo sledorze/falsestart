@@ -5,17 +5,17 @@
       "target": "./architecture.md"
     },
     {
-      "hash": "c3e6eadfd418cbf78c1092e0a2a6da760721276a681458777ec8e3d7fb1996f9",
+      "hash": "f04d199a5a6fffd63d2bb8ed324c4161cfefc5e371a61530c8089f86c8a71540",
       "target": "./using-the-hook.md"
     },
     {
       "anchor": "when-a-write-was-not-checked-at-all",
-      "hash": "c3e6eadfd418cbf78c1092e0a2a6da760721276a681458777ec8e3d7fb1996f9",
+      "hash": "f04d199a5a6fffd63d2bb8ed324c4161cfefc5e371a61530c8089f86c8a71540",
       "target": "./using-the-hook.md"
     },
     {
       "anchor": "check-both-runtimes-enforce-the-same-thing",
-      "hash": "c3e6eadfd418cbf78c1092e0a2a6da760721276a681458777ec8e3d7fb1996f9",
+      "hash": "f04d199a5a6fffd63d2bb8ed324c4161cfefc5e371a61530c8089f86c8a71540",
       "target": "./using-the-hook.md"
     }
   ]

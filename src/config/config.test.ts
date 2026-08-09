@@ -379,3 +379,23 @@ describe('a negated glob in a scope override', () => {
     }),
   )
 })
+
+describe('an empty glob in a scope override', () => {
+  effect('is refused, for the reason a rule document refuses it', () =>
+    Effect.gen(function* () {
+      // An override reaches the same matcher, and an empty pattern throws there — a defect that
+      // escapes every boundary and kills the run with nothing on either stream.
+      const error = yield* Effect.flip(parsed('{"rules":{"no-as-any":{"files":["src/**",""]}}}'))
+
+      expect(error.reasons.join('\n')).toContain('empty glob')
+    }),
+  )
+
+  effect('refuses a blank one in ignores too', () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(parsed('{"rules":{"no-as-any":{"files":["src/**"],"ignores":["  "]}}}'))
+
+      expect(error.reasons.join('\n')).toContain('empty glob')
+    }),
+  )
+})

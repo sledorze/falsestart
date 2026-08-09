@@ -14,6 +14,7 @@ import { Data, Effect, FileSystem, Layer, Path, Stdio, Stream } from 'effect'
 import {
   DEFAULT_FREEZE_REF,
   DEFAULT_RULES_DIRECTORY,
+  describeDefect,
   isBrokenPipe,
   packageRulesDirectory,
   parseArguments,
@@ -720,4 +721,28 @@ const platform = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeStdio.
 // to stderr in the shape the hook contract expects; re-reporting would double it.
 silenceConfigLoadingWarnings()
 
-NodeRuntime.runMain(program.pipe(applyExit, Effect.provide(platform)), { disableErrorReporting: true })
+/**
+ * A defect is the one thing that reasoning does not cover.
+ *
+ * It escapes every `Effect.result` boundary above, so nothing has written anything — and with
+ * reporting disabled the process exited with stdout and stderr both empty. Measured on a rule
+ * carrying an empty `files` glob: exit 1, 0 bytes, 0 bytes, in every mode. `--doctor` said nothing
+ * at all, and under Copilot the non-zero exit denied every tool call in the session.
+ *
+ * Written directly rather than through `Stdio`, because whatever just broke may be the reason the
+ * services are unusable. Deciding WHAT to say is `describeDefect`, where it is tested.
+ */
+const reportDefect = (defect: unknown): void => {
+  const { exitCode, stderr } = describeDefect(defect, process.argv.slice(2))
+  process.stderr.write(stderr)
+  process.exitCode = exitCode
+}
+
+NodeRuntime.runMain(
+  program.pipe(
+    applyExit,
+    Effect.catchDefect((defect: unknown) => Effect.sync(() => reportDefect(defect))),
+    Effect.provide(platform),
+  ),
+  { disableErrorReporting: true },
+)

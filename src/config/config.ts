@@ -94,7 +94,18 @@ const readOverride = (value: unknown, path: string): ScopeOverride | string => {
   // Refused for the reason `parseRule` refuses it: the globs are matched as an OR, so a leading `!`
   // admits everything it does not name rather than excluding it — an override written to carve out
   // test files silently widened the rule to Markdown, to `.js`, and to the tests themselves.
-  const negated = [...files, ...(isGlobList(ignores) ? ignores : [])].filter((glob) => glob.startsWith('!'))
+  const scopeGlobs = [...files, ...(isGlobList(ignores) ? ignores : [])]
+
+  // Refused for the reason `parseRule` refuses it: an empty pattern throws inside the matcher, and
+  // the throw is a defect that kills the run with nothing on either stream.
+  if (scopeGlobs.some((glob) => glob.trim().length === 0)) {
+    return (
+      `${path}: files/ignores contains an empty glob. An empty pattern is not "match nothing" — it ` +
+      'throws inside the matcher, which kills the run with no output at all.'
+    )
+  }
+
+  const negated = scopeGlobs.filter((glob) => glob.startsWith('!'))
   if (negated.length > 0) {
     return (
       `${path}: ${negated.join(', ')} — a leading ! is not an exclusion here. The globs are matched as an OR, ` +

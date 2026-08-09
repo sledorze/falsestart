@@ -180,3 +180,28 @@ describe('a negated glob in a scope', () => {
     }),
   )
 })
+
+describe('an empty glob in a scope', () => {
+  effect('is refused, because it kills the process with no output at all', () =>
+    Effect.gen(function* () {
+      // `picomatch.isMatch` throws on an empty pattern, and the throw is a DEFECT: it escapes every
+      // Effect boundary, so `--fail closed` cannot deny and `--doctor` prints zero bytes. Measured:
+      // exit 1, stdout 0B, stderr 0B, in every mode. Under `--agent copilot` a non-zero exit denies
+      // every tool call in the session, with nothing anywhere saying why.
+      const source = `id: scoped\nlanguage: tsx\nrule:\n  pattern: $X as any\nfiles: ['']\n`
+
+      expect((yield* Effect.flip(parseRule(source, 'r.yml'))).reason).toContain('empty')
+    }),
+  )
+
+  effect('refuses a blank one too, and in ignores', () =>
+    Effect.gen(function* () {
+      for (const source of [
+        `id: s\nlanguage: tsx\nrule:\n  pattern: x\nfiles: ['   ']\n`,
+        `id: s\nlanguage: tsx\nrule:\n  pattern: x\nignores: ['']\n`,
+      ]) {
+        expect((yield* Effect.flip(parseRule(source, 'r.yml'))).reason).toContain('empty')
+      }
+    }),
+  )
+})

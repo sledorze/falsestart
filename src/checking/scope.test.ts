@@ -203,3 +203,37 @@ describe('a root that is not a root', () => {
     }
   })
 })
+
+describe('a path spelled with an interior ..', () => {
+  it('collapses it, because a glob can never match a path that still carries one', () => {
+    // The hook reported `sub/../src/a.ts` and every repo-relative glob missed it — silently, exit 0,
+    // nothing on either stream — while `scan` judged the same file and denied. Two enforcement
+    // points disagreeing about one file, and the quiet one is the one that guards writes.
+    expect(toScopingPath('/repo/sub/../src/a.ts', '/repo')).toBe('src/a.ts')
+    expect(toScopingPath('/repo/a/b/../../src/a.ts', '/repo')).toBe('src/a.ts')
+    expect(toScopingPath('/repo/src/./a.ts', '/repo')).toBe('src/a.ts')
+  })
+
+  it('is purely lexical, so it still asks the filesystem nothing', () => {
+    // The rule this module states is that scoping must not depend on the disk — which forbids
+    // `realpath`, not string arithmetic. `a/b/../c` is `a/c` on every filesystem, present or not.
+    expect(toScopingPath('/repo/nonexistent/../src/a.ts', '/repo')).toBe('src/a.ts')
+  })
+
+  it('drops a .. that would climb above an absolute root', () => {
+    // `/..` is `/` on every filesystem. Keeping it would produce a path no glob can match, which is
+    // the silent miss this whole change exists to end.
+    expect(toScopingPath('/../etc/passwd', undefined)).toBe('/etc/passwd')
+    expect(toScopingPath('/a/../../b/c.ts', undefined)).toBe('/b/c.ts')
+  })
+
+  it('keeps consecutive .. on a relative path, which have nothing to cancel', () => {
+    expect(toScopingPath('../../outside/a.ts', undefined)).toBe('../../outside/a.ts')
+  })
+
+  it('leaves a .. it cannot collapse alone rather than inventing a parent', () => {
+    // Climbing above the root has no lexical answer, so the path keeps its shape and simply fails
+    // to match — the honest outcome, and the one `--warn-unscoped` can report.
+    expect(toScopingPath('../outside/a.ts', undefined)).toBe('../outside/a.ts')
+  })
+})
