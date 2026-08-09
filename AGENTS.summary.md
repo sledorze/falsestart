@@ -45,3 +45,17 @@ link blocks to the parser, decision path, diagnostic, freeze and rule scoping �
 source files while the architecture doc tracked eight, and held every false sentence found. An
 enumeration a document calls exhaustive needs a test: the shipped rules had one and stayed right, the
 exports had none and were missing seven.
+
+Three guards exist because prose went false under a green `check`. `pnpm stamp` is NOT a
+remediation — it clears a stale-summary report without changing a byte of the digest, so `pre-commit`
+runs `scripts/stamped-not-written.sh`, which refuses a commit staging a summary's sidecar without the
+summary (`SUMMARIES_REVIEWED=1` is the explicit opt-out). It covers FILE summaries only: `.cairn/refs/**` and
+`_SUMMARY.md` are both exempt on purpose, the latter because a directory summary goes stale by Merkle
+cascade on every descendant edit while its prose stays right. And it is a prompt, not a gate: lefthook is skippable, CI runs none, and the
+opt-out is one word. It stays LOCAL and should not become a cairn
+check: it is a policy rather than a tree invariant, needs the git index cairn never reads, and was
+measured false 21% of the time on correct work.
+
+`cairn config` (0.10) prints the resolved config and expanded roots — the way to answer "why is that
+doc not checked". `stampCommand` is set in `.cairnrc.json` because cairn's own agent guidance reads
+it: unset, it names a command that omits `--refs` and stamps before the formatter.
