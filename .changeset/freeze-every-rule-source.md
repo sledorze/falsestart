@@ -4,8 +4,8 @@
 
 `--freeze` now classifies every rule source independently, and by where its path actually sits.
 
-`--preset` and `--rules` combine as of the previous release, and the freeze only ever classified one
-of the two. Combined, the preset stopped being classified at all: `--doctor` printed `frozen`, exited
+`--preset` and `--rules` combine as of this release, and the freeze only ever classified one of the
+two. Combined, the preset stopped being classified at all: `--doctor` printed `frozen`, exited
 0, and judged with an unverified rule set the report never mentioned.
 
 The first attempt at closing that refused under `--freeze require` whenever a preset was named. That

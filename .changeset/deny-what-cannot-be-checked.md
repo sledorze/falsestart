@@ -12,7 +12,7 @@ is the whole setup.
 behaviour byte for byte.
 
 What `--fail closed` covers: a rule tree or a `--rules pkg:` rules package that will not load, a
-config that will not load, an override naming a rule the loaded set does not contain, and a rule that
+config that will not load, and a rule that
 cannot run at match time. What it never denies FOR: a **malformed hook payload**, because it is the
 agent runtime's shape rather than your repository's and there is nothing in your project to fix; and
 a **refused command line**, because `--fail` is on the very line the parser just declined to
