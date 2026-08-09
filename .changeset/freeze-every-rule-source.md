@@ -1,5 +1,5 @@
 ---
-'@sledorze/falsestart': patch
+'@sledorze/falsestart': minor
 ---
 
 `--freeze` now classifies every rule source independently, and by where its path actually sits.

@@ -1,5 +1,5 @@
 ---
-'@sledorze/falsestart': patch
+'@sledorze/falsestart': minor
 ---
 
 A hook payload that carries no `cwd` no longer silently disables every repo-relative rule.

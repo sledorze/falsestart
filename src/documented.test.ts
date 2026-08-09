@@ -20,6 +20,7 @@ import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
 import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
+import { appliesTo } from './checking/scope.ts'
 import { RuleDescriptionSchema } from './checking/listing.ts'
 import { parseRule, RuleSchema, SUPPORTED_LANGUAGES } from './checking/rule.ts'
 import { SHIPPED_RULE_IDS } from './checking/rule-ids.generated.ts'
@@ -375,6 +376,30 @@ layer(platform)('documentation covers the source', (it) => {
 
       expect(exported.length).toBeGreaterThan(50)
       expect(exported.filter((name) => !reference.includes(`\`${name}\``))).toEqual([])
+    }),
+  )
+
+  // `--help` and `DecideOptions.warnUnscoped` both claimed the signal fires on every `.js` write.
+  // That was true until 0.2.0 gave `clean-code` its first rules reaching JavaScript, and then went
+  // quietly false in the copy most users read. A noise claim is exactly the kind that rots when the
+  // rule set grows, so it is measured here rather than asserted.
+  it.effect('no shipped preset leaves a .js write unscoped, whatever the help text used to say', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+
+      for (const preset of ['clean-code', 'effect', 'all']) {
+        const directory = preset === 'all' ? 'rules' : path.join('rules', preset)
+        const rules = yield* loadRules(directory)
+
+        expect(rules.some((rule) => appliesTo(rule, 'src/a.js'))).toBeTruthy()
+      }
+
+      // And the help text must not say otherwise.
+      const options = yield* fs.readFileString('src/cli/options.ts')
+      const help = options.slice(options.indexOf('--warn-unscoped'), options.indexOf('--version       Print'))
+
+      expect(help).not.toContain('.js write')
     }),
   )
 

@@ -238,8 +238,9 @@ Options:
   --warn-unscoped Report a judged write that lands on a path no rule is
                   scoped to, instead of passing it in silence. Non-blocking.
                   Off by default: with the shipped rules it fires on every
-                  .md, .json, .yml and .js write, and a warning you see on
-                  most writes is one you stop reading. Turn it on when a
+                  .md, .json and .yml write, and under clean-code on every
+                  test file too, and a warning you see on most writes is one
+                  you stop reading. Turn it on when a
                   write you expected to be blocked was not. Refused with
                   --doctor, which reads no payload to report on and whose
                   scope block already gives a rule count per probed path.
