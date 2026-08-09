@@ -1,6 +1,6 @@
 {
   "name": "@sledorze/falsestart",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Blocks risky code patterns the instant an AI writes them — before the file lands, not just at CI. Also enforces structure/architecture conventions.",
   "keywords": [
     "claude",
