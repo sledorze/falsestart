@@ -21,6 +21,7 @@ import {
   applyScopeOverrides,
   findDefaultConfigs,
   findNarrowedScopes,
+  findUnappliedOverrides,
   loadConfigFile,
   loadDefaultConfig,
 } from '../config/index.ts'
@@ -311,6 +312,20 @@ export const diagnose = (
     }
     lines.push(...block('rules', groups.map(describeGroup)))
 
+    // Zero rules across every source is the state this command exists to catch: registered, silent,
+    // enforcing nothing. It needs no inference, which is what separates it from `no rule applies to
+    // any probed path` below — that one stays green because a rule set scoped to `lib/**` really
+    // does guard something, and calling it broken would call a working guard broken. A source the
+    // caller NAMED that yields nothing guards nothing, whatever the layout.
+    //
+    // Reported here rather than at the end so the reader sees it beside the `rules` rows that
+    // produced it. A MISSING directory already fails above; an empty one exited 0 and every judged
+    // write under it was allowed in silence.
+    const enforceable = groups.some((group) => group.rules.length > 0)
+    if (!enforceable) {
+      lines.push('         NOTHING TO ENFORCE — no rule loaded from any source, so every write is allowed')
+    }
+
     const namedConfig = configPath === undefined ? undefined : frozenConfig?.get(paths.basename(configPath))
     const configured = yield* Effect.result(
       configPath === undefined
@@ -332,16 +347,26 @@ export const diagnose = (
     const where = configPath ?? (found.length === 0 ? `no config file in ${projectDirectory}` : found.join(', '))
     lines.push(`config   ${where} — ${overrides.length} override(s)${named}`)
 
-    const scoped = yield* Effect.result(applyScopeOverrides(loaded.success, configured.success))
-    if (scoped._tag === 'Failure') {
-      lines.push(`         OVERRIDES REJECTED — ${scoped.failure.reasons.join('; ')}`)
-      return { healthy: false, lines }
+    const scoped = yield* applyScopeOverrides(loaded.success, configured.success)
+
+    // Named, and the run continues. An override for a rule THIS invocation did not load is an
+    // ordinary state — two hook entries share one config file, so each necessarily sees the other's
+    // overrides — and refusing it cost far more than it caught: on the judging path the guard fails
+    // open, so the write proceeded unchecked, and under `--fail closed` every write was denied.
+    // Here, where nothing is being judged, the ids are simply printed. A typo looks the same as the
+    // other entry's rule, and only the reader can tell them apart.
+    const unapplied = findUnappliedOverrides(loaded.success, configured.success)
+    if (unapplied.length > 0) {
+      lines.push(
+        `         ${unapplied.join(', ')} — no rule loaded here has that id, so the override does nothing.` +
+          ' Expected if another hook entry loads it; otherwise a typo.',
+      )
     }
 
     // Printed under `config`, because it is a fact about what the override did rather than about
     // the rules. Informational: narrowing is the feature working, and only the reader knows whether
     // this particular narrowing was meant.
-    for (const narrowed of findNarrowedScopes(loaded.success, scoped.success)) {
+    for (const narrowed of findNarrowedScopes(loaded.success, scoped)) {
       const lost = narrowed.lostExtensions.map((extension) => `.${extension}`).join(', ')
       lines.push(`         ${narrowed.ruleId} stops covering ${lost} — the override replaces the rule's own files`)
     }
@@ -350,7 +375,7 @@ export const diagnose = (
     // declares, which keeps one misconfigured rule from disabling every other rule for a file. That
     // recovery must not be silent: it is a fact about the RULE SET, so it is stated once here
     // rather than on every tool call, where it would become noise and then be ignored.
-    for (const fallback of yield* fallbacks(scoped.success)) {
+    for (const fallback of yield* fallbacks(scoped)) {
       lines.push(
         `         ${fallback.ruleId} falls back to ${fallback.declared} for .${fallback.extension} — its pattern does not compile under that file's grammar`,
       )
@@ -444,7 +469,7 @@ export const diagnose = (
     // block says so; claiming a named path is matched "exactly as a judged write is" was false, and
     // false in the reassuring direction, which is the one failure a gate must not have.
     const namedPaths = (probePaths ?? []).map((path) => toScopingPath(path, projectDirectory))
-    const rulesFor = (path: string) => scoped.success.filter((rule) => appliesTo(rule, path))
+    const rulesFor = (path: string) => scoped.filter((rule) => appliesTo(rule, path))
     const reach = [...PROBE_PATHS, ...namedPaths].map((path) => [path, rulesFor(path).length] as const)
     // WHICH directory those probe paths are relative to, said outright — including the part this
     // command cannot answer.
@@ -461,7 +486,7 @@ export const diagnose = (
     // paths do not reach is an ordinary state, which is the whole reason the built-in probes cannot
     // decide the exit code either.
     const probed = reach.map(([path]) => path)
-    const missed = scoped.success.filter((rule) => !probed.some((path) => appliesTo(rule, path)))
+    const missed = scoped.filter((rule) => !probed.some((path) => appliesTo(rule, path)))
     // Split by CAUSE. A rule its own `ignores` excludes everywhere is not "scoped elsewhere", and
     // telling its author to go and probe for a path would send them after one that cannot exist.
     // `files` alone admits a probe that the whole rule refuses: the only thing that can have turned
@@ -530,7 +555,11 @@ export const diagnose = (
         'check    no rule applies to any probed path. Expected if your sources are not under src/;',
         '         otherwise the `files` globs are not matching what you think they are.',
       )
-      return { healthy: true, lines }
+      // An EMPTY rule set always lands here, and it is the one case that needs no inference: a
+      // source the caller named yielded nothing, so nothing is enforced anywhere, whatever the
+      // layout. That is distinct from the sentence just printed, which stays green because a rule
+      // set scoped to `lib/**` really does guard something.
+      return { healthy: enforceable, lines }
     }
 
     // A real payload through the real decision path, reported as what it is: one observation, not a
@@ -539,7 +568,7 @@ export const diagnose = (
     // Code's, a healthy Copilot installation reports `the sample could not be judged` and exits 1 —
     // from the one command whose whole job is saying whether the installation is healthy.
     const verdict = yield* decide(
-      scoped.success,
+      scoped,
       {
         cwd: projectDirectory,
         [contract.envelopes[0].name]: contract.sample.tool,
@@ -577,7 +606,7 @@ export const diagnose = (
 
     // "Expected unless a rule forbids type assertions" was wrong whenever one did and the sample
     // path was simply outside its scope — the glob-typo case this feature exists to surface.
-    const covering = scoped.success.filter((rule) => appliesTo(rule, SAMPLE_PATH)).length
+    const covering = scoped.filter((rule) => appliesTo(rule, SAMPLE_PATH)).length
     lines.push(
       covering === 0
         ? `check    no rule applies to ${SAMPLE_PATH}, so the sample proves nothing — read the scope block above`

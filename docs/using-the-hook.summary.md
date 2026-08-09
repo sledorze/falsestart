@@ -153,7 +153,9 @@ and `ShippedRuleId`; import that type with `import type`, since a `.ts` config i
 from a `data:` URL with no filesystem location — it cannot resolve a package or relative value
 import, though `node:` builtins do resolve, which is enough to compute a scope by shelling out. `files` is required in an override; `ignores` is optional and, when
 omitted, the rule keeps its own. Two competing default configs are an error rather than a
-precedence rule, and an override for a rule that is not loaded is an error, not a silent no-op. An
+precedence rule, and an override for a rule that is not loaded is named by `--doctor` while the run
+proceeds — not an error, because the same check on the judging path made the guard fail open, and not
+a silent no-op either. An
 override REPLACES `files` rather than merging into them, so an extension left out of the
 restatement is silently unguarded; `--doctor` names the rule and the extensions dropped, and
 `findNarrowedScopes` exposes the same comparison to a test suite.

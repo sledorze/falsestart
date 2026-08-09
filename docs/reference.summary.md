@@ -123,7 +123,7 @@ and running.
 
 **Configuration:** per-rule `files` (required) and `ignores` (optional, omission keeps the rule's
 own), plus a top-level `exclude` glob list for `scan` — the repository's standing policy, which
-`--exclude` adds to rather than replaces. A malformed `exclude` is an error, not ignored. An override for a rule that is not loaded is an error. A `.ts` config must import its config
+`--exclude` adds to rather than replaces. A malformed `exclude` is an error, not ignored. An override for a rule that is not loaded is NAMED by `--doctor` and the run proceeds — two hook entries share one config file, so each necessarily sees the other's overrides, and refusing it made the guard fail open on the judging path. A `.ts` config must import its config
 type as a type-only import: imported from a `data:` URL, it cannot resolve a package or relative value import,
 though `node:` builtins do resolve — which is enough to compute a scope at load time.
 

@@ -208,9 +208,10 @@ Options:
                   stderr, exit 1, and the write proceeds. closed denies the
                   write instead, for a repo where an edit that cannot be
                   verified must not land. It covers a rule tree or rules
-                  package that will not load, a config that will not load or
-                  whose override names a rule that is not loaded, and a rule
-                  that cannot run at match time. It does NOT cover a malformed
+                  package that will not load, a config that will not load,
+                  and a rule that cannot run at match time. An override naming
+                  a rule this invocation did not load is NOT covered: the rules
+                  loaded and the config loaded, so the write can be checked. It does NOT cover a malformed
                   hook payload or a refused command line: neither is a fact
                   about your repository, and neither is fixable from inside
                   it. Nor is it a claim that any rule COVERS what you write —

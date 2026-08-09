@@ -159,17 +159,17 @@ an edit that cannot be verified must not land.
 
 Under `--agent claude-code`, the default:
 
-| Failure                                                                              | `--fail open` (default) | `--fail closed`                                          |
-| ------------------------------------------------------------------------------------ | ----------------------- | -------------------------------------------------------- |
-| The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`        | **deny**                                                 |
-| `--rules pkg:<name>` will not resolve                                                | report, exit `1`        | **deny**                                                 |
-| The config will not load, parse or import                                            | report, exit `1`        | **deny**                                                 |
-| An override names a rule the loaded set does not contain                             | report, exit `1`        | **deny**                                                 |
-| A rule cannot run at match time                                                      | report, exit `1`        | **deny**                                                 |
-| The hook payload is malformed, or stdin is not JSON                                  | report, exit `1`        | report, exit `1` — never the reason to deny, but read on |
-| The command line was refused                                                         | report, exit `1`        | report, exit `1`                                         |
-| A frozen source could not be read                                                    | **already denies**      | already denies                                           |
-| The rule tree loads and yields **zero** rules                                        | silent, exit `0`        | silent, exit `0`                                         |
+| Failure                                                                              | `--fail open` (default)           | `--fail closed`                                          |
+| ------------------------------------------------------------------------------------ | --------------------------------- | -------------------------------------------------------- |
+| The rule tree will not load — unreadable directory, malformed document, duplicate id | report, exit `1`                  | **deny**                                                 |
+| `--rules pkg:<name>` will not resolve                                                | report, exit `1`                  | **deny**                                                 |
+| The config will not load, parse or import                                            | report, exit `1`                  | **deny**                                                 |
+| An override names a rule the loaded set does not contain                             | named by `--doctor`, run proceeds | named by `--doctor`, run proceeds                        |
+| A rule cannot run at match time                                                      | report, exit `1`                  | **deny**                                                 |
+| The hook payload is malformed, or stdin is not JSON                                  | report, exit `1`                  | report, exit `1` — never the reason to deny, but read on |
+| The command line was refused                                                         | report, exit `1`                  | report, exit `1`                                         |
+| A frozen source could not be read                                                    | **already denies**                | already denies                                           |
+| The rule tree loads and yields **zero** rules                                        | silent, exit `0`                  | silent, exit `0`                                         |
 
 **`--fail open` does not re-open a freeze refusal.** A source the ref established as freezable and
 could not be read denies in either policy — that denial is about which bytes are authoritative, not
@@ -604,7 +604,8 @@ rather than being ignored, since silently dropping it leaves a repository believ
 something.
 
 `files` is required in an override; `ignores` is optional and, when omitted, the rule keeps its own.
-An override naming a rule that is not loaded is an error, not a no-op. Use a **type-only** import for
+An override naming a rule that is not loaded is reported by `--doctor`, not an error — two hook
+entries share one config file, so each necessarily sees the other's overrides. Use a **type-only** import for
 the config type in a `.ts` config — it is type-stripped and imported from a `data:` URL with no
 filesystem location, so a **package or relative** value import cannot resolve; `node:` builtins need
 no location and do, which is enough to compute a rule's scope at load time. `.mjs` configs are

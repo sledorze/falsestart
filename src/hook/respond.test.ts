@@ -414,9 +414,13 @@ layer(platform)('hook response', (it) => {
     ),
   )
 
-  it.effect('reports an override naming a rule that is not loaded', () =>
+  it.effect('judges the write normally when an override names a rule that is not loaded', () =>
     withRules({ 'no-as-any.yml': noAsAny, 'scope.json': '{"rules":{"typo":{"files":["x"]}}}' }, (rules) =>
       Effect.gen(function* () {
+        // This asserted exit 1 until the cost was measured. The check runs on the JUDGING path,
+        // where the guard fails open — so a config written for a sibling hook entry meant the write
+        // proceeded UNCHECKED, and nothing about the write was wrong. The rule that does apply must
+        // still decide it; the unapplied override is `--doctor`'s business, not this tool call's.
         const path = yield* Path.Path
         const response = yield* respond({
           configPath: path.join(rules, 'scope.json'),
@@ -425,8 +429,12 @@ layer(platform)('hook response', (it) => {
           rulesDirectory: rules,
         })
 
-        expect(response.exitCode).toBe(1)
-        expect(response.stderr).toContain('typo')
+        expect(response.exitCode).toBe(0)
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+        expect(response.stdout).toContain('as any erases the type')
+        // Silent about the override here on purpose: a fact about the RULE SET is stated once in
+        // `--doctor`, not on every judged write, exactly as a grammar fallback is.
+        expect(`${response.stdout ?? ''}${response.stderr ?? ''}`).not.toContain('typo')
       }),
     ),
   )
@@ -685,14 +693,18 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
 
   // Not in the design's catalogue. An override naming a rule the frozen tree does not load is a
   // deliberate hard error, and it reaches the same fail-open path as the two above.
-  it.effect('denies when a committed override names a rule the committed tree does not load', () =>
+  it.effect('still judges with the committed tree when a committed override names a rule it does not load', () =>
     withRules({}, (rules) =>
       Effect.gen(function* () {
+        // Reversed deliberately. A frozen config naming a rule this invocation does not load is the
+        // same ordinary state as an unfrozen one — two hook entries, one config file — and refusing
+        // it denied writes the committed rule set was perfectly able to judge.
         const response = yield* respond({
           freeze: () =>
             Effect.succeed({
               config: frozenWith({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}' }),
               rules: frozenWith({ 'block-any.yml': BLOCKING }),
+              shipped: [],
             }),
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
@@ -701,7 +713,8 @@ layer(platform)('a freeze the hook cannot honour', (it) => {
 
         expect(response.exitCode).toBe(0)
         expect(response.stdout).toContain('"permissionDecision":"deny"')
-        expect(response.stdout).toContain('typo')
+        // Denied by the RULE, not by the override.
+        expect(response.stdout).not.toContain('typo')
       }),
     ),
   )
@@ -722,7 +735,7 @@ rule:
  * Every case here has NOTHING frozen, which is what makes it measure the policy rather than a denial
  * that would have happened anyway. The controls are already above — `'surfaces a problem without
  * blocking when the rules cannot be loaded'`, `'… when a rule document is malformed'` and
- * `'reports an override naming a rule that is not loaded'` — and they must stay green unchanged.
+ * `'judges the write normally when an override names a rule that is not loaded'` — and they must stay green unchanged.
  */
 layer(platform)('a guard failure under --fail closed', (it) => {
   // T5
@@ -750,20 +763,32 @@ layer(platform)('a guard failure under --fail closed', (it) => {
   // T6 — the issue's opening example, with no freeze: an override naming a rule the loaded set does
   // not contain. Under the default freeze this already denies; on the `--freeze off` path it does
   // not, and that path is what this switch is for.
-  it.effect('denies when a working-tree override names a rule that is not loaded', () =>
+  it.effect('does not deny under --fail closed merely because an override names an unloaded rule', () =>
     withRules({ 'falsestart.config.json': '{"rules":{"typo":{"files":["x"]}}}', 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
-        const response = yield* respond({
+        // `--fail closed` denies what cannot be CHECKED. This can be checked: the rules loaded, the
+        // config loaded, and only an override found no rule to attach to. Denying here turned a
+        // config written for a sibling hook entry into a repository-wide outage.
+        const clean = yield* respond({
+          failure: 'closed',
+          input: writeOf('const ordinary = 1'),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(clean.exitCode).toBe(0)
+        expect(clean.stdout ?? '').not.toContain('deny')
+
+        // And the rule that DOES apply still decides, for its own reason.
+        const violating = yield* respond({
           failure: 'closed',
           input: writeOf('const x = value as any'),
           projectDirectory: rules,
           rulesDirectory: rules,
         })
 
-        expect(response.exitCode).toBe(0)
-        expect(response.stdout).toBeDefined()
-        expect(response.stdout).toContain('"permissionDecision":"deny"')
-        expect(response.stdout).toContain('no rule named typo is loaded')
+        expect(violating.stdout).toContain('"permissionDecision":"deny"')
+        expect(violating.stdout).not.toContain('no rule named typo')
       }),
     ),
   )

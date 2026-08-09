@@ -10,6 +10,7 @@ export {
   applyScopeOverrides,
   ConfigError,
   findNarrowedScopes,
+  findUnappliedOverrides,
   makeConfig,
   makeConfigUnsafe,
   parseConfig,

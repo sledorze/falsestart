@@ -45,6 +45,7 @@ describe('library surface', () => {
       'fallbacks',
       'findDefaultConfigs',
       'findNarrowedScopes',
+      'findUnappliedOverrides',
       'findUntestedRules',
       'findViolations',
       'findViolationsIn',
