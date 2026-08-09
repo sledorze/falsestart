@@ -39,3 +39,12 @@ pushing, get an adversarial review from ONE subagent prompted to refute, given t
 than your reasoning, told that finding nothing is a valid answer — and verify each finding yourself,
 in a scratch directory outside this repo, before acting on it. One concern per PR, branched off the
 right parent.
+
+Three guards exist because prose went false under a green `check`. `pnpm stamp` is NOT a
+remediation — it clears a stale-summary report without changing a byte of the digest, so `pre-commit`
+runs `scripts/stamped-not-written.sh`, which refuses a commit staging a summary's sidecar without the
+summary (`SUMMARIES_REVIEWED=1` is the explicit opt-out). `--refs` only protects prose that LINKS to
+the code it describes, so the two behaviour docs now carry link blocks to the parser, decision path,
+diagnostic and freeze — they tracked zero source files while the architecture doc tracked eight, and
+they held every false sentence. And an enumeration a document calls exhaustive needs a test: the
+shipped rules had one and stayed right, the exports had none and were missing seven.

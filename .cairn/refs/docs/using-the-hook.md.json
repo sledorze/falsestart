@@ -1,17 +1,37 @@
 {
   "refs": [
     {
+      "hash": "07400679d2292a56d3ed21171e22c0f9a99d2d3526880282052ed522c1813d44",
+      "target": "../src/cli/options.ts"
+    },
+    {
+      "hash": "0eac837038e03277dea9241def5c16caeee8d784f9470a22a09d56b14e92b629",
+      "target": "../src/hook/decide.ts"
+    },
+    {
+      "hash": "b9c7171bc680c963ffc5b0203fb66315926309b8b9a0f62bdb3cfdfb0805f93f",
+      "target": "../src/hook/respond.ts"
+    },
+    {
+      "hash": "31e7f2d07dc5a640012b46c88167b9e7b248e1015da36f59a1794f2fa1d232d3",
+      "target": "../src/hook/doctor.ts"
+    },
+    {
+      "hash": "87d40c9cfbb4bb8ef27034a71bc4d24a48dd897bd746e6cd1831cd876ce86db6",
+      "target": "../src/checking/scope.ts"
+    },
+    {
       "anchor": "the-hook-event-falsestart-implements",
-      "hash": "b6b069743295689de8172c1ec5ed74221dffee1e7cfde824ca7bd4a1894f9783",
+      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
       "target": "./reference.md"
     },
     {
-      "hash": "b6b069743295689de8172c1ec5ed74221dffee1e7cfde824ca7bd4a1894f9783",
+      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
       "target": "./reference.md"
     },
     {
       "anchor": "when-falsestart-itself-cannot-run",
-      "hash": "b6b069743295689de8172c1ec5ed74221dffee1e7cfde824ca7bd4a1894f9783",
+      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
       "target": "./reference.md"
     },
     {

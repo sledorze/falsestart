@@ -313,6 +313,30 @@ layer(platform)('documentation covers the source', (it) => {
     }),
   )
 
+  // `docs/reference.md` opens with "Every flag, export and shipped rule". The rules are pinned by a
+  // test above and the flags by the table's own reader, and the EXPORTS were pinned by nothing: seven
+  // were missing when this was written, six of them added in the week's work. A document that claims
+  // to be exhaustive and is not is worse than one that claims nothing, and `docs/` ships inside the
+  // published `files` array.
+  //
+  // The library surface is read from `index.test.ts`'s own list rather than by importing the module,
+  // so the two enumerations cannot drift apart quietly either: that list is already the one thing
+  // that must be edited before an export can be added.
+  it.effect('the reference documents every export the library surface offers', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const surface = yield* fs.readFileString('src/index.test.ts')
+      const reference = yield* fs.readFileString('docs/reference.md')
+
+      const start = surface.indexOf('toSorted()).toEqual([')
+      const listed = surface.slice(start, surface.indexOf('])', start))
+      const exported = [...listed.matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)].map((match) => match[1])
+
+      expect(exported.length).toBeGreaterThan(50)
+      expect(exported.filter((name) => !reference.includes(`\`${name}\``))).toEqual([])
+    }),
+  )
+
   // T-A18 — which tool calls get judged is the most consequential fact about this hook, and until
   // this test the docs never stated it — a reader could not tell whether their write tool was
   // covered. Anything outside the map is allowed in silence, which is indistinguishable from a

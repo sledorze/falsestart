@@ -5,6 +5,16 @@ decision, so a rule violation is caught as the code is written rather than at CI
 default; GitHub Copilot CLI needs `--agent copilot` and is registered somewhere else — see
 [GitHub Copilot CLI](#github-copilot-cli) below.
 
+<!--
+  Hashed, not followed — see the note at the top of `reference.md`. These are the files whose
+  behaviour this guide describes, so a change to one of them marks this page stale and the passage
+  gets re-read instead of assumed.
+-->
+
+What this guide describes is decided by [the argument parser](../src/cli/options.ts),
+[the decision path](../src/hook/decide.ts), [the response](../src/hook/respond.ts),
+[the diagnostic](../src/hook/doctor.ts) and [rule scoping](../src/checking/scope.ts).
+
 ## Register it
 
 `.claude/settings.json` is strict JSON — no comments, no trailing commas. An unparseable settings

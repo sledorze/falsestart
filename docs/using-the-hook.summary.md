@@ -178,3 +178,8 @@ A matcher shared by several rules lives in a `_utils/` directory at the top leve
 Only the first path segment is recognised: a nested `_utils/` is loaded as a rule, fails validation
 for the fields a fragment does not carry, and takes the whole tree down with a message naming the
 missing `language` rather than the misplaced directory.
+
+The guide opens with links to the source files whose behaviour it describes — the parser, the
+decision path, the response, the diagnostic and rule scoping — which exist to be HASHED by
+`cairn check --refs` rather than followed, so a change to any of them forces this prose to be
+re-read instead of assumed.
