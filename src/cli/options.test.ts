@@ -84,6 +84,7 @@ describe('command line', () => {
       freeze: 'auto',
       freezeRef: 'HEAD',
       preset: undefined,
+      probePaths: [],
       rulesDirectory: 'my-rules',
       rulesPackage: undefined,
     })
@@ -580,5 +581,45 @@ describe('the agent contract switch', () => {
       expect(parsed._tag).toBe('Invalid')
       expect(parsed._tag === 'Invalid' && parsed.problem).toContain('neither reads a hook payload')
     }
+  })
+})
+
+describe('probing real paths with --doctor', () => {
+  it('collects every --path, in the order given', () => {
+    expect(parseArguments(['--doctor', '--path', 'packages/app/src/a.ts', '--path', 'lib/b.ts'])).toMatchObject({
+      _tag: 'Doctor',
+      probePaths: ['packages/app/src/a.ts', 'lib/b.ts'],
+    })
+  })
+
+  it('leaves the list empty when none was named', () => {
+    expect(parseArguments(['--doctor'])).toMatchObject({ probePaths: [] })
+  })
+
+  it('refuses --path without --doctor, rather than accepting a flag it ignores', () => {
+    // The synthetic probes belong to the diagnostic. On a judging run there is a real path in the
+    // payload and nothing for this to answer, so taking it would be a flag dropped on the floor —
+    // which this file's opening paragraph forbids and which has shipped here once already.
+    const parsed = parseArguments(['--path', 'src/a.ts'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--doctor')
+  })
+
+  it('refuses --path with scan and with --list-rules', () => {
+    for (const args of [
+      ['scan', '--path', 'src/a.ts', 'x.ts'],
+      ['--list-rules', '--path', 'src/a.ts'],
+    ]) {
+      expect(parseArguments(args)._tag).toBe('Invalid')
+    }
+  })
+
+  it('refuses --path with no value, and with an empty one', () => {
+    // The empty string clears the flag-shaped-value guard and then reads as a path: it produced
+    // `0 rule(s) apply to ` and a failure line naming nothing at all.
+    expect(parseArguments(['--doctor', '--path'])._tag).toBe('Invalid')
+    expect(parseArguments(['--doctor', '--path', ''])._tag).toBe('Invalid')
+    expect(parseArguments(['--doctor', '--path', '   '])._tag).toBe('Invalid')
   })
 })

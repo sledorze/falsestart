@@ -27,7 +27,9 @@ const withTree = <A, E>(
     const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-doctor-' })
 
     for (const [name, contents] of Object.entries(files)) {
-      yield* fs.writeFileString(path.join(root, name), contents)
+      const target = path.join(root, name)
+      yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+      yield* fs.writeFileString(target, contents)
     }
 
     return yield* use(root)
@@ -45,6 +47,7 @@ const run = (options: {
   configPath?: string
   failure?: FailurePolicy
   freeze?: FreezeOutcome
+  probePaths?: readonly string[]
   projectDirectory?: string
   rulesDirectory?: string
   shippedDirectories?: readonly string[]
@@ -56,6 +59,7 @@ const run = (options: {
     configPath: options.configPath,
     failure: options.failure,
     freeze: options.freeze,
+    probePaths: options.probePaths,
     projectDirectory: options.projectDirectory ?? process.cwd(),
     rulesDirectory: options.rulesDirectory ?? 'rules',
     shippedDirectories: options.shippedDirectories,
@@ -846,6 +850,163 @@ layer(platform)('which directory the scope block is relative to', (it) => {
           expect(report).toContain("a judged write uses the payload's cwd when it carries one")
         }),
       ),
+    ),
+  )
+})
+
+layer(platform)('probing the paths the caller actually has', (it) => {
+  const scopedTo = (glob: string) =>
+    `id: monorepo-rule\nlanguage: tsx\nseverity: error\nmessage: nope\nrule:\n  pattern: $X as any\nfiles: ['${glob}']\n`
+
+  it.effect('counts the rules that apply to a path the caller named', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'packages/app/src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // The whole point. The built-in probes are all under `src/`, so a rule set scoped to a
+        // monorepo layout reports zero against every one of them and the report says nothing an
+        // adopter can act on.
+        const diagnosis = yield* run({
+          probePaths: ['packages/app/src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).toContain('1 rule(s) apply to packages/app/src/widget.ts')
+      }),
+    ),
+  )
+
+  it.effect('fails the diagnosis when a path the caller named is covered by nothing', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'services/api/src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // Naming a path is an ASSERTION that it should be guarded — which is what makes this usable
+        // as a CI check, and what the built-in probes can never be: `no rule applies to any probed
+        // path` stays exit 0 precisely because a rule set scoped elsewhere is not broken.
+        const diagnosis = yield* run({
+          probePaths: ['services/api/src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.healthy).toBeFalsy()
+        expect(diagnosis.lines.join('\n')).toContain('services/api/src/widget.ts')
+      }),
+    ),
+  )
+
+  it.effect('stays healthy when every named path is covered', () =>
+    withTree(
+      { 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'packages/app/src/a.ts': '', 'packages/web/src/b.ts': '' },
+      (rules) =>
+        Effect.gen(function* () {
+          const diagnosis = yield* run({
+            probePaths: ['packages/app/src/a.ts', 'packages/web/src/b.ts'],
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          expect(diagnosis.healthy).toBeTruthy()
+        }),
+    ),
+  )
+
+  it.effect('keeps the built-in probes non-fatal, even beside a named one', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'packages/app/src/a.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // The negative that protects the existing rationale: every built-in probe reports zero for
+        // this rule set, and that is not a broken installation. Only the NAMED path decides.
+        const diagnosis = yield* run({
+          probePaths: ['packages/app/src/a.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).toContain('0 rule(s) apply to src/a.ts')
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
+  )
+
+  it.effect('relativises an absolute named path against the project directory', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'packages/app/src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // An absolute path is what a hook reports, so a caller pasting one from a payload must not
+        // get a silent zero. Asserting the COUNT LINE, not just `healthy`: bound to `healthy` alone
+        // this passed with `--path` ignored entirely, which is the shape of assertion this repo has
+        // shipped green five times.
+        const diagnosis = yield* run({
+          probePaths: [`${rules}/packages/app/src/widget.ts`],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).toContain('1 rule(s) apply to packages/app/src/widget.ts')
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
+  )
+
+  it.effect('separates a path that is not there from one no rule covers', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts') }, (rules) =>
+      Effect.gen(function* () {
+        // "You typed it wrong" and "your rules do not cover it" are different answers, and this is
+        // the command whose whole job is keeping them apart. Reported as the same red, a mistyped
+        // --path is indistinguishable from the scoping bug the flag exists to catch.
+        const typo = yield* run({
+          probePaths: ['packages/app/src/wigdet.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(typo.healthy).toBeFalsy()
+        expect(typo.lines.join('\n')).toContain('no such FILE')
+        expect(typo.lines.join('\n')).not.toContain('no rule applies to')
+      }),
+    ),
+  )
+
+  it.effect('refuses a directory and a glob, which a hook never reports', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts'), 'packages/app/src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        for (const path of ['packages/app/src', 'packages/*/src/**']) {
+          const diagnosis = yield* run({ probePaths: [path], projectDirectory: rules, rulesDirectory: rules })
+
+          expect(diagnosis.healthy).toBeFalsy()
+          expect(diagnosis.lines.join('\n')).toContain('no such FILE')
+        }
+      }),
+    ),
+  )
+
+  it.effect('says nothing can reach a rule its own ignores excludes everywhere', () =>
+    withTree(
+      {
+        'a.yml': `id: ignored-everywhere\nlanguage: tsx\nseverity: error\nmessage: nope\nrule:\n  pattern: $X as any\nfiles: ['src/**/*.ts']\nignores: ['**/*']\n`,
+      },
+      (rules) =>
+        Effect.gen(function* () {
+          // No --path value can ever make this rule apply, so telling its author to go and probe
+          // for one sends them after a path that cannot exist. An over-broad `ignores` arriving
+          // from a config override is exactly how a rule ends up here.
+          const diagnosis = yield* run({ projectDirectory: rules, rulesDirectory: rules })
+          const report = diagnosis.lines.join('\n')
+
+          expect(report).toContain('nothing can reach: ignored-everywhere')
+          expect(report).not.toContain('no probed path reaches: ignored-everywhere')
+          expect(diagnosis.healthy).toBeTruthy()
+        }),
+    ),
+  )
+
+  it.effect('names a loaded rule that applies to none of the probed paths', () =>
+    withTree({ 'a.yml': scopedTo('packages/*/src/**/*.ts') }, (rules) =>
+      Effect.gen(function* () {
+        // Reported, never fatal: a rule scoped somewhere none of these paths reach is an ordinary
+        // state. It is named because "0 rule(s) apply" per PATH does not say which RULE is inert.
+        const diagnosis = yield* run({ projectDirectory: rules, rulesDirectory: rules })
+
+        expect(diagnosis.lines.join('\n')).toContain('monorepo-rule')
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
     ),
   )
 })

@@ -7,3 +7,4 @@ coverage
 reports
 /.scratch/
 stryker-setup-*.js
+.claude/worktrees/

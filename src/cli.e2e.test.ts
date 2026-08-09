@@ -87,7 +87,9 @@ const withRules = <A, E>(
     const root = yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-e2e-' })
 
     for (const [name, contents] of Object.entries(files)) {
-      yield* fs.writeFileString(path.join(root, name), contents)
+      const target = path.join(root, name)
+      yield* fs.makeDirectory(path.dirname(target), { recursive: true })
+      yield* fs.writeFileString(target, contents)
     }
 
     return yield* use(root)
@@ -108,6 +110,18 @@ files:
  * A rule no shipped preset defines, so a union invocation loading it proves the caller's own
  * directory was read rather than the preset alone.
  */
+/** Scoped the way a monorepo is, which no built-in `--doctor` probe reaches. */
+const monorepoScoped = `
+id: monorepo-rule
+language: tsx
+severity: error
+message: 'nope'
+rule:
+  pattern: $X as any
+files:
+  - 'packages/*/src/**/*.ts'
+`
+
 const noDateNow = `
 id: no-date-now
 language: tsx
@@ -562,6 +576,46 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
         expect(result.stdout).toContain('/clean-code — 6 loaded')
         expect(result.stdout).toContain(`${directory} — 1 loaded`)
       }),
+    ),
+  )
+
+  // The adoption report this exists for: a rule scoped to a monorepo layout matched none of the
+  // built-in probes, so `--doctor` printed `0 rule(s) apply` five times, said `no rule applies to
+  // any probed path`, and exited 0 — useless as the CI check for exactly that failure class.
+  it.effect('exits 0 when a path the caller named is covered, and 1 when it is not', () =>
+    withRules(
+      { 'packages/app/src/widget.ts': '', 'r.yml': monorepoScoped, 'services/api/src/widget.ts': '' },
+      (rules) =>
+        Effect.gen(function* () {
+          const configPath = yield* withEmptyConfig(rules)
+          // `runIn`, not `runCliRaw`: `--path` is resolved against the directory falsestart RUNS in,
+          // so a process started in this repo would look for the temp project's files here.
+          const doctor = (...paths: readonly string[]) =>
+            runIn(
+              rules,
+              ['--doctor', '--rules', rules, '--config', configPath, ...paths.flatMap((path) => ['--path', path])],
+              '',
+            )
+
+          const covered = yield* doctor('packages/app/src/widget.ts')
+          expect(covered.exitCode).toBe(0)
+          expect(covered.stdout).toContain('1 rule(s) apply to packages/app/src/widget.ts')
+
+          const uncovered = yield* doctor('services/api/src/widget.ts')
+          expect(uncovered.exitCode).toBe(1)
+          expect(uncovered.stdout).toContain('services/api/src/widget.ts')
+
+          // A typo is a different answer from a coverage gap, and must not read as one.
+          const typo = yield* doctor('packages/app/src/wigdet.ts')
+          expect(typo.exitCode).toBe(1)
+          expect(typo.stdout).toContain('no such FILE')
+
+          // The negative that protects the existing rationale: the built-in probes all report zero
+          // for this rule set and that is NOT a broken installation, so with no --path it stays 0.
+          const unnamed = yield* doctor()
+          expect(unnamed.exitCode).toBe(0)
+          expect(unnamed.stdout).toContain('no rule applies to any probed path')
+        }),
     ),
   )
 

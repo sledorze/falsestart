@@ -636,6 +636,7 @@ const program = Effect.gen(function* () {
       configPath: options.configPath,
       failure: options.failure,
       freeze: yield* freezeFor(),
+      probePaths: options.probePaths,
       projectDirectory,
       rulesDirectory,
       shippedDirectories,
