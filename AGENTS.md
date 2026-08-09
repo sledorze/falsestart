@@ -329,7 +329,11 @@ clone where `pnpm install` never ran `prepare` — which is `lefthook install ||
 install the hooks is silent by design. No hook of any kind runs on a merge performed in the GitHub
 UI, which is how most of them land here.
 
-What actually blocks a merge is `.github/workflows/ci.yml` and nothing else. It runs
+The only guard a merge can see is `.github/workflows/ci.yml`. `codeql.yml`'s single job is behind
+`if: vars.codeql-enabled == 'true'`, which its own comment says is off until Advanced Security is
+enabled, and `dependabot-auto-merge.yml` merges rather than checks. (Whether CI is a _required_
+check is branch protection, which lives outside this repository and cannot be read from it; a green
+tick nobody made mandatory blocks nothing.) CI runs
 lint, format:check, typecheck, coverage:ci, build, check — and, since the `mutation` job was added,
 `pnpm mutation:changed` on every pull request. That job is where the "a test that cannot fail" guard
 lives now; before it, that guard ran only in the skippable hook, which is the same as nowhere.
@@ -367,6 +371,17 @@ that no test objects to, at 100% statements, branches, functions and lines. Wors
 cannot see, and the reason `pnpm mutation:changed` now runs on every pull request rather than only in
 a hook. Read the survivors when you touch a file; the score is a threshold, the survivors are the
 information.
+
+**A branch that only weakens a test is the shape that gate was blindest to.** `mutate-changed.sh`
+selected changed SOURCE files and filtered tests out, so deleting every assertion about `appliesTo`
+from `src/checking/scope.test.ts` while touching no source printed `no mutatable source changed on
+this branch, skipping` and exited 0 — the guard against tests that stop constraining code, skipping
+the change that stops a test constraining code. A changed `x.test.ts` now pulls `x.ts` into the
+mutated set, mapped by the file-role convention rather than by guessing which sources a test touches.
+Its limit, measured on that same branch: the run then reports `scope.ts` at 90.38% with 15 survivors
+and stays GREEN, because the floor of 70 catches a collapse and not an erosion, and `--mutate <file>`
+scores the whole file rather than the change. Read the survivor list on a test-only diff; the exit
+code is not the signal there.
 
 Its counterpart in the small: a new module with a test that calls every function and asserts only
 properties of its own fixture reports 100% coverage and a green suite, and scores **0.00%** with all

@@ -54,10 +54,39 @@ fi
 #
 # `R` is in the filter because a rename-plus-rewrite is exactly the change worth mutating, and
 # `ACM` alone drops it.
-changed="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' |
-  grep -vE '\.(test|test-d|bench)\.ts$' |
-  grep -vE '^src/cli\.ts$' ||
-  true)"
+touched="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' || true)"
+
+sources="$(grep -vE '\.(test|test-d|bench)\.ts$' <<<"$touched" | grep -vE '^src/cli\.ts$' || true)"
+
+# A branch that only WEAKENS a test changes no source file at all, and "this test no longer
+# constrains the code" is precisely the defect this gate exists to catch — so filtering tests out
+# and stopping made the guard skip the one change it was built for. Reproduced on this repository:
+# deleting every assertion about `appliesTo` from `src/checking/scope.test.ts`, touching nothing
+# else, left the suite green and printed `no mutatable source changed on this branch, skipping`.
+#
+# Each changed test therefore pulls in the implementation it is the test FOR, mapped structurally by
+# this repository's own file-role convention — `x.test.ts` beside `x.ts` — and never by guessing
+# from content which sources a test exercises. A test whose subject is not its sibling
+# (`cli.e2e.test.ts`, `corpus.test.ts`, `documented.test.ts`) pulls in nothing, which is honest: it
+# is a whole-suite test, and there is no one file whose score answers for it.
+#
+# What this buys, measured on that same reproduction: the run happens and reports `scope.ts` at
+# 90.38% with 15 survivors, instead of skipping. It did NOT go red, because the rest of the suite
+# still kills most of what that describe block was killing and 90.38 clears the floor of 70. The
+# floor catches a collapse, not an erosion, and `--mutate <file>` scores the whole file rather than
+# the change — so a per-file floor cannot see "this file scored worse than it did on main". A
+# ratchet against the base commit's score would, at the cost of scoring every file twice. Not built;
+# named here so the next reader does not have to rediscover it.
+subjects=''
+while IFS= read -r test; do
+  [ -n "$test" ] || continue
+  subject="${test%.test.ts}.ts"
+  if [ "$subject" != "$test" ] && [ "$subject" != 'src/cli.ts' ] && [ -f "$subject" ]; then
+    subjects="${subjects}${subject}"$'\n'
+  fi
+done < <(grep -E '\.test\.ts$' <<<"$touched" || true)
+
+changed="$(printf '%s\n%s' "$sources" "$subjects" | grep -vE '^[[:space:]]*$' | sort -u || true)"
 
 if [ -z "$changed" ]; then
   echo "mutation: no mutatable source changed on this branch, skipping"

@@ -35,13 +35,15 @@ adjacent, similar-looking file is left alone.
 format:check, typecheck, coverage:ci, build, docs — it must cover every gate CI applies, or verify can be
 green while the merge is red). `lefthook` is ADVISORY and gates nothing — `--no-verify`, `LEFTHOOK=0`
 and a clone that never installed the hooks all skip it, and no hook runs on a merge made in the
-GitHub UI; `.github/workflows/ci.yml` is the only thing that blocks a merge, and it now runs
-`pnpm mutation:changed` there rather than only in `pre-push`. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
+GitHub UI; `.github/workflows/ci.yml` is the only guard a merge can see (codeql.yml's job is gated
+off), and it now runs `pnpm mutation:changed` there rather than only in `pre-push`. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
 oxlint's callee resolution. See every new test fail before trusting it — write it first, or revert the implementation and watch
 it go red; a test only ever observed passing is a claim, not a check, and four in one change passed
 for reasons unrelated to the code. A green suite at 100% coverage left 269 of 3141 mutants alive on
 this tree (score 91.40%), and a new module with a fixture-only test scores 0.00% at 100% coverage —
-that gap is what mutation testing is for. Dogfood the real behaviour against the scenario a
+that gap is what mutation testing is for. A changed `x.test.ts` now drags `x.ts` into that run,
+because a branch that only weakens a test used to skip the guard entirely; on a test-only diff read
+the survivors, since the per-file floor of 70 catches a collapse and not an erosion. Dogfood the real behaviour against the scenario a
 feature is meant to catch, including the negative case, then convert that proof into a permanent
 test. Treat a structural claim in a doc as unverified until checked, not merely re-read. Before
 pushing, get an adversarial review from ONE subagent prompted to refute, given the artifact rather
