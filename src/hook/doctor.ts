@@ -539,6 +539,21 @@ export const diagnose = (
       return { healthy: false, lines }
     }
 
+    // In scope is not the same as guarded. `--path` is asked as a CI gate for "is this guarded", and
+    // a rule that only advises is in scope and can never block — so a bare count answered a
+    // different question than the one being put, in the flag built to end false-greens. Reported
+    // rather than failed: severity is the author's choice and a repo may run advisory-only on
+    // purpose, which is precisely why the counts print `(N block, M advise)` beside it.
+    const advisoryOnly = namedPaths.filter(
+      (path) => rulesFor(path).length > 0 && !rulesFor(path).some((rule) => (rule.severity ?? 'error') === 'error'),
+    )
+    if (advisoryOnly.length > 0) {
+      lines.push(
+        `         ${advisoryOnly.join(', ')} — in scope, but every rule that reaches it can advise only,` +
+          ' so nothing there can be blocked',
+      )
+    }
+
     const uncovered = namedPaths.filter((path) => rulesFor(path).length === 0)
     if (uncovered.length > 0) {
       lines.push(

@@ -91,6 +91,17 @@ const readOverride = (value: unknown, path: string): ScopeOverride | string => {
     return `${path}.ignores must be an array of glob strings`
   }
 
+  // Refused for the reason `parseRule` refuses it: the globs are matched as an OR, so a leading `!`
+  // admits everything it does not name rather than excluding it — an override written to carve out
+  // test files silently widened the rule to Markdown, to `.js`, and to the tests themselves.
+  const negated = [...files, ...(isGlobList(ignores) ? ignores : [])].filter((glob) => glob.startsWith('!'))
+  if (negated.length > 0) {
+    return (
+      `${path}: ${negated.join(', ')} — a leading ! is not an exclusion here. The globs are matched as an OR, ` +
+      'so a negated one admits everything it does not name. Put exclusions in `ignores`.'
+    )
+  }
+
   return {
     files,
     ...(ignores === undefined ? {} : { ignores }),

@@ -236,23 +236,26 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
   // precedence lives in the wiring, which is excluded from the coverage ratchet and from mutation
   // testing, so nothing but a process observes it — and the reference has to state what is
   // observable rather than what is natural to write.
-  it.effect('prefers a rules package over a rules directory whichever came first', () =>
+  it.effect('refuses two --rules sources rather than ranking them, in either order', () =>
     withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
       Effect.gen(function* () {
+        // This asserted a RANKING — the package form winning whichever came first. Ranking means one
+        // named source is silently discarded, which is the failure this tool exists to prevent and
+        // the exact argument that kept `--preset` and `--rules` apart until they could combine.
+        // Nothing reported the loss: `--doctor` printed a single row for the winner.
         const configPath = yield* withEmptyConfig(rules)
         const payload = payloadFor({ content: 'const x = v as any', file_path: '/r/a.ts' })
         const both = (first: readonly string[], second: readonly string[]) =>
           runCliRaw(['--rules', ...first, '--rules', ...second, '--config', configPath], payload)
 
-        // An unresolvable package is the probe: its failure is loud, specific and non-blocking, so
-        // "the package won" and "the directory won" cannot be confused with each other.
         for (const result of [
           yield* both([rules], ['pkg:@nope/definitely-missing']),
           yield* both(['pkg:@nope/definitely-missing'], [rules]),
         ]) {
+          // Exit 1, never 2: a refused hook command line must not be able to block a write.
           expect(result.exitCode).toBe(1)
           expect(result.stdout).toBe('')
-          expect(result.stderr).toContain('could not resolve rules package')
+          expect(result.stderr).toContain('--rules can be given once')
         }
       }),
     ),

@@ -456,6 +456,17 @@ export const parseArguments = (args: readonly string[]): Options => {
     }
 
     if (argument === '--rules') {
+      // Refused rather than ranked, for the reason `--preset` and `--rules` were refused together
+      // before they could combine: silently keeping one runs a different rule set than the caller
+      // named, which is the worst failure available to this tool. "Keeps the last directory given"
+      // was not even accurate — the package form won whichever was written first — and `--doctor`
+      // printed one row, so the discarded source left no trace anywhere.
+      if (namedDirectory !== undefined || rulesPackage !== undefined) {
+        return {
+          _tag: 'Invalid',
+          problem: '--rules can be given once; name one directory or one pkg: specifier, not two',
+        }
+      }
       if (value.startsWith(PACKAGE_PREFIX)) {
         const specifier = value.slice(PACKAGE_PREFIX.length)
         if (specifier.length === 0) {
@@ -500,6 +511,9 @@ export const parseArguments = (args: readonly string[]): Options => {
       agent = value
       sawAgent = true
     } else if (isPreset(value)) {
+      if (preset !== undefined) {
+        return { _tag: 'Invalid', problem: '--preset can be given once; use `all` to take every shipped rule set' }
+      }
       preset = value
     } else {
       return { _tag: 'Invalid', problem: `unknown preset: ${value} (expected ${PRESETS.join(', ')})` }

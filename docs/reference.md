@@ -9,7 +9,7 @@ Every flag, export and shipped rule. For why any of it is shaped this way see
 | Flag                 | Meaning                                                                                                                                                                                                                                                                                                                                                                                                              |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--preset <name>`    | Use rules shipped with falsestart: `all`, `clean-code`, `effect`. COMBINES with `--rules` in either of its forms — both sets load into one invocation. An id both define is refused, never ranked.                                                                                                                                                                                                                   |
-| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`, unless `--preset` names a set — then there is no default. Repeating this form keeps the last directory given.                                                                                                                                                                                                                  |
+| `--rules <dir>`      | A directory of rule documents, searched recursively. Defaults to `.falsestart/rules`, unless `--preset` names a set — then there is no default. Given twice, or alongside the `pkg:` form, it is refused rather than ranked.                                                                                                                                                                                         |
 | `--rules pkg:<name>` | Rules from an installed package, e.g. `pkg:@acme/falsestart-rules`, optionally with a subdirectory. Given alongside the directory form it wins, in either order.                                                                                                                                                                                                                                                     |
 | `--config <file>`    | Scope overrides. Defaults to `falsestart.config.{ts,mts,js,mjs,json}` in the process's working directory, without searching upward.                                                                                                                                                                                                                                                                                  |
 | `--doctor`           | Report what falsestart resolved — including how many loaded rules block and how many advise — name the changelog shipped beside it, and prove the pipeline end to end. Names the active `--fail` policy when one was given, and reports a rules package it could not resolve rather than exiting silently. Reads no stdin; exits 1 if anything did not resolve, or if no rule applies to a path named with `--path`. |
@@ -33,10 +33,10 @@ directories, rather than resolved by precedence: whichever lost would carry a `f
 is enforcing, and "the later source wins" would make `--preset all --rules ./r` and the reverse
 enforce different things.
 
-Between the two `--rules` forms nothing changes: the package form still wins whichever was written
-first — `--rules pkg:@acme/rules --rules ./local` and the reverse both load the package — so "the
-last one wins" is not the rule there either. Only one `--preset` and one `--rules` source per
-invocation; layering more still means more hook entries.
+Naming `--rules` twice — two directories, or a directory and a `pkg:` specifier — is **refused**, and
+so is a second `--preset`. It used to be ranked, with the package form winning whichever was written
+first, which silently ran a rule set the caller had not named and left no trace in `--doctor`'s
+report. One `--preset` and one `--rules` per invocation; layering more still means more hook entries.
 
 **Every source is frozen independently**, and by where its path actually sits rather than by what
 named it. A preset usually resolves inside `node_modules`, which your repository does not track, so
@@ -488,8 +488,9 @@ That is the complete set of Claude Code built-ins that carry file content — th
 Under `--agent copilot`. The envelope has two documented spellings and falsestart reads both:
 `toolName`/`toolArgs` when the hook config names the event `preToolUse`, and `tool_name`/`tool_input`
 when it names it `PreToolUse`. `toolArgs` may arrive as a JSON-encoded string rather than an object.
-Neither spelling of `cwd` is used for scoping: globs are matched relative to the directory
-falsestart runs in, so every repo-relative glob works unchanged under either envelope.
+`cwd` is spelled `cwd` in both, and it is what globs are matched relative to — under this envelope
+exactly as under Claude Code's. When it is absent, or cannot anchor anything (`''`, `'.'`, `'/'`),
+the directory falsestart runs in stands in, so a repo-relative glob still works.
 
 | tool     | path field | content field |
 | -------- | ---------- | ------------- |

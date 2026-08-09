@@ -1,15 +1,15 @@
 {
   "refs": [
     {
-      "hash": "52ca21ed7d7ec9a37ea553a2f24907ec9c13f88124718fc990ca80da6b265220",
+      "hash": "b6b069743295689de8172c1ec5ed74221dffee1e7cfde824ca7bd4a1894f9783",
       "target": "./reference.md"
     },
     {
-      "hash": "3f4d8ec522d6ccbae7ede06e9d32c24b885ac9ec69d9ecc410ec50e81c8eda6e",
+      "hash": "c3e6eadfd418cbf78c1092e0a2a6da760721276a681458777ec8e3d7fb1996f9",
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "f5f3e33d1db311b4e5e566a9c2199e160af56712c83ff8219cd1f6d0433753ae",
+      "hash": "97fc6ad0176d889879769c7bb8b6aee57b3ac21638c43a502a01c0c87a231475",
       "target": "../src/checking/index.ts"
     },
     {

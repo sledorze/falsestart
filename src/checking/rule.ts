@@ -92,7 +92,30 @@ export const parseRule = (source: string, origin: string): Effect.Effect<Rule, R
       return yield* fail('rule must be a YAML mapping')
     }
 
-    return yield* Schema.decodeUnknownEffect(RuleSchema)(document).pipe(
+    const rule = yield* Schema.decodeUnknownEffect(RuleSchema)(document).pipe(
       Effect.mapError((error) => new RuleParseError({ origin, reason: String(error) })),
     )
+
+    /**
+     * A leading `!` is refused in both scope lists, because it does the opposite of what it reads
+     * as.
+     *
+     * The globs are matched as an OR, so `files: ['src/**\/*.ts', '!**\/*.test.ts']` admits every
+     * path that is not a test file — the rule then fires on Markdown, on `.js` outside `src`, and on
+     * the very test file the negation was written to exempt. Measured, all four. It looks exactly
+     * like the exclusion syntax every other tool has, which is what makes it dangerous: nothing
+     * failed, and the scope silently stopped being a scope.
+     *
+     * `ignores` is the mechanism, and it is applied after `files` precisely so an exclusion cannot
+     * widen anything.
+     */
+    const negated = [...(rule.files ?? []), ...(rule.ignores ?? [])].filter((glob) => glob.startsWith('!'))
+    if (negated.length > 0) {
+      return yield* fail(
+        `${negated.join(', ')} — a leading ! is not an exclusion here. The globs are matched as an OR, ` +
+          'so a negated one admits everything it does not name. Put exclusions in `ignores`.',
+      )
+    }
+
+    return rule
   })

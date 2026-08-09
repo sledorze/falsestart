@@ -30,12 +30,11 @@ Only the `--rules` source can be frozen: a preset resolves inside `node_modules`
 project's repository does not track. Under the default `--freeze auto` that is unchanged — the
 working tree is read for it, as it always was.
 
-Under `--freeze require` a preset is **refused**, whether or not a `--rules` directory is named
-alongside it, and that is a deliberate part of this change rather than a side effect. `require`
-means "judge nothing the ref cannot account for". Freezing only the caller's own directory would
-have reported `frozen`, exited 0, and judged with an unverified preset the report never named.
-A preset was already refused under `require` when it was the only source, so no working setup
-changes; what changes is that combining it with `--rules` does not buy an exemption.
+Under `--freeze require`, a preset the ref cannot account for is refused rather than silently judged.
+See "classify every rule source by where it sits" in these same notes for the precise rule: a preset
+inside `node_modules` is refused, while one a repository VENDORS is committed and is frozen like any
+other source. Both changes are unreleased, so read them together — this one is stated as it stood
+before the second corrected it.
 
 `loadRuleSources`, `mergeRuleSets` and the `RuleGroup`/`RuleSource` types are exported, and
 `RespondOptions`/`DiagnoseOptions` gain an optional `shippedDirectories`. Optional, so a library

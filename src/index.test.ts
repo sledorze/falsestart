@@ -32,6 +32,7 @@ describe('library surface', () => {
       'applyScopeOverrides',
       'assessRule',
       'baselineText',
+      'canAnchor',
       'checkFile',
       'classifyConfig',
       'classifyRules',

@@ -359,3 +359,23 @@ describe('an override for a rule this invocation did not load', () => {
     }),
   )
 })
+
+describe('a negated glob in a scope override', () => {
+  effect('is refused, for the reason a rule document refuses it', () =>
+    Effect.gen(function* () {
+      // An override carries the same `files`/`ignores` shape and reaches the same matcher, so the
+      // same OR semantics apply: `'!**/*.test.ts'` admits everything that is not a test file.
+      const error = yield* Effect.flip(parsed('{"rules":{"no-as-any":{"files":["src/**","!**/*.test.ts"]}}}'))
+
+      expect(error.reasons.join('\n')).toContain('ignores')
+    }),
+  )
+
+  effect('leaves a literal ! elsewhere in the glob alone', () =>
+    Effect.gen(function* () {
+      const config = yield* parsed('{"rules":{"no-as-any":{"files":["weird!dir/**"]}}}')
+
+      expect(config.rules['no-as-any']?.files).toEqual(['weird!dir/**'])
+    }),
+  )
+})

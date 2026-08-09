@@ -1917,3 +1917,68 @@ layer(platform)('a shipped source the freeze could not read', (it) => {
     ),
   )
 })
+
+layer(platform)('the anchor a judged write is scoped against', (it) => {
+  const repoRelative = `id: no-as-any\nlanguage: tsx\nseverity: error\nmessage: 'as any erases the type'\nrule:\n  pattern: $X as any\nfiles:\n  - 'packages/*/src/**/*.ts'\n`
+
+  const wrote = (cwd: string | undefined, root: string) =>
+    JSON.stringify({
+      ...(cwd === undefined ? {} : { cwd }),
+      tool_input: { content: 'const x = value as any', file_path: `${root}/packages/app/src/w.ts` },
+      tool_name: 'Write',
+    })
+
+  // `decide` was unit-tested for the no-`cwd` fallback, and NOTHING tested that `respond` hands it
+  // the project directory at all. Deleting that one argument left 737/737 green while the real
+  // binary silently allowed the write — the repo's own documented recurring failure, in the change
+  // that introduced the fallback.
+  it.effect('falls back to the project directory when the payload carries no cwd', () =>
+    withRules({ 'r.yml': repoRelative }, (rules) =>
+      Effect.gen(function* () {
+        const response = yield* respond({
+          input: wrote(undefined, rules),
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+      }),
+    ),
+  )
+
+  // A `cwd` that cannot anchor anything is not an anchor. `??` only guards `undefined`, so an empty
+  // string sliced the leading `/` off every absolute path and `.` did the same — every
+  // repo-relative glob then admitted nothing, silently, which is the failure the fallback exists to
+  // end. The same commit guarded `--path` against exactly this and did not guard here.
+  it.effect('falls back when the payload cwd cannot anchor a glob', () =>
+    withRules({ 'r.yml': repoRelative }, (rules) =>
+      Effect.gen(function* () {
+        for (const cwd of ['', '   ', '.', './', '/']) {
+          const response = yield* respond({
+            input: wrote(cwd, rules),
+            projectDirectory: rules,
+            rulesDirectory: rules,
+          })
+
+          expect(response.stdout).toContain('"permissionDecision":"deny"')
+        }
+      }),
+    ),
+  )
+
+  it.effect('still prefers a cwd that can', () =>
+    withRules({ 'r.yml': repoRelative }, (rules) =>
+      Effect.gen(function* () {
+        // The negative that keeps the fallback from becoming an override: a usable payload cwd wins,
+        // which is what keeps `cd packages/app && falsestart --rules ../../rules` working.
+        const response = yield* respond({
+          input: wrote(rules, rules),
+          projectDirectory: `${rules}/packages/app`,
+          rulesDirectory: rules,
+        })
+
+        expect(response.stdout).toContain('"permissionDecision":"deny"')
+      }),
+    ),
+  )
+})

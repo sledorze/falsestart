@@ -142,3 +142,41 @@ ignores:
     }),
   )
 })
+
+describe('a negated glob in a scope', () => {
+  const withFiles = (globs: string) => `id: scoped\nlanguage: tsx\nrule:\n  pattern: $X as any\nfiles: ${globs}\n`
+
+  effect('is refused, because it widens the rule to everything instead of narrowing it', () =>
+    Effect.gen(function* () {
+      // picomatch ORs the array, so `!**/*.test.ts` on its own admits every path that is NOT a test
+      // file — the rule then fires on Markdown, on `.js` outside `src`, and on the very test file
+      // the negation was written to exempt. Measured, all four.
+      //
+      // A rule acting on files its globs never admitted is the failure AGENTS.md's content-mutation
+      // section exists to prevent, arrived at from the opposite direction: not a pattern matched too
+      // loosely, but a scope that silently stopped being a scope.
+      const error = yield* Effect.flip(parseRule(withFiles("['src/**/*.ts', '!**/*.test.ts']"), 'r.yml'))
+
+      expect(error.reason).toContain('!')
+      expect(error.reason).toContain('ignores')
+    }),
+  )
+
+  effect('refuses it in ignores too, where it would silently re-admit', () =>
+    Effect.gen(function* () {
+      const source = `id: scoped\nlanguage: tsx\nrule:\n  pattern: $X as any\nignores: ['!**/*.ts']\n`
+
+      expect((yield* Effect.flip(parseRule(source, 'r.yml'))).reason).toContain('ignores')
+    }),
+  )
+
+  effect('leaves an ordinary glob alone', () =>
+    Effect.gen(function* () {
+      // The negative: `!` is only special at the START of a pattern, and a literal one elsewhere is
+      // a legal path character that must keep working.
+      const rule = yield* parseRule(withFiles("['src/**/*.ts', 'weird!dir/**']"), 'r.yml')
+
+      expect(rule.files).toEqual(['src/**/*.ts', 'weird!dir/**'])
+    }),
+  )
+})

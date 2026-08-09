@@ -289,18 +289,11 @@ describe('the scan command', () => {
     expect(parseArguments(['--rules', 'x', '--help'])._tag).toBe('Help')
   })
 
-  it('takes the last --rules when it is repeated', () => {
-    expect(parseArguments(['--rules', 'first', '--rules', 'second'])).toEqual({
-      _tag: 'Run',
-      agent: 'claude-code',
-      configPath: undefined,
-      freeze: 'auto',
-      freezeRef: 'HEAD',
-      preset: undefined,
-      rulesDirectory: 'second',
-      rulesPackage: undefined,
-      warnUnscoped: false,
-    })
+  it('refuses a repeated --rules instead of taking the last', () => {
+    // Reversed deliberately. Keeping the last silently ran a rule set the caller did not name, and
+    // `--doctor` printed one row so the discarded source left no trace. See the block at the end of
+    // this file for the full argument.
+    expect(parseArguments(['--rules', 'first', '--rules', 'second'])._tag).toBe('Invalid')
   })
 
   it('takes a config path from --config', () => {
@@ -621,5 +614,40 @@ describe('probing real paths with --doctor', () => {
     expect(parseArguments(['--doctor', '--path'])._tag).toBe('Invalid')
     expect(parseArguments(['--doctor', '--path', ''])._tag).toBe('Invalid')
     expect(parseArguments(['--doctor', '--path', '   '])._tag).toBe('Invalid')
+  })
+})
+
+describe('naming a rule source twice', () => {
+  it('refuses a repeated --rules rather than silently keeping one', () => {
+    // "Keeps the last directory given" is a flag accepted and dropped — the failure this file's
+    // opening paragraph exists to prevent, and the exact argument that made `--preset` and `--rules`
+    // refuse each other before they could combine. Measured: `--rules ./a --rules ./b` loaded only
+    // `./b`, and `--doctor` printed one row, so the discarded source was invisible.
+    const parsed = parseArguments(['--rules', './a', '--rules', './b'])
+
+    expect(parsed._tag).toBe('Invalid')
+    expect(parsed._tag === 'Invalid' && parsed.problem).toContain('--rules')
+  })
+
+  it('refuses the two --rules forms together, in either order', () => {
+    // The package form used to win whichever was written first, so `--rules pkg:x --rules ./local`
+    // and the reverse both ignored the directory — "the last one wins" was not even the rule.
+    for (const args of [
+      ['--rules', 'pkg:@acme/rules', '--rules', './local'],
+      ['--rules', './local', '--rules', 'pkg:@acme/rules'],
+    ]) {
+      expect(parseArguments(args)._tag).toBe('Invalid')
+    }
+  })
+
+  it('refuses a repeated --preset', () => {
+    expect(parseArguments(['--preset', 'clean-code', '--preset', 'effect'])._tag).toBe('Invalid')
+  })
+
+  it('still accepts one of each, which is the union', () => {
+    expect(parseArguments(['--preset', 'clean-code', '--rules', './r'])).toMatchObject({
+      preset: 'clean-code',
+      rulesDirectory: './r',
+    })
   })
 })

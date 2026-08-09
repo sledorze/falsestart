@@ -1054,3 +1054,39 @@ layer(platform)('a rule set that cannot guard anything', (it) => {
     ),
   )
 })
+
+layer(platform)('a named path covered only by rules that cannot block', (it) => {
+  const advisory = `id: advises-only\nlanguage: tsx\nseverity: warning\nmessage: nope\nrule:\n  pattern: $X as any\nfiles: ['src/**/*.ts']\n`
+
+  it.effect('says so, rather than reporting the path as guarded', () =>
+    withTree({ 'a.yml': advisory, 'src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        // `--path` is a CI gate for "is this guarded". A rule that only advises is in scope and can
+        // never block, so a bare count answered a different question than the one being asked — and
+        // this is the flag built to end false-greens.
+        const diagnosis = yield* run({
+          probePaths: ['src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).toContain('advise only')
+      }),
+    ),
+  )
+
+  it.effect('stays quiet when a blocking rule covers the path too', () =>
+    withTree({ 'a.yml': advisory, 'b.yml': committed, 'src/widget.ts': '' }, (rules) =>
+      Effect.gen(function* () {
+        const diagnosis = yield* run({
+          probePaths: ['src/widget.ts'],
+          projectDirectory: rules,
+          rulesDirectory: rules,
+        })
+
+        expect(diagnosis.lines.join('\n')).not.toContain('advise only')
+        expect(diagnosis.healthy).toBeTruthy()
+      }),
+    ),
+  )
+})

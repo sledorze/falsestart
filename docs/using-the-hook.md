@@ -1037,6 +1037,13 @@ ignores:
 Scope every rule with `files`. A rule with no `files` runs against every path, including ones
 where its language makes no sense.
 
+**Exclusions go in `ignores`, never a `!` glob.** The globs in `files` are matched as an OR, so
+`files: ['src/**/*.ts', '!**/*.test.ts']` admits every path that is _not_ a test file — the rule then
+fires on Markdown, on `.js` outside `src`, and on the very test files the negation was written to
+exempt. It reads exactly like the exclusion syntax other tools have, which is what made it dangerous,
+so a leading `!` in `files` or `ignores` is now refused at load, in a rule document and in a config
+override alike.
+
 Globs are matched against the path **relative to the `cwd` the payload carries**, so `src/**/*.ts`
 works as written. A file outside that directory keeps its absolute path, and a rule can still reach
 it with a leading `**/`.
