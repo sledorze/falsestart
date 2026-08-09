@@ -25,6 +25,13 @@
 # sledorze/cairn#131 covers the upstream half with a better shape than a new check: scoped and
 # interactive stamping prevents the reflex rather than detecting it, so it has nothing to suppress.
 #
+# `_SUMMARY.md` is excluded, and that is deliberate rather than an oversight — it was undisclosed
+# until a review called it a coverage gap, and testing the "fix" is what showed the exclusion is
+# right. A directory summary is a link index over its children: its prose depends on the child SET,
+# not on child content. But its hash is a Merkle hash over the children's hashes, so it goes stale on
+# every descendant edit. Including it made the guard fire on a `_SUMMARY.md` whose prose was
+# correct — near-100% false positives, which is the noise that gets a check disabled.
+#
 # `.cairn/refs/**` is excluded: those sidecars record the hashes of files a doc LINKS to, so one
 # changing means a cited source moved, not that this summary's prose is now wrong.
 set -euo pipefail

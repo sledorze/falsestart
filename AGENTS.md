@@ -130,7 +130,16 @@ report without changing a byte of the digest, so the command that makes the comp
 cheaper than the work it is complaining about. Four summaries went stale under a green `check` in a
 single week, every one caught by a reviewer reading the prose rather than by a tool. `pre-commit`
 now runs `scripts/stamped-not-written.sh`, which refuses a commit that stages a summary's sidecar
-without staging the summary — the one question the hashes cannot ask.
+without staging the summary — the one question the hashes cannot ask. It covers FILE summaries only. Two things
+are exempt and both on purpose: `.cairn/refs/**`, which hashes a doc's link targets rather than its
+digest, and `_SUMMARY.md`, whose prose is a link index over the child SET while its hash is a Merkle
+hash over child CONTENT — so it goes stale on every descendant edit with its prose still correct.
+Including it was tried, after a review called the exclusion a coverage gap, and it fired immediately
+on a `_SUMMARY.md` that was right: near-100% false positives, which is how a check gets disabled.
+
+It is not a gate. `lefthook` is skippable with `--no-verify`, CI runs no lefthook at all, and
+`SUMMARIES_REVIEWED=1` is one word. It is a prompt at the moment the question is answerable, not a
+guarantee that it was answered.
 
 That script **stays here, and should not become a cairn check** — a first pass concluded the
 opposite and the measurement reversed it.
