@@ -122,6 +122,18 @@ files:
   - 'packages/*/src/**/*.ts'
 `
 
+/** One character, and it used to kill the process with no output at all. */
+const emptyGlobRule = `
+id: empty-glob
+language: tsx
+severity: error
+message: 'nope'
+rule:
+  pattern: $X as any
+files:
+  - ''
+`
+
 const noDateNow = `
 id: no-date-now
 language: tsx
@@ -619,6 +631,43 @@ layer(Layer.mergeAll(spawnerLayer, Built), { timeout: 120_000 })('falsestart exe
           expect(unnamed.exitCode).toBe(0)
           expect(unnamed.stdout).toContain('no rule applies to any probed path')
         }),
+    ),
+  )
+
+  // Measured on `main` before the fix: exit 1, stdout 0 bytes, stderr 0 bytes, in EVERY mode
+  // including `--doctor`. `picomatch.isMatch` throws on an empty pattern, and a throw is a defect —
+  // it escapes every `Effect.result` boundary, so `--fail closed` could not deny it and nothing
+  // anywhere said why. Under `--agent copilot` the non-zero exit denied every tool call.
+  it.effect('refuses an empty glob out loud, rather than dying with nothing on either stream', () =>
+    withRules({ 'r.yml': emptyGlobRule }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(['--doctor', '--rules', rules, '--config', configPath, '--freeze', 'off'], '')
+
+        expect(result.exitCode).toBe(1)
+        expect(`${result.stdout}${result.stderr}`).toContain('empty glob')
+      }),
+    ),
+  )
+
+  // The hook and `scan` disagreed about one file: `scan` realpaths before scoping, the hook did not,
+  // and no glob can match a path still carrying `..`. The quiet one is the one that guards writes.
+  it.effect('judges a path spelled with an interior .., as scan already did', () =>
+    withRules({ 'no-as-any.yml': noAsAny }, (rules) =>
+      Effect.gen(function* () {
+        const configPath = yield* withEmptyConfig(rules)
+        const result = yield* runCliRaw(
+          ['--rules', rules, '--config', configPath, '--freeze', 'off'],
+          JSON.stringify({
+            cwd: rules,
+            hook_event_name: 'PreToolUse',
+            tool_input: { content: 'const x = v as any', file_path: `${rules}/sub/../src/a.ts` },
+            tool_name: 'Write',
+          }),
+        )
+
+        expect(result.stdout).toContain('"permissionDecision":"deny"')
+      }),
     ),
   )
 

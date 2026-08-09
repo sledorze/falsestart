@@ -1037,6 +1037,10 @@ ignores:
 Scope every rule with `files`. A rule with no `files` runs against every path, including ones
 where its language makes no sense.
 
+**An empty glob is refused**, and so is a blank one. `files: ['']` is not "match nothing" — the
+matcher throws on it, and the throw used to kill the run with nothing on either stream, `--doctor`
+included. Write the glob you meant, or drop the key.
+
 **Exclusions go in `ignores`, never a `!` glob.** The globs in `files` are matched as an OR, so
 `files: ['src/**/*.ts', '!**/*.test.ts']` admits every path that is _not_ a test file — the rule then
 fires on Markdown, on `.js` outside `src`, and on the very test files the negation was written to
@@ -1045,7 +1049,16 @@ so a leading `!` in `files` or `ignores` is now refused at load, in a rule docum
 override alike.
 
 Globs are matched against the path **relative to the `cwd` the payload carries**, so `src/**/*.ts`
-works as written. A file outside that directory keeps its absolute path, and a rule can still reach
+works as written. A `..` inside the reported path is collapsed first:
+
+```
+reported by the hook   /repo/sub/../src/widget.ts
+scoped as              src/widget.ts
+```
+
+No glob can match a path still carrying a `..`, so before this the hook allowed such a write in
+silence while `scan`, which resolves the path first, denied the same file. The collapse is string
+arithmetic rather than `realpath`, so scoping still asks the filesystem nothing. A file outside that directory keeps its absolute path, and a rule can still reach
 it with a leading `**/`.
 
 When the payload carries **no** `cwd`, the directory falsestart is running in stands in. Claude Code

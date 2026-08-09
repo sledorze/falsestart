@@ -178,3 +178,10 @@ A matcher shared by several rules lives in a `_utils/` directory at the top leve
 Only the first path segment is recognised: a nested `_utils/` is loaded as a rule, fails validation
 for the fields a fragment does not carry, and takes the whole tree down with a message naming the
 missing `language` rather than the misplaced directory.
+
+An empty or blank glob in `files`/`ignores` is refused at load: the matcher THROWS on one, and the
+throw used to kill the run with zero bytes on either stream in every mode. A `..` inside a reported
+path is collapsed lexically before scoping, since no glob matches a path still carrying one — the
+hook used to allow such a write silently while `scan` denied the same file. Any defect now prints
+that it is a bug in falsestart and that the write was not checked, at the exit code the active agent
+reads as non-blocking.
