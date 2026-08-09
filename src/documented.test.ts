@@ -185,7 +185,56 @@ const withRules = <A, E>(
 const citedSourceFiles = (markdown: string): readonly string[] =>
   [...markdown.matchAll(/\]\(\.\.\/(src\/[^)]+\.ts)\)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
 
+/**
+ * Documents that describe what falsestart DOES, and so must cite the code that decides it.
+ *
+ * Classified by name rather than by content, which is the only classification that survives a new
+ * document: whatever someone adds to `docs/` is in, unless it is one of the two kinds that are
+ * structurally indexes rather than descriptions.
+ */
+const isBehaviourDoc = (name: string): boolean =>
+  name.endsWith('.md') &&
+  // A summary is a digest of a doc that carries the citations itself.
+  !name.endsWith('.summary.md') &&
+  // The directory summary is a link index over its children.
+  name !== '_SUMMARY.md' &&
+  // The one-paragraph front door: it points at the other documents and describes no behaviour.
+  name !== 'overview.md'
+
 layer(platform)('documentation covers the source', (it) => {
+  /**
+   * `--refs` is only armed on a doc that carries `[text](../src/x.ts)` links, so a document with
+   * none tracks nothing and can never go stale — it is green on the day it is written and green
+   * forever after, whatever the code does. AGENTS.md states the rule ("link a behaviour doc to the
+   * code that decides the behaviour") and, until this test, nothing enforced it: a forty-line
+   * document of pure invention was added to `docs/`, given a one-character summary, stamped, and
+   * passed `pnpm check`, `pnpm coverage:ci` and `pnpm verify` in that state.
+   *
+   * This does not make a doc TRUE — no check here can. It makes the doc's claims re-checkable,
+   * which is the precondition every other doc guard in this repo depends on.
+   */
+  it.effect('every behaviour doc cites at least one source file, so --refs has something to hash', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const documents = (yield* fs.readDirectory('docs')).filter((name) => isBehaviourDoc(name))
+      // The classifier is what this test is worth: widen an exemption until nothing is classified
+      // and the assertion below passes over an empty set, which is the defect this file exists to
+      // catch happening to the check that catches it.
+      expect(documents).toEqual(expect.arrayContaining(['architecture.md', 'reference.md', 'using-the-hook.md']))
+
+      const uncited: string[] = []
+
+      for (const name of documents) {
+        const cited = citedSourceFiles(yield* fs.readFileString(`docs/${name}`))
+        if (cited.length === 0) {
+          uncited.push(name)
+        }
+      }
+
+      expect(uncited).toEqual([])
+    }),
+  )
+
   it.effect('every area entry point is cited by the architecture doc', () =>
     Effect.gen(function* () {
       const cited = new Set(citedSourceFiles(yield* architecture))
