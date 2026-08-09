@@ -20,11 +20,10 @@ silent shadowing. Rename the local rule or drop it.
 `--doctor` prints one `rules` row per source rather than one total, because a single number cannot
 answer "did my own rules load, or only the preset?".
 
-Two things deliberately did not change. Between the two `--rules` forms the package form still wins
-whichever was written first, rather than becoming a third source — the directory in
-`--rules pkg:@acme/rules --rules ./local` was named only to be overridden. And `--preset all` alone
-still loads exactly the preset: the `.falsestart/rules` default applies only when nothing else names
-a source, so a union never quietly adds a directory the caller did not ask for.
+`--preset all` alone still loads exactly the preset: the `.falsestart/rules` default applies only
+when nothing else names a source, so a union never quietly adds a directory the caller did not ask
+for. Naming `--rules` or `--preset` twice is refused rather than ranked — see "Naming `--rules`
+twice… is now refused" in these same notes.
 
 Only the `--rules` source can be frozen: a preset resolves inside `node_modules`, which the
 project's repository does not track. Under the default `--freeze auto` that is unchanged — the
@@ -33,8 +32,7 @@ working tree is read for it, as it always was.
 Under `--freeze require`, a preset the ref cannot account for is refused rather than silently judged.
 See "classify every rule source by where it sits" in these same notes for the precise rule: a preset
 inside `node_modules` is refused, while one a repository VENDORS is committed and is frozen like any
-other source. Both changes are unreleased, so read them together — this one is stated as it stood
-before the second corrected it.
+other source.
 
 `loadRuleSources`, `mergeRuleSets` and the `RuleGroup`/`RuleSource` types are exported, and
 `RespondOptions`/`DiagnoseOptions` gain an optional `shippedDirectories`. Optional, so a library

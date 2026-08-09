@@ -21,9 +21,9 @@ and exits 0 before its rule tree is read. There is a copyable `settings.json` fo
 
 Large rule trees: subdirectories load recursively, ids must be unique across the whole tree, and a
 `_utils/` directory of shared matchers is recognised only at the top level of the tree `--rules`
-names — one nested inside a category is loaded as a rule and fails the whole tree. One invocation
-loads one rule source: `--rules` cannot be combined with `--preset` at all, and where both `--rules`
-forms are given the `pkg:` one wins whatever the order. Layering trees means one hook entry per tree.
+names — one nested inside a category is loaded as a rule and fails the whole tree. One `--preset` and one
+`--rules` source load together in a single invocation; naming either of them twice is refused.
+Layering more than that means one hook entry per tree.
 The architecture doc now carries a measured cost model, stamped with the machine and version it was
 measured on.
 
