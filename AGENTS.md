@@ -94,12 +94,20 @@ hash says a file changed, never that a list of its contents is complete.
   tree is a Merkle tree: editing one document marks its `_SUMMARY.md` stale too, and the report
   alone does not say which child caused it. Observed on a one-line edit to `docs/overview.md`:
   `dir docs/_SUMMARY.md (stale): driven by stale/missing child: docs/overview.md`.
+  Since 0.11 a stale FILE summary also gets a git line-count delta against the commit the recorded
+  hash came from — observed on a two-line append to `docs/reference.md`:
+  `changed since fd2d5f58…: +2/-0 lines`. That is the answer to "is this a real content change or a
+  reflex re-stamp", asked at the moment the question comes up, and it is what makes `--explain`
+  worth running before `pnpm stamp` rather than after a reviewer catches it. Best-effort: it walks
+  at most 50 commits per doc and enriches at most 20 stale docs per run, and silently omits the line
+  when the recorded hash predates the available history — a missing delta is not evidence of a
+  small change.
 - `cairn check --prune` — delete orphan summaries and orphan `.cairn/` sidecars
   (source doc deleted, renamed, or below threshold).
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
   `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
-  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.10
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.11
   still does — though its clean-run wording changed from "no drifted" to "no broken" references.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
@@ -118,7 +126,7 @@ hash says a file changed, never that a list of its contents is complete.
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - Three checks are **config-only**, with no flag of their own — enabled by naming them in
   `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
-  0.7, and 0.10 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
+  0.7, and 0.11 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
   true at the upgrade. None of the three is enabled, and each for a reason worth keeping:
   - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
@@ -222,6 +230,13 @@ behaviour docs. Cause 3 was closed by a test here, as this file already prescrib
 [cairn#131](https://github.com/sledorze/cairn/issues/131) covers the remaining ground with a better
 shape than a new check — scoped and interactive stamping, which PREVENTS the reflex instead of
 detecting it afterwards, and so has no false positives to suppress.
+
+cairn 0.11 took a first bite of that ground from the other end: `--explain`'s line-count delta
+(above) does not prevent the reflex, but it removes its cheapest excuse. A bare hash mismatch gives
+an agent nothing to weigh, so re-stamping is the rational move; `+2/-0 lines` versus `+180/-40` is
+the difference between a judgement call and a coin flip. It is not a substitute for
+`scripts/stamped-not-written.sh`, which asks about the INDEX at staging time — a question no report
+over the working tree can ask.
 
 ## The boundary of the documentation guards
 

@@ -88,4 +88,8 @@ measured false 21% of the time on correct work.
 
 `cairn config` (0.10) prints the resolved config and expanded roots — the way to answer "why is that
 doc not checked". `stampCommand` is set in `.cairnrc.json` because cairn's own agent guidance reads
-it: unset, it names a command that omits `--refs` and stamps before the formatter.
+it: unset, it names a command that omits `--refs` and stamps before the formatter. `--explain` names
+the child that drove a `_SUMMARY.md` stale, and since 0.11 shows a git line-count delta on a stale
+file summary (`changed since fd2d5f58…: +2/-0 lines`) — best-effort, and absent when the recorded
+hash predates the available history. It gives the re-stamp decision something to weigh, but it reads
+the working tree, so it does not replace the staging-time guard.
