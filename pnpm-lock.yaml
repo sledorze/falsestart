@@ -28,8 +28,8 @@ importers:
         specifier: 4.0.0-beta.102
         version: 4.0.0-beta.102(effect@4.0.0-beta.102)(vitest@4.1.10)
       '@sledorze/cairn':
-        specifier: ^0.10.0
-        version: 0.10.0(effect@4.0.0-beta.102)
+        specifier: ^0.11.0
+        version: 0.11.0(effect@4.0.0-beta.102)
       '@stryker-mutator/core':
         specifier: 9.6.1
         version: 9.6.1(@types/node@26.1.2)
@@ -942,8 +942,8 @@ packages:
     resolution: {integrity: sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ==}
     engines: {node: '>=18'}
 
-  '@sledorze/cairn@0.10.0':
-    resolution: {integrity: sha512-ADuNlxo1c4YL9VV1ujxi+wS2DLmQZCT4R+hZdnfNF7Q3qcFZO1Icr9n5HVFflduuwjb860P+4kE0el9Csz4EUw==}
+  '@sledorze/cairn@0.11.0':
+    resolution: {integrity: sha512-idsbVslCDM9dYsfoA1fuArkrZYfPamAHmag5QrzV8ZJHXeIH4gNiY11/fdXoSwE3ueYFtL30skU+oirlAQD5TQ==}
     engines: {node: '>=22'}
     hasBin: true
     peerDependencies:
@@ -3058,7 +3058,7 @@ snapshots:
 
   '@sindresorhus/merge-streams@4.0.0': {}
 
-  '@sledorze/cairn@0.10.0(effect@4.0.0-beta.102)':
+  '@sledorze/cairn@0.11.0(effect@4.0.0-beta.102)':
     optionalDependencies:
       effect: 4.0.0-beta.102
 
