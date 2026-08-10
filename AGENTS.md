@@ -292,6 +292,29 @@ Re-tested against the current doc set, since a rejection is only as good as its 
   quieter. Nothing here is too noisy yet; adopt it the day a churn-heavy target starts producing
   drift reports nobody reads, and not before.
 
+### The class with nothing behind it: claims about state outside the repository
+
+Every mechanism above reads the repository. `--refs` hashes a file, `--prose-refs` resolves a path,
+`src/documented.test.ts` reads the tree. **A sentence about state that does not live in the
+repository is invisible to all of them**, and it is invisible in a way that reads as covered,
+because the surrounding paragraph is checked and it sits inside the same document.
+
+Three such claims are already here: branch protection and its required set, `RELEASES_ENABLED` and
+`NPM_TOKEN` under the release convention, and which version the registry is currently serving. Each
+was true on the day it was written. Two have already gone false and were caught by a person
+noticing, not by a tool — the release paragraph said "two switches away" after both were on, and
+this file said `mutation` "reports rather than blocks" for as long as it took someone to add it to
+the required set and then not come back here.
+
+**Rejected: a test that queries the GitHub API** for the required set. It would work, and it is the
+wrong trade for the same reason falsestart#79's "have `--doctor` report installed-vs-latest" was
+retracted: it puts a network call and a credential inside a check whose value is being deterministic
+and offline. It would fail on a fork, in an airgapped clone, and whenever a token expires — noise on
+a check nobody can act on, which is how a check gets disabled.
+
+So these sentences are maintained by convention alone. When you change something outside the
+repository that a document here asserts, the document does not know. Grep for it.
+
 # Release convention
 
 Releases are automated via [Changesets](https://github.com/changesets/changesets) (see
@@ -375,9 +398,13 @@ The only guard a merge can see is `.github/workflows/ci.yml`. `codeql.yml`'s sin
 `if: vars.codeql-enabled == 'true'`, which its own comment says is off until Advanced Security is
 enabled, and `dependabot-auto-merge.yml` merges rather than checks. (Whether CI is a _required_
 check is branch protection, which lives outside this repository and cannot be read from it; a green
-tick nobody made mandatory blocks nothing — **adding the `mutation` job to the required set is a
-manual step, and until someone does it that job reports rather than blocks**, while
-`dependabot-auto-merge.yml` merges as soon as the currently-required checks pass.) CI runs
+tick nobody made mandatory blocks nothing. The required set is `build-test (22)`, `build-test (24)`
+and `mutation` — that last one added by hand after the job had been reporting-only for a while, and
+confirmed by construction rather than by reading the setting: a pull request whose test calls every
+function and asserts only its own fixture went both `build-test` legs SUCCESS at 100% coverage,
+`mutation` FAILURE at 0.00%, not a draft, no conflicts, merge state BLOCKED. Before that change the
+same pull request was mergeable. `dependabot-auto-merge.yml` merges as soon as the required checks
+pass, so what is in that set decides what it can merge past.) CI runs
 lint, format:check, typecheck, coverage:ci, build, check, a pull-request-only deletions report
 against the base branch (see `--report-deletions` above) — and, since the `mutation` job was added,
 `pnpm mutation:changed` on every pull request. That job is where the "a test that cannot fail" guard

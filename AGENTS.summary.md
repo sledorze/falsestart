@@ -37,7 +37,11 @@ format:check, typecheck, coverage:ci, build, docs — it must cover every gate C
 green while the merge is red). `lefthook` is ADVISORY and gates nothing — `--no-verify`, `LEFTHOOK=0`
 and a clone that never installed the hooks all skip it, and no hook runs on a merge made in the
 GitHub UI; `.github/workflows/ci.yml` is the only guard a merge can see (codeql.yml's job is gated
-off), and it now runs `pnpm mutation:changed` there rather than only in `pre-push`, plus a
+off), and it now runs `pnpm mutation:changed` there rather than only in `pre-push` — required in
+branch protection alongside both `build-test` legs, so it blocks rather than reports, confirmed by a
+pull request that was green on coverage and 0.00% on mutation and came out BLOCKED. A claim about
+state outside the repository is a class no check here can keep honest; grep when you change one.
+Plus a
 pull-request-only deletions report against the base branch — `pnpm check`'s `--report-deletions`
 keeps cairn's default of comparing the WORKING TREE against HEAD, which inspects nothing on a CI
 checkout, so it had never reported a deletion here. Table-driven tests use `describe.each` + `effect`, since `it.effect.each`'s curried form defeats
