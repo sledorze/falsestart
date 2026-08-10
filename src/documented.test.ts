@@ -18,6 +18,7 @@
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Layer, Path, Schema } from 'effect'
+import { describe, it as test } from 'vitest'
 import { checkFile } from './checking/engine.ts'
 import { loadRules } from './checking/loader.ts'
 import { appliesTo } from './checking/scope.ts'
@@ -181,14 +182,145 @@ const withRules = <A, E>(
     return yield* use(root)
   }).pipe(Effect.scoped)
 
-/** `[text](../src/x.ts)` — the links the docs check already tracks the content of. */
-const citedSourceFiles = (markdown: string): readonly string[] =>
-  [...markdown.matchAll(/\]\(\.\.\/(src\/[^)]+\.ts)\)/g)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]))
+/**
+ * Resolve a doc-relative link to a repository-relative path, without touching the filesystem.
+ *
+ * `Path.join` would do this, but it belongs to an Effect service and this function is used from
+ * plain assertions as well as from effects; the arithmetic is four lines and has no failure mode
+ * worth a layer.
+ */
+const resolveFromDocument = (fromDirectory: string, target: string): string => {
+  const segments = fromDirectory === '' ? [] : fromDirectory.split('/')
+
+  for (const segment of target.split('/')) {
+    if (segment === '..') {
+      segments.pop()
+    } else if (segment !== '.' && segment !== '') {
+      segments.push(segment)
+    }
+  }
+
+  return segments.join('/')
+}
+
+/**
+ * `[text](../src/x.ts)` — the links the docs check already tracks the content of.
+ *
+ * `fromDirectory` is the directory of the citing document, and the link is RESOLVED against it
+ * rather than matched at a fixed depth. A doc in `docs/` reaches source through `../src/`, one in
+ * `docs/guides/` through `../../src/`, and only the spelling that actually lands in `src/` counts —
+ * which is the same file the link checker resolves, rather than a second opinion about it.
+ */
+const citedSourceFiles = (markdown: string, fromDirectory: string): readonly string[] =>
+  [...markdown.matchAll(/\]\((\.[^)]*\.ts)\)/g)].flatMap((match) => {
+    const target = match[1]
+    if (target === undefined) {
+      return []
+    }
+
+    const resolved = resolveFromDocument(fromDirectory, target)
+
+    return resolved.startsWith('src/') ? [resolved] : []
+  })
+
+/**
+ * Documents that describe what falsestart DOES, and so must cite the code that decides it.
+ *
+ * Classified by name rather than by content, which is the only classification that survives a new
+ * document: whatever someone adds to `docs/` is in, unless it is one of the two kinds that are
+ * structurally indexes rather than descriptions.
+ *
+ * `path` is relative to `docs/` and may name a subdirectory, which is why the exemptions compare
+ * the BASENAME. Matching the whole path exempted `_SUMMARY.md` and nothing else: a first version
+ * read `docs/` non-recursively, and a thirty-eight-line invention placed in `docs/guides/` passed
+ * it, `cairn check` and the whole suite — the same document, one directory deeper.
+ */
+const isBehaviourDoc = (path: string): boolean => {
+  const name = path.slice(path.lastIndexOf('/') + 1)
+
+  return (
+    name.endsWith('.md') &&
+    // A summary is a digest of a doc that carries the citations itself.
+    !name.endsWith('.summary.md') &&
+    // The directory summary is a link index over its children.
+    name !== '_SUMMARY.md' &&
+    // The one-paragraph front door: it points at the other documents and describes no behaviour.
+    path !== 'overview.md'
+  )
+}
+
+/**
+ * The matcher, at a depth other than one.
+ *
+ * `isBehaviourDoc` was made recursive so a document could not hide one directory down, and this
+ * function was not: it matched a single `../`, so `docs/guides/x.md` citing `../../src/y.ts` — the
+ * only spelling that resolves from there — read as citing nothing. The same document with the same
+ * valid citation passed at `docs/` and failed at `docs/guides/`, and `cairn check --links-only`
+ * accepted the link both times, so the message accused the doc of what the matcher could not see.
+ *
+ * The inverse matters as much and is why this resolves rather than counting `../`: a citation with
+ * the WRONG number of them points at `docs/src/y.ts`, which does not exist, and must not count as
+ * a citation just because the tail of the string looks right.
+ */
+describe('citedSourceFiles', () => {
+  test('reads a citation from a doc directly in docs/', () => {
+    expect(citedSourceFiles('see [scope](../src/checking/scope.ts).', 'docs')).toEqual(['src/checking/scope.ts'])
+  })
+
+  test('reads a citation from a doc one directory deeper', () => {
+    expect(citedSourceFiles('see [scope](../../src/checking/scope.ts).', 'docs/guides')).toEqual([
+      'src/checking/scope.ts',
+    ])
+  })
+
+  test('ignores a citation whose depth does not reach src/', () => {
+    expect(citedSourceFiles('see [scope](../src/checking/scope.ts).', 'docs/guides')).toEqual([])
+  })
+
+  test('ignores a link to something that is not source', () => {
+    expect(citedSourceFiles('see [the overview](./overview.md).', 'docs')).toEqual([])
+  })
+})
 
 layer(platform)('documentation covers the source', (it) => {
+  /**
+   * `--refs` is only armed on a doc that carries `[text](../src/x.ts)` links, so a document with
+   * none tracks nothing and can never go stale — it is green on the day it is written and green
+   * forever after, whatever the code does. AGENTS.md states the rule ("link a behaviour doc to the
+   * code that decides the behaviour") and, until this test, nothing enforced it: a forty-line
+   * document of pure invention was added to `docs/`, given a one-character summary, stamped, and
+   * passed `pnpm check`, `pnpm coverage:ci` and `pnpm verify` in that state.
+   *
+   * This does not make a doc TRUE — no check here can. It makes the doc's claims re-checkable,
+   * which is the precondition every other doc guard in this repo depends on.
+   */
+  it.effect('every behaviour doc cites at least one source file, so --refs has something to hash', () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const documents = (yield* fs.readDirectory('docs', { recursive: true })).filter((path) => isBehaviourDoc(path))
+      // The classifier is what this test is worth: widen an exemption until nothing is classified
+      // and the assertion below passes over an empty set, which is the defect this file exists to
+      // catch happening to the check that catches it.
+      expect(documents).toEqual(expect.arrayContaining(['architecture.md', 'reference.md', 'using-the-hook.md']))
+
+      const uncited: string[] = []
+
+      for (const name of documents) {
+        const slash = name.lastIndexOf('/')
+        const directory = slash === -1 ? 'docs' : `docs/${name.slice(0, slash)}`
+        const cited = citedSourceFiles(yield* fs.readFileString(`docs/${name}`), directory)
+        if (cited.length === 0) {
+          uncited.push(name)
+        }
+      }
+
+      expect(uncited).toEqual([])
+    }),
+  )
+
   it.effect('every area entry point is cited by the architecture doc', () =>
     Effect.gen(function* () {
-      const cited = new Set(citedSourceFiles(yield* architecture))
+      const cited = new Set(citedSourceFiles(yield* architecture, 'docs'))
       const entryPoints = (yield* sourceFiles).filter((file) => isEntryPoint(file))
 
       // `src/index.ts` is the library barrel; the doc describes the areas, not the barrel.
@@ -202,7 +334,7 @@ layer(platform)('documentation covers the source', (it) => {
     Effect.gen(function* () {
       // Reaching past an entry point into an implementation file is what made this document go
       // stale on every unrelated edit, back when it named fourteen of them.
-      const cited = citedSourceFiles(yield* architecture)
+      const cited = citedSourceFiles(yield* architecture, 'docs')
 
       expect(cited.filter((file) => !isEntryPoint(file))).toEqual([])
     }),

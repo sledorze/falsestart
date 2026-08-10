@@ -1,7 +1,10 @@
 # Contributing
 
-`pnpm install`, then `pnpm verify` — lint, format, typecheck, tests, build, docs. It must be green
-before you push; the git hooks run it for you but are skippable, so treat them as the backstop.
+`pnpm install`, then `pnpm verify` — lint, format, typecheck, tests, build, docs, and mutation
+testing of whatever source your branch changed. It must be green before you push; the git hooks run
+it for you but are skippable, so treat them as the backstop. The mutation step costs about a minute
+per changed source file, skips entirely on a branch that changed no source, and scores the last
+commit rather than your working tree — so it is worth running after you commit, not before.
 
 The conventions this repo holds you to are in [AGENTS.md](./AGENTS.md), and they are unusual enough
 to be worth reading before your first change: documentation summaries are content-hashed and

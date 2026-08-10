@@ -27,9 +27,31 @@ cd "$repo"
 # A floor, not the bar. Lowest committed per-file score is 76.5; this catches a collapse.
 FLOOR=70
 
-base="$(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main 2>/dev/null || true)"
+# WHY THE SKIP IS OPT-OUT. Exiting 0 with no base is right on a laptop: a branch with no `main` to
+# compare against has no "what this branch changed" to score, and a pre-push hook must not refuse a
+# push it has nothing to say about. It is catastrophic in CI, where a default `actions/checkout`
+# clones with `fetch-depth: 1` and no `origin/main` exists at all — so the obvious CI job takes this
+# branch on every pull request, prints `skipping`, and goes green having mutated nothing. A guard
+# against tests that cannot fail, which is itself a check that cannot fail.
+#
+# `MUTATION_REQUIRE_BASE=1` says the base is a precondition of this invocation rather than a
+# convenience, so its absence is the failure it actually is. Set by the workflow, not by the hook.
+#
+# `MUTATION_BASE_REF` names the branch this work is actually being merged into, and the workflow
+# passes the pull request's own base. Hard-coding `main` is not a hole — it is stricter, not weaker —
+# but on the stacked branches AGENTS.md prescribes ("branch B off A's branch, not off `main`") it
+# scores the PARENT branch's files as well, so B waits about a minute a file for a score it cannot
+# act on, and a red tick nobody can act on is one people learn to ignore.
+base_ref="${MUTATION_BASE_REF:-main}"
+base="$(git merge-base HEAD "origin/$base_ref" 2>/dev/null || git merge-base HEAD "$base_ref" 2>/dev/null || true)"
 if [ -z "$base" ]; then
-  echo "mutation: no main branch to diff against, skipping"
+  if [ -n "${MUTATION_REQUIRE_BASE:-}" ]; then
+    echo "mutation: no merge-base with origin/$base_ref or $base_ref, and MUTATION_REQUIRE_BASE is set." >&2
+    echo "mutation: refusing to report success on a comparison that never happened. Fetch that" >&2
+    echo "mutation: branch with its history (actions/checkout with fetch-depth: 0)." >&2
+    exit 1
+  fi
+  echo "mutation: no $base_ref branch to diff against, skipping"
   exit 0
 fi
 
@@ -39,10 +61,39 @@ fi
 #
 # `R` is in the filter because a rename-plus-rewrite is exactly the change worth mutating, and
 # `ACM` alone drops it.
-changed="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' |
-  grep -vE '\.(test|test-d|bench)\.ts$' |
-  grep -vE '^src/cli\.ts$' ||
-  true)"
+touched="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' || true)"
+
+sources="$(grep -vE '\.(test|test-d|bench)\.ts$' <<<"$touched" | grep -vE '^src/cli\.ts$' || true)"
+
+# A branch that only WEAKENS a test changes no source file at all, and "this test no longer
+# constrains the code" is precisely the defect this gate exists to catch — so filtering tests out
+# and stopping made the guard skip the one change it was built for. Reproduced on this repository:
+# deleting every assertion about `appliesTo` from `src/checking/scope.test.ts`, touching nothing
+# else, left the suite green and printed `no mutatable source changed on this branch, skipping`.
+#
+# Each changed test therefore pulls in the implementation it is the test FOR, mapped structurally by
+# this repository's own file-role convention — `x.test.ts` beside `x.ts` — and never by guessing
+# from content which sources a test exercises. A test whose subject is not its sibling
+# (`cli.e2e.test.ts`, `corpus.test.ts`, `documented.test.ts`) pulls in nothing, which is honest: it
+# is a whole-suite test, and there is no one file whose score answers for it.
+#
+# What this buys, measured on that same reproduction: the run happens and reports `scope.ts` at
+# 90.38% with 15 survivors, instead of skipping. It did NOT go red, because the rest of the suite
+# still kills most of what that describe block was killing and 90.38 clears the floor of 70. The
+# floor catches a collapse, not an erosion, and `--mutate <file>` scores the whole file rather than
+# the change — so a per-file floor cannot see "this file scored worse than it did on main". A
+# ratchet against the base commit's score would, at the cost of scoring every file twice. Not built;
+# named here so the next reader does not have to rediscover it.
+subjects=''
+while IFS= read -r test; do
+  [ -n "$test" ] || continue
+  subject="${test%.test.ts}.ts"
+  if [ "$subject" != "$test" ] && [ "$subject" != 'src/cli.ts' ] && [ -f "$subject" ]; then
+    subjects="${subjects}${subject}"$'\n'
+  fi
+done < <(grep -E '\.test\.ts$' <<<"$touched" || true)
+
+changed="$(printf '%s\n%s' "$sources" "$subjects" | grep -vE '^[[:space:]]*$' | sort -u || true)"
 
 if [ -z "$changed" ]; then
   echo "mutation: no mutatable source changed on this branch, skipping"
@@ -75,6 +126,13 @@ ln -s "$repo/node_modules" "$work/node_modules"
 # matters: a module reachable only through `cli.ts` or exercised only by the e2e suite (which spawns
 # a subprocess, so there is no import edge for vitest `--related` to follow) yields no tests, and
 # Stryker treats that as a configuration error rather than a pass.
+#
+# Its price, which is real: a source file that NO test reaches is then a pass here too. Measured —
+# committing a two-function `src/scanning/quota.ts` that nothing imports gives `Instrumented 1 source
+# file(s) with 11 mutant(s)`, `No tests were found`, exit 0. What catches that file is
+# `pnpm coverage:ci`, whose 100% thresholds report it at 0% and fail the run, so the pull request is
+# still red — by the other gate, not this one. Do not read a green mutation step as "these mutants
+# were killed" without looking at how many ran.
 node -e '
   const fs = require("fs")
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))

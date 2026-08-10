@@ -1,0 +1,24 @@
+{
+  "refs": [
+    {
+      "hash": "eb9ba7ecbe1110d33cf9ced3c902b9adb5b380a30d12bd99dcec590c2539241e",
+      "target": ".github/workflows/ci.yml"
+    },
+    {
+      "hash": "afb697f976b139487cac4cacd2ecaf3358f91665e77c7087f5c8777bead38e89",
+      "target": "lefthook.yml"
+    },
+    {
+      "hash": "0bf6505a9c17f01eaab876c62e8af7bf3a95a1cd327551a58369a4983bef617b",
+      "target": "scripts/mutate-changed.sh"
+    },
+    {
+      "hash": "540d0ee147e8343840c2475b72d0184645581164bfd43aeb15218edf27d5dd91",
+      "target": "scripts/stamped-not-written.sh"
+    },
+    {
+      "hash": "110a6c3847bb3a6b81c05a9c764d87c9754c63b547871113bbdd4f323f6d0300",
+      "target": "stryker.config.json"
+    }
+  ]
+}

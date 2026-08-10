@@ -1,8 +1,10 @@
 # Contributing — summary
 
-`pnpm install`, then `pnpm verify` (lint, format, typecheck, coverage, build, docs) must be green
-before you push. The git hooks run it for you but are skippable, so they are the backstop rather
-than the practice. The conventions themselves live in [AGENTS.md](./AGENTS.md) and are unusual
+`pnpm install`, then `pnpm verify` (lint, format, typecheck, coverage, build, docs, and mutation
+testing of the source the branch changed) must be green before you push. The mutation step costs
+about a minute per changed source file, does nothing on a docs-only branch, and scores the last
+commit rather than the working tree. The git hooks run it for you but are skippable, so they are the
+backstop rather than the practice. The conventions themselves live in [AGENTS.md](./AGENTS.md) and are unusual
 enough to read first: content-hashed documentation summaries, a changeset for every user-facing
 change, and structural rather than content-pattern scoping for anything that edits or blocks code.
 

@@ -52,11 +52,22 @@ re-stamp and commit that; picking a side and stopping records a hash for a tree 
 and `check` goes green on it.
 
 Also worth knowing about the tool's reach: a summary can state a fact about a file it does not LINK
-to — `README.summary.md` lists what the tarball ships, which is a claim about `package.json` — and
-cairn cannot see that edge at all. `--refs` hashes the targets of `[text](path)` links, and
-`--prose-refs` fires on a backticked path that MOVED. A sentence naming neither stays green while
-going false, which is what happened when `CHANGELOG.md` was added to `files`. Claims of that shape
-belong in `src/documented.test.ts`, where several already live.
+to — `README.summary.md` lists what the tarball ships, which is a claim about `package.json`.
+`--refs` hashes the targets of `[text](path)` links, and `--prose-refs` fires on a backticked path
+that MOVED. A sentence naming neither stays green while going false, which is what happened when
+`CHANGELOG.md` was added to `files`.
+
+This file used to say cairn **cannot see that edge at all**, and as of 0.10 that is no longer true:
+a fenced ` ```cairn-refs ` block declares extra targets, hashed and drift-reported exactly like a
+real link's, for the claims that have no hyperlink to make. The block below this section's closing
+line does that for the five files whose wiring this document describes — the claims that went stale
+first, and the ones a reader has no way to re-derive. Verified by appending one line to
+`.github/workflows/ci.yml` and running `pnpm check`:
+`~ .github/workflows/ci.yml (83055438 → 69c18cbf)`, exit 1. Removing the line made it green again.
+
+A claim about a file that is neither linked nor declared still belongs in `src/documented.test.ts`,
+where several already live — and a claim about an ENUMERATION belongs there regardless, because a
+hash says a file changed, never that a list of its contents is complete.
 
 ## Commands
 
@@ -125,12 +136,39 @@ document into `docs/` and watching the check demand a summary for it.
 
 You author the prose. The tool only verifies and stamps — and it never touches your prose to do it.
 
+```cairn-refs
+.github/workflows/ci.yml
+lefthook.yml
+scripts/mutate-changed.sh
+scripts/stamped-not-written.sh
+stryker.config.json
+```
+
 **Link a behaviour doc to the code that decides the behaviour.** `--refs` is only armed on the docs
 that actually carry `[text](../src/x.ts)` links. `architecture.md` carried eight and stayed correct;
 `reference.md` and `using-the-hook.md` carried **zero** — and those two held every false sentence
 found this week, green the whole time. Both now open with a block of links to the parser, the
 decision path, the diagnostic and the freeze, so a change to any of them fails `check` and forces
 the prose to be re-read. The links exist to be hashed, not followed.
+
+Enforced by `src/documented.test.ts` rather than by the convention alone, because the convention
+alone did not hold: a forty-line document of pure invention was added to `docs/`, given a
+one-character summary and a line in `docs/_SUMMARY.md`, stamped, and passed `pnpm check` and the
+whole suite. Every markdown file in `docs/` must now cite at least one file under `src/`, RESOLVED
+from wherever the document sits — `../src/x.ts` at the top of `docs/`, `../../src/x.ts` one
+directory down — rather than matched at a fixed depth. That distinction is not pedantry: the first
+version of this test read the directory recursively but matched a single `../`, so the same document
+with the same valid citation passed in `docs/` and failed in `docs/guides/`, accusing the doc of
+citing nothing while `cairn check --links-only` resolved the link. It cuts the other way too — a
+citation with the wrong number of `../` lands on a `src/` directory beneath `docs/` that does not
+exist, and no longer counts merely because the tail of the string looks right. Two
+exemptions that are structural rather than editorial — a `.summary.md`, whose parent carries the
+citations, and `_SUMMARY.md`, which is a link index. `overview.md` is exempt by name as the
+one-paragraph front door; if it ever describes behaviour, delete the exemption.
+
+**What that test does NOT do is make the prose true**, and neither does anything else here. See "The
+boundary of the documentation guards" below before trusting a green `check` to mean a document is
+correct.
 
 **An enumeration a document claims to be exhaustive about needs a test.** `reference.md` opens
 "Every flag, export and shipped rule". The rules were pinned by a test and stayed right; the exports
@@ -174,6 +212,60 @@ behaviour docs. Cause 3 was closed by a test here, as this file already prescrib
 [cairn#131](https://github.com/sledorze/cairn/issues/131) covers the remaining ground with a better
 shape than a new check — scoped and interactive stamping, which PREVENTS the reflex instead of
 detecting it afterwards, and so has no false positives to suppress.
+
+## The boundary of the documentation guards
+
+**No check in this repository reads a document for truth, and none can.** Everything above verifies
+a RELATIONSHIP — the summary exists, its hash matches, the link resolves, the cited content has not
+drifted, the doc cites something. A sentence that is simply false about code nobody has touched
+satisfies every one of them.
+
+Measured rather than argued. `docs/reference.md` carries `--refs` links to the parser, the decision
+path, the diagnostic, the freeze, rule scoping and the config, and this sentence was inserted into
+it:
+
+> falsestart denies every write by default, and `--fail open` is required to allow anything.
+
+It is the exact inverse of what `--fail` does. `pnpm check` failed at first — not on the sentence,
+but because `reference.md`'s own hash had moved — and the documented remediation, `pnpm format &&
+pnpm stamp`, cleared it: `✅ Markdown links OK`, `✅ Hierarchical summaries OK`, `✅ References OK`,
+exit 0. `src/documented.test.ts`, the file that exists to pin documentation claims, passed all 28 of
+its assertions over that text. The guard fires on the EDIT, never on its content, and the fix
+for the edit is one command.
+
+One thing did notice, and it is worth knowing exactly how far it goes.
+`scripts/stamped-not-written.sh` refused the commit, naming `docs/reference.summary.md`, because the
+sidecar was staged and the digest was not. That is the moment of maximum leverage — someone is being
+asked, at the keyboard, whether the digest still holds — and it is also a pre-commit hook, cleared by
+`SUMMARIES_REVIEWED=1`, by `--no-verify`, or by editing one word of the summary.
+
+So for the truth of prose, **adversarial review is the primary control, not the backstop.** The
+review convention further down is load-bearing in a way no CI job can replace: give the reviewer the
+document and the code and tell it to find the sentence that is false, because that is the only reader
+of any kind that will.
+
+Two things a tool CAN do, and both are now done, because they are the preconditions the review
+depends on: every behaviour doc cites source (so `--refs` has something to hash, and a change to the
+code forces the prose back in front of someone), and every enumeration a doc claims to be exhaustive
+about is pinned by a test. Neither is truth. Both are what makes a false sentence more likely to be
+re-read by someone who can tell.
+
+Re-tested against the current doc set, since a rejection is only as good as its date:
+
+- `checks.coverage` is now **half adopted in spirit and rejected as config**. A kind of "every doc
+  in `docs/`" with a rule `{ "to": { "external": "path" } }` does report the invented document —
+  verified, `✗ no link ("cites_code") to an existing file`. It is weaker than the test that replaced
+  it: adding `[the overview](./overview.md)` to the same fiction satisfied it (`✅ Coverage OK`),
+  because any resolvable path counts, including a sibling doc. `src/documented.test.ts` demands a
+  citation that RESOLVES under `src/` specifically, needs no config, and runs in the suite CI already
+  gates on.
+- `checks.docCoverage` — unchanged and still rejected, for the reason already recorded: it cannot
+  express "cites entry points and nothing below them", which is the actual convention here.
+- `checks.freshness` — unchanged and still rejected. Age is a proxy; `--refs` is the causal signal.
+  A false sentence about code that has not changed is exactly the case age would not catch either.
+- `refs.scope` — considered and NOT adopted. It exempts globs from hashing, i.e. it makes `--refs`
+  quieter. Nothing here is too noisy yet; adopt it the day a churn-heavy target starts producing
+  drift reports nobody reads, and not before.
 
 # Release convention
 
@@ -229,20 +321,47 @@ but "an adjacent, superficially-similar file is provably left untouched."
 # Shipping one iteration well
 
 **Full local verify before every push, every time — not just before "done."**
-`pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage:ci && pnpm build && pnpm check`
-(`pnpm verify` runs all six — `format:check` is in there because CI enforces it, and a verify that
-omits a gate CI applies is a verify that can be green while the merge is red).
+`pnpm lint && pnpm format:check && pnpm typecheck && pnpm coverage:ci && pnpm build && pnpm check &&
+pnpm mutation:changed` (`pnpm verify` runs all seven — `format:check` is in there because CI enforces
+it, and a verify that omits a gate CI applies is a verify that can be green while the merge is red).
 
 That rule used to be broken by `verify` itself: it ran `pnpm test`, while CI and `pre-push` both run
 `pnpm coverage:ci`, whose 100% thresholds `pnpm test` does not apply. A change with uncovered
 branches therefore passed a full local `verify` and was rejected at push — observed, not theorised.
 `coverage:ci` runs the same tests, so nothing is lost by using the stricter one.
 
-`lefthook.yml`'s hooks already automate most of this — `pre-commit` runs
-lint/format+docs, `pre-push` runs typecheck+test+build+docs+coverage+mutation — but that's not a reason
-to treat it as covered: hooks are skippable (`git ... --no-verify`), and no hook can
-construct the actual scenario a feature is meant to catch for you (see "Dogfood," next).
-Treat the hooks as the backstop, not the practice.
+It was broken again the moment CI gained the `mutation` job, in the same way, by the change that
+added the job — and by a reviewer's reading rather than by anything that could observe it. So the
+list is no longer maintained by hand: `src/guards.test.ts` reads both `package.json` and `ci.yml` and
+fails when a `pnpm` step CI runs is absent from `verify`. Two costs worth knowing. `mutation:changed`
+adds about a minute per changed source file, and nothing at all on a docs-only branch. And it scores
+`HEAD` in a disposable worktree, never your working tree, so run it after committing — before that
+it is answering about the previous commit.
+
+**`lefthook.yml` is advisory. It gates nothing.** `pre-commit` runs lint/format/docs and the stamp
+guard; `pre-push` runs typecheck+test+build+docs+coverage+mutation — and every one of those is
+skipped by `git ... --no-verify`, by `LEFTHOOK=0` (verified: `LEFTHOOK=0 lefthook run pre-push` exits
+0 having printed nothing), by `LEFTHOOK_EXCLUDE=<name>` for one command at a time, and entirely by a
+clone where `pnpm install` never ran `prepare` — which is `lefthook install || true`, so a failure to
+install the hooks is silent by design. No hook of any kind runs on a merge performed in the GitHub
+UI, which is how most of them land here.
+
+The only guard a merge can see is `.github/workflows/ci.yml`. `codeql.yml`'s single job is behind
+`if: vars.codeql-enabled == 'true'`, which its own comment says is off until Advanced Security is
+enabled, and `dependabot-auto-merge.yml` merges rather than checks. (Whether CI is a _required_
+check is branch protection, which lives outside this repository and cannot be read from it; a green
+tick nobody made mandatory blocks nothing — **adding the `mutation` job to the required set is a
+manual step, and until someone does it that job reports rather than blocks**, while
+`dependabot-auto-merge.yml` merges as soon as the currently-required checks pass.) CI runs
+lint, format:check, typecheck, coverage:ci, build, check — and, since the `mutation` job was added,
+`pnpm mutation:changed` on every pull request. That job is where the "a test that cannot fail" guard
+lives now; before it, that guard ran only in the skippable hook, which is the same as nowhere.
+
+Two things stay hook-only, and both because CI cannot express them.
+`scripts/stamped-not-written.sh` asks a question about the git INDEX — what is staged next to what —
+and a CI checkout has no index to ask about. And no hook, and no job, can construct the scenario a
+feature is meant to catch for you (see "Dogfood," next). Treat the hooks as a prompt at the moment a
+question is answerable, never as evidence the question was answered.
 
 **Dogfood the actual CLI/behavior against a real scenario before calling a feature
 done — unit tests that pass are necessary, not sufficient.** Run the real build and
@@ -263,6 +382,34 @@ upstream made it green either way — that one is now documented in place, point
 does guard it.
 
 None were caught by review. All four were caught by reverting the fix and looking.
+
+**How much a green suite at 100% coverage does not prove, in a number.** A full `pnpm mutation` run
+of this branch: score 91.40%, 3141 mutants, **269 survivors** — 269 single-point changes to `src/`
+that no test objects to, at 100% statements, branches, functions and lines. Worst areas `scanning`
+(87.10) and `config` (89.56); best `cli` (94.67). That is the size of the gap `pnpm coverage:ci`
+cannot see, and the reason `pnpm mutation:changed` now runs on every pull request rather than only in
+a hook. Read the survivors when you touch a file; the score is a threshold, the survivors are the
+information.
+
+**A branch that only weakens a test is the shape that gate was blindest to.** `mutate-changed.sh`
+selected changed SOURCE files and filtered tests out, so deleting every assertion about `appliesTo`
+from `src/checking/scope.test.ts` while touching no source printed `no mutatable source changed on
+this branch, skipping` and exited 0 — the guard against tests that stop constraining code, skipping
+the change that stops a test constraining code. A changed `x.test.ts` now pulls `x.ts` into the
+mutated set, mapped by the file-role convention rather than by guessing which sources a test touches.
+Its limit, measured on that same branch: the run then reports `scope.ts` at 90.38% with 15 survivors
+and stays GREEN, because the floor of 70 catches a collapse and not an erosion, and `--mutate <file>`
+scores the whole file rather than the change. Read the survivor list on a test-only diff; the exit
+code is not the signal there. Three more things it does not reach: `src/cli.ts`, excluded from
+mutation entirely; a test with no sibling implementation, which has nothing to score; and a source
+file no test reaches at all, which Stryker's `allowEmpty` passes with zero mutants run — that last
+one is caught by `coverage:ci`'s 100% thresholds instead, by the other gate rather than this one.
+
+Its counterpart in the small: a new module with a test that calls every function and asserts only
+properties of its own fixture reports 100% coverage and a green suite, and scores **0.00%** with all
+fourteen of its mutants surviving. That is a real reading, not an illustration: add such a pair on a
+branch, run `MUTATION_REQUIRE_BASE=1 pnpm mutation:changed`, and watch the job that CI runs go red on
+a change that `pnpm verify` calls clean.
 
 **Table-driven tests use `describe.each` + `effect`, not `it.effect.each`.** The curried form
 `it.effect.each(table)(name, fn)` leaves oxlint's vitest plugin unable to resolve the callee:

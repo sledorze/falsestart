@@ -90,16 +90,19 @@ pre-push:
     coverage:
       priority: 3
       run: pnpm coverage
-    # Mutation testing, on what THIS branch changed — and the only place it runs automatically, by
-    # choice: a full run in CI costs about a minute per push for a signal whose value is in reading
-    # the survivors. Line coverage says a line ran; it does not say a test would notice if that line
-    # were wrong. The first full run scored 89.94% at 100% line coverage, and among the survivors
-    # was every conjunct of `isRecord` — nothing fed it `null`, an array, or a non-object, so all
-    # three guards could be deleted with the suite green.
+    # Mutation testing, on what THIS branch changed. The fast local copy: `.github/workflows/ci.yml`
+    # runs the same script on every pull request, which is where it actually gates, because this
+    # hook is skipped by `git push --no-verify`, by `LEFTHOOK=0`, and by a clone where `pnpm install`
+    # never ran `prepare` — and no hook runs at all on a merge performed in the GitHub UI. Line
+    # coverage says a line ran; it does not say a test would notice if that line were wrong. The
+    # first full run scored 89.94% at 100% line coverage, and among the survivors was every conjunct
+    # of `isRecord` — nothing fed it `null`, an array, or a non-object, so all three guards could be
+    # deleted with the suite green.
     #
-    # Scoped to changed files because a full run takes ~52s and, more importantly, because the score
-    # that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when the
-    # branch touched no mutatable source.
+    # Scoped to changed files because a full run takes 3m43s on this tree — it said ~52s here for
+    # months, measured when the suite was a fraction of its size — and, more importantly, because the
+    # score that matters on a push is the score of the new code. `pnpm mutation:changed` exits 0 when
+    # the branch touched no mutatable source, and a changed `x.test.ts` counts as touching `x.ts`.
     #
     # It cannot touch your working tree. Stryker must run `inPlace` here (sandbox mode crashes on
     # TypeScript 7 — see stryker.config.json), which overwrites real files, so the script runs it in
