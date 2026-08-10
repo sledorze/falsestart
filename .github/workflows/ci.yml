@@ -104,7 +104,7 @@ jobs:
   #
   # Two things it does not reach, both by design and neither obvious: `src/cli.ts` is excluded (from
   # the script and from stryker.config.json's `mutate`), and a branch whose only changed test has no
-  # sibling implementation — `cli.e2e.test.ts`, `corpus.test.ts`, this file's own `guards.test.ts` —
+  # sibling implementation — `cli.e2e.test.ts`, `corpus.test.ts`, this file's own `guards/parity.test.ts` —
   # has nothing for `--mutate` to score and skips.
   mutation:
     # Pull requests only. On a push to `main` the merge-base with `origin/main` is HEAD itself, the
