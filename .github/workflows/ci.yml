@@ -28,6 +28,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          # The deletions step below compares this branch against the pull request's base, which the
+          # default depth of 1 does not fetch. Without history there is no base commit to diff, and
+          # the step degrades into the same silent no-op it exists to fix.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v6.0.9
       - uses: actions/setup-node@v7
         with:
@@ -47,6 +51,31 @@ jobs:
       - run: pnpm build
       # Dogfood: cairn checks this repo's own docs/ (summaries + dead links).
       - run: pnpm check
+      # `pnpm check` passes `--report-deletions` with cairn's default `--deletions-since HEAD`,
+      # which compares the WORKING TREE against HEAD. On a CI checkout everything is committed, so
+      # it inspects nothing and prints `Nothing deleted since the compared ref — nothing to check.`
+      # on every run. It has therefore never reported a deletion here, on any pull request, since
+      # the flag was wired in — the deletions this repo cares about are the ones already committed
+      # on the branch, and only a comparison against the base can see them.
+      #
+      # Verified before and after, with the deletion COMMITTED and the tree clean: the default ref
+      # prints `nothing to check`, while `--deletions-since origin/main` reports
+      # `1 deleted doc(s) took content with them` / `heading nowhere else: # Overview`.
+      #
+      # This step CANNOT fail the build on a deletion: `--report-deletions` is informational and
+      # never affects cairn's exit code (it does still exit non-zero on a broken link or a stale
+      # summary, which `pnpm check` above has already covered). Its job is to put a lossy deletion
+      # in the pull request's log where a reviewer sees it, not to gate the merge — and it is
+      # written as its own step, rather than folded into `pnpm check`, so that `pnpm verify` locally
+      # and CI keep running the identical command.
+      # The base branch, fetched explicitly for the same reason the mutation job does it: this
+      # step's whole value depends on the base existing, and a missing one degrades into the silent
+      # no-op it was written to remove rather than failing loudly.
+      - if: github.event_name == 'pull_request'
+        run: git fetch --no-tags origin +refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}
+      - if: github.event_name == 'pull_request'
+        name: Report deletions against the pull request base
+        run: npx cairn check --report-deletions --deletions-since "origin/${{ github.base_ref }}"
 
   # Mutation testing on what the pull request changed — the only mechanism here that notices a test
   # which cannot fail. `pnpm coverage:ci` above proves a line RAN; it never proves a test would

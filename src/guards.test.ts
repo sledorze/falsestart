@@ -23,6 +23,7 @@ import { parse } from 'yaml'
 const SCRIPT = `${process.cwd()}/scripts/mutate-changed.sh`
 const WORKFLOW = `${process.cwd()}/.github/workflows/ci.yml`
 const MANIFEST = `${process.cwd()}/package.json`
+const CAIRN = `${process.cwd()}/node_modules/.bin/cairn`
 
 interface Ran {
   readonly exitCode: number
@@ -150,6 +151,7 @@ interface Step {
   readonly uses?: string | undefined
   readonly env?: Readonly<Record<string, string>> | undefined
   readonly with?: Readonly<Record<string, unknown>> | undefined
+  readonly if?: string | undefined
   readonly 'continue-on-error'?: boolean | undefined
 }
 
@@ -294,6 +296,98 @@ layer(NodeServices.layer)('the mutation guard', (it) => {
 
       expect(gates.length).toBeGreaterThan(0)
       expect(gates.filter((gate) => !verify.includes(gate))).toEqual([])
+    }),
+  )
+})
+
+/**
+ * A repository whose `main` carried a document, on a branch that deleted it and COMMITTED the
+ * deletion — so the working tree is clean and nothing but a comparison against the base can see it.
+ *
+ * That state is the whole point. `--report-deletions` defaults to `--deletions-since HEAD`, which
+ * compares the WORKING TREE against HEAD, and a CI checkout never has an uncommitted deletion in
+ * it: the check ran on every pull request here and inspected nothing, printing its "nothing to
+ * check" line each time. `overview.md` survives so that the directory still has a document and the
+ * report is not crowded by an orphaned `_SUMMARY.md`.
+ */
+const aBranchThatDeletedADocument = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped({ prefix: 'falsestart-deletions-' }))
+
+  yield* fs.writeFileString(`${root}/.cairnrc.json`, JSON.stringify({ ignore: ['node_modules/**'], roots: ['.'] }))
+  yield* fs.writeFileString(`${root}/_SUMMARY.md`, '# Root\n\n- [overview](overview.md)\n- [guide](guide.md)\n')
+  yield* fs.writeFileString(`${root}/overview.md`, '# Overview\n\nWhat this is.\n')
+  yield* fs.writeFileString(`${root}/guide.md`, '# Tuning knobs\n\nHow to tune the scanner.\n')
+  yield* run('git', ['init', '-q', '-b', 'main', '.'], root)
+  yield* run('git', ['config', 'user.email', 'test@example.com'], root)
+  yield* run('git', ['config', 'user.name', 'test'], root)
+  yield* run('git', ['add', '-A'], root)
+  yield* run('git', ['commit', '-qm', 'first'], root)
+  yield* run('git', ['checkout', '-q', '-b', 'consolidate'], root)
+  yield* run('git', ['rm', '-q', 'guide.md'], root)
+  yield* fs.writeFileString(`${root}/_SUMMARY.md`, '# Root\n\n- [overview](overview.md)\n')
+  yield* run('git', ['add', '-A'], root)
+  yield* run('git', ['commit', '-qm', 'consolidate'], root)
+
+  return root
+})
+
+layer(NodeServices.layer)('the deletions report', (it) => {
+  /**
+   * The claim the CI step rests on, pinned against the real tool rather than restated in prose:
+   * with the deletion committed and the tree clean, the default ref sees nothing at all.
+   *
+   * This is a claim about cairn, not about falsestart, and it is worth a test for that exact
+   * reason — the day cairn's default starts catching a committed deletion, the step below becomes
+   * redundant and this test is what says so.
+   */
+  it.effect('sees nothing against the default ref, because the deletion is committed', () =>
+    Effect.gen(function* () {
+      const root = yield* aBranchThatDeletedADocument
+      const ran = yield* run(CAIRN, ['check', '--report-deletions'], root)
+
+      expect(ran.output).toContain('Nothing deleted since the compared ref')
+      expect(ran.output).not.toContain('Tuning knobs')
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('names what the deletion took when compared against the base', () =>
+    Effect.gen(function* () {
+      const root = yield* aBranchThatDeletedADocument
+      const ran = yield* run(CAIRN, ['check', '--report-deletions', '--deletions-since', 'main'], root)
+
+      expect(ran.output).toContain('deleted doc(s) took content with them')
+      expect(ran.output).toContain('guide.md')
+      // The heading is the CONTENT the deletion carried off, which is the information the report
+      // exists to surface; naming the file alone would be satisfied by `git log`.
+      expect(ran.output).toContain('# Tuning knobs')
+    }).pipe(Effect.scoped),
+  )
+
+  it.effect('is wired into CI against the pull request base, with the history to resolve it', () =>
+    Effect.gen(function* () {
+      const steps = yield* workflowSteps
+      const reporting = steps.filter(({ step }) => (step.run ?? '').includes('--deletions-since'))
+
+      expect(reporting).toHaveLength(1)
+      const [only] = reporting
+
+      // Against the branch being merged into, never a hard-coded `main`.
+      expect(only?.step.run).toContain('github.base_ref')
+      // On pull requests only: `github.base_ref` is empty on a push, and the step would compare
+      // against `origin/` and report nothing while looking like it ran.
+      expect(only?.step.if?.replaceAll(/\s+/g, ' ').trim()).toBe("github.event_name == 'pull_request'")
+      expect(only?.step['continue-on-error']).toBeUndefined()
+
+      // The two things that would turn it back into the no-op it was written to remove: no history
+      // to resolve the base against, and no fetch of the base branch itself.
+      const checkout = only?.job.steps.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
+      expect(checkout?.with?.['fetch-depth']).toBe(0)
+      expect(
+        only?.job.steps.some(
+          (step) => (step.run ?? '').startsWith('git fetch') && step.run?.includes('github.base_ref'),
+        ),
+      ).toBeTruthy()
     }),
   )
 })
