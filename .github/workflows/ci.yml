@@ -90,10 +90,17 @@ jobs:
   # slower; that is the price of the signal, and `timeout-minutes` bounds the worst case rather than
   # hiding it.
   #
-  # ONE MANUAL STEP, without which this job blocks nothing: adding a job does not make it a required
-  # status check. Until `mutation` is in this repository's branch-protection rules, it reports and a
-  # merge can proceed past it — and `dependabot-auto-merge.yml` merges as soon as the checks that
-  # ARE required pass. Branch protection lives outside the repository, so nothing here can assert it.
+  # THIS BLOCKS. Adding a job does not make it a required status check, and for a while after this
+  # job was added `mutation` was not in the required set, so it reported and a merge could proceed
+  # past it. It is required now, verified by construction rather than by reading the setting: a pull
+  # request adding a module whose test calls every function and asserts only its own fixture went
+  # `build-test (22)` SUCCESS, `build-test (24)` SUCCESS — coverage 100% — `mutation` FAILURE at
+  # 0.00% with all 14 mutants surviving, not a draft, no conflicts, merge state BLOCKED.
+  #
+  # Branch protection lives outside the repository, so nothing here can assert it, and this comment
+  # is therefore a claim no check in this repo can keep honest — see AGENTS.md, "The only guard a
+  # merge can see". If someone removes `mutation` from the required set, these lines go quietly
+  # false and every gate stays green.
   #
   # Two things it does not reach, both by design and neither obvious: `src/cli.ts` is excluded (from
   # the script and from stryker.config.json's `mutate`), and a branch whose only changed test has no
