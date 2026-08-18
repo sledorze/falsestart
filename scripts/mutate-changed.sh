@@ -63,6 +63,13 @@ fi
 # `ACM` alone drops it.
 touched="$(git diff --name-only --diff-filter=ACMR "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' || true)"
 
+# Tests are scanned SEPARATELY, with `D` in the filter, because deleting a test is the loudest
+# version of the defect this gate exists to catch and `ACMR` made it invisible: `git rm
+# src/guards/parity.test.ts` printed `no mutatable source changed on this branch, skipping` and
+# exited 0, with coverage still reporting 100%. Sources keep `ACMR` — a deleted source cannot be
+# mutated, and asking Stryker for a path that is gone is an error, not a finding.
+touched_tests="$(git diff --name-only --diff-filter=ACMRD "$base"...HEAD -- 'src/*.ts' 'src/**/*.ts' || true)"
+
 sources="$(grep -vE '\.(test|test-d|bench)\.ts$' <<<"$touched" | grep -vE '^src/cli\.ts$' || true)"
 
 # A branch that only WEAKENS a test changes no source file at all, and "this test no longer
@@ -91,7 +98,7 @@ while IFS= read -r test; do
   if [ "$subject" != "$test" ] && [ "$subject" != 'src/cli.ts' ] && [ -f "$subject" ]; then
     subjects="${subjects}${subject}"$'\n'
   fi
-done < <(grep -E '\.test\.ts$' <<<"$touched" || true)
+done < <(grep -E '\.test\.ts$' <<<"$touched_tests" || true)
 
 changed="$(printf '%s\n%s' "$sources" "$subjects" | grep -vE '^[[:space:]]*$' | sort -u || true)"
 
@@ -136,7 +143,7 @@ ln -s "$repo/node_modules" "$work/node_modules"
 node -e '
   const fs = require("fs")
   const config = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
-  config.thresholds = { ...config.thresholds, break: Number(process.argv[3]) }
+  config.thresholds = { ...config.thresholds, break: null }
   config.allowEmpty = true
   config.reporters = ["json", "clear-text"]
   fs.writeFileSync(process.argv[2], JSON.stringify(config, null, 2))
@@ -152,6 +159,13 @@ if [ -f "$work/reports/mutation/mutation.json" ]; then
   mkdir -p "$repo/reports/mutation"
   cp "$work/reports/mutation/mutation.json" "$repo/reports/mutation/changed.json"
   echo "mutation: report at reports/mutation/changed.json"
+
+  # THE GATE. Stryker's own `break` compares one number for the whole run, so a well-tested file in
+  # the same branch pays for an untested one — observed on a pull request that merged green at
+  # `All files 71.89` carrying a file at 66.67. `break` is null above and this decides instead.
+  if ! (cd "$repo" && npx tsx scripts/mutation-floor.ts reports/mutation/changed.json "$FLOOR"); then
+    status=1
+  fi
 fi
 
 exit "$status"
