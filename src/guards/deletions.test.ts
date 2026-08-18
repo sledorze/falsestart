@@ -13,9 +13,9 @@
 import { NodeServices } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect } from 'effect'
-import { run } from '../testing/process.ts'
-import { aBranchThatDeletedADocument } from '../testing/repository.ts'
-import { workflowSteps } from '../testing/workflow.ts'
+import { run } from '../testSupport/process.ts'
+import { aBranchThatDeletedADocument } from '../testSupport/repository.ts'
+import { workflowSteps } from '../testSupport/workflow.ts'
 
 const CAIRN = `${process.cwd()}/node_modules/.bin/cairn`
 
@@ -68,10 +68,10 @@ layer(NodeServices.layer)('the deletions report', (it) => {
 
       // The two things that would turn it back into the no-op it was written to remove: no history
       // to resolve the base against, and no fetch of the base branch itself.
-      const checkout = only?.job.steps.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
+      const checkout = only?.job.steps?.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
       expect(checkout?.with?.['fetch-depth']).toBe(0)
       expect(
-        only?.job.steps.some(
+        only?.job.steps?.some(
           (step) => (step.run ?? '').startsWith('git fetch') && step.run?.includes('github.base_ref'),
         ),
       ).toBeTruthy()

@@ -76,5 +76,7 @@ nothing), `cli/` (the command line), `testing/`
 (helpers for testing your own rules). `hook/` and `scanning/` are the two adapters and are separate
 because their policies are opposite: the hook fails OPEN, since a broken rule must not hold every
 write hostage, while a scan is a gate and fails CLOSED, since one that cannot run passes everything
-while looking healthy. Only `cli.ts` knows a process exists. Documents cite entry
+while looking healthy. Only `cli.ts` knows a process exists among the code that ships;
+`testSupport/` spawns git and bash for this project's own guards and is excluded from the build.
+Documents cite entry
 points, never internals, so staleness means the offering changed; `*.generated.ts` is tool-written.

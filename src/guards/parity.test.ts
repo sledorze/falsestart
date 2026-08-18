@@ -12,7 +12,7 @@
 import { NodeServices } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect, FileSystem, Schema } from 'effect'
-import { workflowSteps } from '../testing/workflow.ts'
+import { workflowSteps } from '../testSupport/workflow.ts'
 
 const MANIFEST = `${process.cwd()}/package.json`
 
@@ -38,6 +38,21 @@ const CI_ONLY_STEPS: readonly { readonly because: string; readonly matches: stri
   },
 ]
 
+/**
+ * Steps that prepare the runner and gate nothing, so `verify` has no business running them.
+ *
+ * Together with `CI_ONLY_STEPS` this is the whole of the exception surface, and that is the point:
+ * the check below governs EVERY `run:` step and subtracts these two named lists, rather than
+ * selecting the steps it feels able to judge. The previous two versions filtered on how a command
+ * was spelled — first `pnpm `, then `pnpm ` or `npx ` — and a gate written `node scripts/x.js`,
+ * `bash scripts/x.sh` or `./node_modules/.bin/oxlint` sailed past both. Widening the filter never
+ * closes that; only inverting it does.
+ */
+const SETUP_STEPS: readonly { readonly because: string; readonly matches: string }[] = [
+  { because: 'installs dependencies; there is nothing to verify locally', matches: 'pnpm install' },
+  { because: 'fetches the base branch so a later step can compare against it', matches: 'git fetch' },
+]
+
 layer(NodeServices.layer)('CI and `pnpm verify`', (it) => {
   it.effect('run the same gates', () =>
     Effect.gen(function* () {
@@ -46,23 +61,21 @@ layer(NodeServices.layer)('CI and `pnpm verify`', (it) => {
       const manifest = yield* Effect.orDie(Schema.decodeUnknownEffect(ManifestSchema)(parsed))
       const verify = manifest.scripts['verify'] ?? ''
 
-      const gates = (yield* workflowSteps)
+      const exempt = [...SETUP_STEPS, ...CI_ONLY_STEPS]
+      // EVERY run step, then subtract the two named lists. Not "the steps that look like gates".
+      const commands = (yield* workflowSteps)
         .map(({ step }) => (step.run ?? '').trim())
-        // `pnpm install` is setup, not a gate.
-        .filter(
-          (command) =>
-            (command.startsWith('pnpm ') || command.startsWith('npx ')) && !command.startsWith('pnpm install'),
-        )
+        .filter((command) => command !== '')
 
-      expect(gates.length).toBeGreaterThan(0)
+      expect(commands.length).toBeGreaterThan(0)
 
       // An exemption that outlives its step is a permanent hole, so each must still match something.
       // Typo `matches`, or delete the step it names, and this fails.
-      for (const exemption of CI_ONLY_STEPS) {
-        expect(gates.some((gate) => gate.includes(exemption.matches))).toBeTruthy()
+      for (const exemption of exempt) {
+        expect(commands.some((command) => command.includes(exemption.matches))).toBeTruthy()
       }
 
-      const governed = gates.filter((gate) => !CI_ONLY_STEPS.some((exemption) => gate.includes(exemption.matches)))
+      const governed = commands.filter((command) => !exempt.some((exemption) => command.includes(exemption.matches)))
 
       expect(governed.filter((gate) => !verify.includes(gate))).toEqual([])
     }),

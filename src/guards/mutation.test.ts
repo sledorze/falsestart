@@ -17,14 +17,14 @@
 import { NodeServices } from '@effect/platform-node'
 import { expect, layer } from '@effect/vitest'
 import { Effect } from 'effect'
-import { run } from '../testing/process.ts'
+import { run } from '../testSupport/process.ts'
 import {
   aStackedBranch,
   branchThatOnlyWeakensATest,
   branchThatWeakensATestWithNoSubject,
   repositoryWithNoBase,
-} from '../testing/repository.ts'
-import { workflowSteps } from '../testing/workflow.ts'
+} from '../testSupport/repository.ts'
+import { workflowSteps } from '../testSupport/workflow.ts'
 
 const SCRIPT = `${process.cwd()}/scripts/mutate-changed.sh`
 
@@ -134,7 +134,7 @@ layer(NodeServices.layer)('the mutation guard', (it) => {
       // spelling would fail a refactor that changed nothing.
       expect(only?.step.env?.['MUTATION_REQUIRE_BASE'] ?? only?.job.env?.['MUTATION_REQUIRE_BASE']).toBe('1')
 
-      const checkout = only?.job.steps.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
+      const checkout = only?.job.steps?.find((step) => (step.uses ?? '').startsWith('actions/checkout'))
       // `fetch-depth: 1`, the default, is what makes `origin/main` absent in the first place.
       expect(checkout?.with?.['fetch-depth']).toBe(0)
 
@@ -150,7 +150,7 @@ layer(NodeServices.layer)('the mutation guard', (it) => {
 
       // And against the branch the pull request is actually merging into, not a hard-coded `main`.
       expect(only?.step.env?.['MUTATION_BASE_REF'] ?? only?.job.env?.['MUTATION_BASE_REF']).toContain('github.base_ref')
-      expect(only?.job.steps.some((step) => (step.run ?? '').includes('github.base_ref'))).toBeTruthy()
+      expect(only?.job.steps?.some((step) => (step.run ?? '').includes('github.base_ref'))).toBeTruthy()
     }),
   )
 })
