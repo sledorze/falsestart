@@ -1,7 +1,7 @@
 {
   "name": "@sledorze/falsestart",
   "version": "0.3.0",
-  "description": "Blocks risky code patterns the instant an AI writes them \u2014 before the file lands, not just at CI. Also enforces structure/architecture conventions.",
+  "description": "Blocks risky code patterns the instant an AI writes them — before the file lands, not just at CI. Also enforces structure/architecture conventions.",
   "keywords": [
     "claude",
     "agents",
@@ -10,7 +10,7 @@
     "architecture"
   ],
   "license": "MIT",
-  "author": "St\u00e9phane Le Dorze",
+  "author": "Stéphane Le Dorze",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sledorze/falsestart.git"
@@ -75,7 +75,7 @@
     "@changesets/cli": "^2.27.0",
     "@effect/platform-node": "4.0.0-rc.111",
     "@effect/vitest": "4.0.0-rc.111",
-    "@sledorze/cairn": "^0.11.1",
+    "@sledorze/cairn": "^0.13.0",
     "@stryker-mutator/core": "9.6.1",
     "@stryker-mutator/vitest-runner": "9.6.1",
     "@types/node": "^26.1.1",
