@@ -122,7 +122,7 @@ hash says a file changed, never that a list of its contents is complete.
 - `--prose-refs` — checks bare-backtick file citations in prose (`` `src/x.ts` ``, with no
   `[text](path)` syntax), which read as documentation but are invisible to a link checker. On in
   `pnpm check`. It found a changeset citing a rule path months after the rule moved. As of cairn
-  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.11
+  0.7 its help text says "safe for permanent use" rather than calling it a migration aid, and 0.13
   still does — though its clean-run wording changed from "no drifted" to "no broken" references.
 - `--report-deletions` — informational, never affects the exit code: names what a deleted document
   took with it (its outbound references and headings) when nothing else in the tree carries them.
@@ -141,12 +141,16 @@ hash says a file changed, never that a list of its contents is complete.
   description of `--refs`, `--prose-refs` and `checks.coverage`, and every check stayed green.
 - Three checks are **config-only**, with no flag of their own — enabled by naming them in
   `.cairnrc.json`. As of 0.9 the `check --help` description lists all three, which it did not in
-  0.7, and 0.11 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
+  0.7, and 0.13 keeps them; the note here used to say `checks.coverage` was invisible to `--help`, and that stopped being
   true at the upgrade. None of the three is enabled, and each for a reason worth keeping:
   - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
     that would notice a missing Diátaxis quadrant. With four documents the rules would be asserted
     both in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
+    cairn 0.12 added `--changed <path...>`, which scopes that report to the rule edges touching the
+    files a diff touched and prints each rule's own `description` as review guidance. It is aimed
+    squarely at AI review tooling and is the most interesting reason yet to adopt `checks.coverage`
+    — but it is INERT without it, so it changes nothing here until the doc set justifies the rules.
   - `checks.docCoverage` asks the other direction — is this SOURCE file documented anywhere at all,
     by a link from some doc that already exists. It overlaps `src/documented.test.ts`, which already
     asserts every area entry point is cited by the architecture doc. It is not adopted because this
