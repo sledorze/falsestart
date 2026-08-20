@@ -12,10 +12,13 @@
  * `effect()` and `layer()` it is a plain re-export of vitest's own — there is no Effect-aware
  * benchmark helper, so the Effect has to be run here.
  *
- * Everything on the judging path is a SYNCHRONOUS Effect, so `runSync` runs it with no promise in
- * the way — which also keeps the measurement free of microtask scheduling. Only the two that touch
- * the filesystem are async, and those return their promise for vitest to await rather than using
- * `await` here.
+ * `runPromise` throughout, and returned rather than awaited, so vitest owns the scheduling.
+ *
+ * It used to be `runSync` for the judging benches, on the premise that everything on that path was
+ * a synchronous Effect. That stopped being true — matching went async — and the failure was
+ * SILENT in the worst way: `runSync` threw `AsyncFiberError` on every iteration, vitest recorded no
+ * samples, and the summary printed `NaNx faster than …` for the three benchmarks that measure the
+ * actual cost of judging. A benchmark that measures nothing looks exactly like a fast one.
  */
 import { NodeFileSystem, NodePath } from '@effect/platform-node'
 import { bench, describe } from '@effect/vitest'
@@ -77,17 +80,11 @@ describe('the path every tool call takes', () => {
 })
 
 describe('judging one write', () => {
-  bench('findViolations, one rule', () => {
-    Effect.runSync(findViolations(oneRule, source))
-  })
+  bench('findViolations, one rule', () => Effect.runPromise(findViolations(oneRule, source).pipe(Effect.asVoid)))
 
-  bench('checkFile, the full shipped corpus', () => {
-    Effect.runSync(checkFile(corpus, file))
-  })
+  bench('checkFile, the full shipped corpus', () => Effect.runPromise(checkFile(corpus, file).pipe(Effect.asVoid)))
 
-  bench('decide, payload to verdict', () => {
-    Effect.runSync(decide(corpus, writePayload))
-  })
+  bench('decide, payload to verdict', () => Effect.runPromise(decide(corpus, writePayload).pipe(Effect.asVoid)))
 })
 
 describe('the whole hook, as the binary runs it', () => {
