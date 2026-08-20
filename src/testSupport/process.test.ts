@@ -6,7 +6,7 @@
  * every input anyone has tried is not the same as one that works.
  */
 import { NodeServices } from '@effect/platform-node'
-import { expect, layer } from '@effect/vitest'
+import { describe, expect, layer } from '@effect/vitest'
 import { Effect, FileSystem } from 'effect'
 import { run } from './process.ts'
 
@@ -61,5 +61,49 @@ layer(NodeServices.layer)('run', (it) => {
       const after = yield* run('git', ['rev-list', '--count', '--all'], victim)
       expect(after.output).toBe(before.output)
     }).pipe(Effect.scoped),
+  )
+
+  /** Prints the named variable as the child sees it, or `unset`. */
+  const REPORTS_A_VARIABLE = "process.stdout.write(process.env[process.argv[1]] ?? 'unset')"
+
+  describe.each([
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_CEILING_DIRECTORIES',
+    'GIT_COMMON_DIR',
+    'GIT_DIR',
+    'GIT_INDEX_FILE',
+    'GIT_NAMESPACE',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_WORK_TREE',
+  ])('%s', (name) => {
+    it.effect('never reaches a child, however it is asked for', () =>
+      Effect.gen(function* () {
+        const ran = yield* run('node', ['-e', REPORTS_A_VARIABLE, name], process.cwd(), { [name]: '/somewhere/else' })
+
+        expect(ran.output).toBe('unset')
+      }),
+    )
+  })
+
+  it.effect('gives a child only what it declares, not the parent environment', () =>
+    Effect.gen(function* () {
+      // `VITEST` is set in this process by the runner. A child that can see it is one inheriting the
+      // ambient environment — the mechanism the list above exists to defeat, and what
+      // `extendEnv: false` is actually doing.
+      const ran = yield* run('node', ['-e', REPORTS_A_VARIABLE, 'VITEST'], process.cwd())
+
+      expect(ran.output).toBe('unset')
+    }),
+  )
+
+  it.effect('gives a child the PATH and HOME it does need', () =>
+    Effect.gen(function* () {
+      const path = yield* run('node', ['-e', REPORTS_A_VARIABLE, 'PATH'], process.cwd())
+      const home = yield* run('node', ['-e', REPORTS_A_VARIABLE, 'HOME'], process.cwd())
+
+      expect(path.output).not.toBe('unset')
+      expect(path.output.length).toBeGreaterThan(0)
+      expect(home.output).not.toBe('unset')
+    }),
   )
 })

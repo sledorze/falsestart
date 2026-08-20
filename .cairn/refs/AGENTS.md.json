@@ -9,7 +9,7 @@
       "target": "lefthook.yml"
     },
     {
-      "hash": "0bf6505a9c17f01eaab876c62e8af7bf3a95a1cd327551a58369a4983bef617b",
+      "hash": "764104aebd3bb773cf8fbab1ff5c13b2eae2e1942d3e69f0a6656ec75e86495b",
       "target": "scripts/mutate-changed.sh"
     },
     {
