@@ -365,10 +365,10 @@ export type JudgedTarget =
 /**
  * A JSON-encoded argument object, kept in a result rather than thrown.
  *
- * `Schema.UnknownFromJsonString` rather than `JSON.parse` for the reason `no-json-global` gives, and
+ * `Schema.fromJsonString(Schema.Unknown)` rather than `JSON.parse` for the reason `no-json-global` gives, and
  * because a guard that throws inside a hook is a guard whose behaviour the agent runtime decides.
  */
-const decodeArguments = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)
+const decodeArguments = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))
 
 /**
  * The contract is REQUIRED, not defaulted.

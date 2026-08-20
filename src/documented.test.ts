@@ -46,7 +46,7 @@ const packagedFiles = Effect.gen(function* () {
   const manifest = yield* fs.readFileString('package.json')
 
   return yield* Effect.orDie(
-    Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+    Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(manifest).pipe(
       Effect.map((parsed) => (parsed as { readonly files: readonly string[] }).files),
     ),
   )
@@ -439,7 +439,7 @@ layer(platform)('documentation covers the source', (it) => {
               if (body === undefined) {
                 return []
               }
-              const parsed = Schema.decodeUnknownResult(Schema.UnknownFromJsonString)(body)
+              const parsed = Schema.decodeUnknownResult(Schema.fromJsonString(Schema.Unknown))(body)
               return parsed._tag === 'Failure' ? [`${file} block ${index}`] : []
             })
           }),
@@ -772,7 +772,7 @@ layer(platform)('documentation covers the source', (it) => {
       const readme = yield* fs.readFileString('README.md')
       const manifest = yield* fs.readFileString('package.json')
       const shipped: readonly string[] = yield* Effect.orDie(
-        Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+        Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(manifest).pipe(
           Effect.map((parsed) => (parsed as { readonly files: readonly string[] }).files),
         ),
       )
@@ -833,7 +833,7 @@ layer(platform)('documentation covers the source', (it) => {
       const manifest = yield* fs.readFileString('package.json')
 
       const parsed: { readonly name: string; readonly private?: boolean } = yield* Effect.orDie(
-        Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(manifest).pipe(
+        Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(manifest).pipe(
           Effect.map((value) => value as { readonly name: string; readonly private?: boolean }),
         ),
       )

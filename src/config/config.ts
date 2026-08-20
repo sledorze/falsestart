@@ -163,10 +163,10 @@ export const validateConfig = (document: unknown, origin: string): Effect.Effect
   })
 
 export const parseConfig = (source: string, origin: string): Effect.Effect<Config, ConfigError> =>
-  // `Schema.UnknownFromJsonString` rather than `JSON.parse`: the malformed-document case lands in
+  // `Schema.fromJsonString(Schema.Unknown)` rather than `JSON.parse`: the malformed-document case lands in
   // the error channel instead of being thrown and re-caught, and the result is `unknown` because it
   // genuinely is — no assertion needed before `validateConfig` looks at it.
-  Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(source).pipe(
+  Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(source).pipe(
     Effect.mapError((cause) => new ConfigError({ reasons: [`${origin}: invalid JSON (${String(cause)})`] })),
     Effect.flatMap((document) => validateConfig(document, origin)),
   )

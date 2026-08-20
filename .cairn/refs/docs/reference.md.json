@@ -13,7 +13,7 @@
       "target": "../src/cli/options.ts"
     },
     {
-      "hash": "4255b220f3c31f8450e53b31cf7ae530af252e3b11edadd0709327501c6a2256",
+      "hash": "45f3461f83b819e8696838fbbca38a044b007c89f75cb967cca36c674486209d",
       "target": "../src/hook/decide.ts"
     },
     {
@@ -29,7 +29,7 @@
       "target": "../src/checking/scope.ts"
     },
     {
-      "hash": "6862b0335f4216a9f0122eef8d5c0f3e52c0720a87e702efe1b4cae4b84c41c8",
+      "hash": "11428b751c5f7a1aabc582447ec273c2e124104757c2c16b4f253525d3bd0e29",
       "target": "../src/config/config.ts"
     },
     {
