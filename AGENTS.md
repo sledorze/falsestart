@@ -118,7 +118,7 @@ hash says a file changed, never that a list of its contents is complete.
   each time. That line is the check saying so, and it read as boilerplate for as long as it took
   someone to look. `ci.yml` therefore runs a second, pull-request-only step passing
   `--deletions-since` against the base branch, which is the only comparison that sees a deletion
-  already committed on the branch — pinned in `src/guards.test.ts`, together with the cairn
+  already committed on the branch — pinned in `src/guards/deletions.test.ts`, together with the cairn
   behaviour it depends on, because the difference between the two invocations is the entire value
   and neither one is visible in the other's output. It stays a separate step rather than being
   folded into `pnpm check` so that local `verify` and CI keep running the identical command.
@@ -380,7 +380,7 @@ branches therefore passed a full local `verify` and was rejected at push — obs
 
 It was broken again the moment CI gained the `mutation` job, in the same way, by the change that
 added the job — and by a reviewer's reading rather than by anything that could observe it. So the
-list is no longer maintained by hand: `src/guards.test.ts` reads both `package.json` and `ci.yml` and
+list is no longer maintained by hand: `src/guards/parity.test.ts` reads both `package.json` and `ci.yml` and
 fails when a `pnpm` step CI runs is absent from `verify`. Two costs worth knowing. `mutation:changed`
 adds about a minute per changed source file, and nothing at all on a docs-only branch. And it scores
 `HEAD` in a disposable worktree, never your working tree, so run it after committing — before that

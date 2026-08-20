@@ -87,6 +87,9 @@ const NUMBER_WORDS: readonly string[] = [
   'twenty-five',
 ]
 
+/** Just enough of `tsconfig.build.json` to know which directories the published build leaves out. */
+const BuildConfigSchema = Schema.Struct({ exclude: Schema.Array(Schema.String) })
+
 /** Root modules that are entry points in their own right, alongside every `<area>/index.ts`. */
 const ROOT_ENTRY_POINTS = new Set(['src/cli.ts', 'src/index.ts'])
 
@@ -858,7 +861,22 @@ layer(platform)('documentation covers the source', (it) => {
         }),
       )
 
-      const withoutEntryPoint = [...areas].filter((area) => !files.includes(`src/${area}/index.ts`))
+      // A directory the published build excludes is not an area of the product and holds no entry
+      // point: nothing outside this repository can reach it. Derived from `tsconfig.build.json`
+      // rather than named here, so the exemption cannot outlive the exclusion that justifies it —
+      // put a directory back in the build and this demands its `index.ts` again.
+      const build: unknown = JSON.parse(yield* (yield* FileSystem.FileSystem).readFileString('tsconfig.build.json'))
+      const excluded = yield* Effect.orDie(Schema.decodeUnknownEffect(BuildConfigSchema)(build))
+      const unpublished = new Set(
+        excluded.exclude.flatMap((pattern) => {
+          const [, directory] = pattern.split('/')
+          return pattern.startsWith('src/') && directory !== undefined ? [directory] : []
+        }),
+      )
+
+      const withoutEntryPoint = [...areas]
+        .filter((area) => !unpublished.has(area))
+        .filter((area) => !files.includes(`src/${area}/index.ts`))
 
       expect(withoutEntryPoint).toEqual([])
     }),

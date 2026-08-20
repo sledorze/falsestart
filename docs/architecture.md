@@ -259,10 +259,15 @@ unless the repository asks for that. A scan is a gate, and must fail CLOSED — 
 to stop, or it passes everything while looking healthy. Same rules underneath, contrary
 policies above, which is exactly the kind of thing that goes wrong when one module tries to be both.
 
-Only [`cli.ts`](../src/cli.ts) knows a process exists. `freezing/` is the sharpest case of that
-split: it decides everything about what a git ref committed and spawns nothing, because `cli.ts` is
-excluded from the coverage ratchet and from mutation testing — a decision that lives there is a
-decision nothing observes.
+Only [`cli.ts`](../src/cli.ts) knows a process exists — of the code that ships. `freezing/` is the
+sharpest case of that split: it decides everything about what a git ref committed and spawns
+nothing, because `cli.ts` is excluded from the coverage ratchet and from mutation testing — a
+decision that lives there is a decision nothing observes.
+
+The exception is `testSupport/`, which spawns `git` and `bash` to build the repositories this
+project's own guards are about, and is excluded from `tsconfig.build.json` for that reason: it is
+not in the published package, and a consumer never reaches it. `testing/` — the helpers a consumer
+DOES reach — spawns nothing.
 
 ### Which repository the freeze trusts
 
