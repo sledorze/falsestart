@@ -389,13 +389,13 @@ it is answering about the previous commit.
 **`lefthook.yml` is advisory. It gates nothing.** `pre-commit` runs lint/format/docs and the stamp
 guard; `pre-push` runs typecheck+test+build+docs+coverage+mutation — and every one of those is
 skipped by `git ... --no-verify`, by `LEFTHOOK=0` (verified: `LEFTHOOK=0 lefthook run pre-push` exits
-0 having printed nothing), by `LEFTHOOK_EXCLUDE=<name>` for one command at a time, and entirely by a
+0 having printed nothing), by `LEFTHOOK_EXCLUDE=<names>`, comma-separated, for any number of commands at once, and entirely by a
 clone where `pnpm install` never ran `prepare` — which is `lefthook install || true`, so a failure to
 install the hooks is silent by design. No hook of any kind runs on a merge performed in the GitHub
 UI, which is how most of them land here.
 
 The only guard a merge can see is `.github/workflows/ci.yml`. `codeql.yml`'s single job is behind
-`if: vars.codeql-enabled == 'true'`, which its own comment says is off until Advanced Security is
+`if: vars.CODEQL_ENABLED == 'true'`, which its own comment says is off until Advanced Security is
 enabled, and `dependabot-auto-merge.yml` merges rather than checks. (Whether CI is a _required_
 check is branch protection, which lives outside this repository and cannot be read from it; a green
 tick nobody made mandatory blocks nothing. The required set is `build-test (22)`, `build-test (24)`

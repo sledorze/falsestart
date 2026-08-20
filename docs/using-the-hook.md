@@ -930,7 +930,7 @@ The one part of the layout that is not free-form is where shared matchers live: 
 directory is recognised only at the top of the tree `--rules` names. **Shared matchers** below has
 the rule and what a misplaced one does.
 
-`--preset` and `--rules` load together, but each is single-valued: a second `--rules` replaces the
+`--preset` and `--rules` load together, but each is single-valued: a second `--rules` is REFUSED, not ranked and not replaced — the
 first rather than adding to it. So a preset plus your own tree is one entry, while two local trees,
 two packages, or two presets still mean two hook entries. That is not purely a limitation: each entry
 carries its own rules, its own config and therefore its own severity policy, which is what makes the

@@ -160,7 +160,7 @@ Options:
                   its rules with pkg:@acme/falsestart-rules/strict. The
                   package is expected to keep them in a rules/ directory,
                   as this one does. Combines with --preset the same way;
-                  given alongside the directory form it still wins.
+                  given twice, or alongside the directory form, it is refused.
   --config <file> Per-repo scope overrides (.ts, .mts, .js, .mjs or .json).
                   Optional; without it falsestart looks for
                   falsestart.config.{ts,mts,js,mjs,json} and proceeds with no

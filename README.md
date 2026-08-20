@@ -60,7 +60,7 @@ registered. `npx falsestart --preset clean-code` also works.
 **Pick the preset deliberately.** `clean-code` is six rules and assumes nothing else.
 `effect` is seventeen rules that assume an Effect codebase — they forbid `await`, `try/catch`,
 `new Promise`, `.then`, `JSON.parse`, `fetch` and `process.env`. An eight-line function that
-awaits a `fetch`, `JSON.parse`s the body inside `try`/`catch` and throws an `Error` trips **six**
+awaits a `fetch`, `JSON.parse`s the body inside `try`/`catch` and throws an `Error` trips **five**
 of them:
 
 ```
@@ -154,7 +154,7 @@ export default {
 
 ```bash
 pnpm install
-pnpm verify   # lint + typecheck + test + build + check
+pnpm verify   # lint + format + typecheck + coverage + build + docs + mutation
 ```
 
 See [AGENTS.md](https://github.com/sledorze/falsestart/blob/main/AGENTS.md) for the documentation, release, and shipping conventions
