@@ -5,11 +5,11 @@
       "target": "../src/cli/options.ts"
     },
     {
-      "hash": "4255b220f3c31f8450e53b31cf7ae530af252e3b11edadd0709327501c6a2256",
+      "hash": "45f3461f83b819e8696838fbbca38a044b007c89f75cb967cca36c674486209d",
       "target": "../src/hook/decide.ts"
     },
     {
-      "hash": "b9c7171bc680c963ffc5b0203fb66315926309b8b9a0f62bdb3cfdfb0805f93f",
+      "hash": "307e21ec67a633b18e28817f5025708c14501c1d3495a38f0a1b2d6fb61bbf01",
       "target": "../src/hook/respond.ts"
     },
     {

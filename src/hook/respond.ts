@@ -348,7 +348,7 @@ export const respond = (
     // The payload arrives from another process, so a malformed one is an ordinary outcome rather
     // than an exception to catch. `UnknownFromJsonString` keeps it in the error channel and hands
     // back `unknown`, which is what it is until `judgesPayload` has looked at it.
-    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(input))
+    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(input))
 
     if (parsed._tag === 'Failure') {
       return emit.problem(`${contract.problemPrefix}could not read the hook payload as JSON (${parsed.failure})`)

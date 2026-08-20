@@ -35,7 +35,7 @@ export const readBaselineText = (
   origin: string,
 ): Effect.Effect<ReadonlyMap<string, number>, BaselineUnreadable> =>
   Effect.gen(function* () {
-    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.UnknownFromJsonString)(text))
+    const parsed = yield* Effect.result(Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text))
 
     if (parsed._tag === 'Failure' || !Array.isArray(parsed.success)) {
       return yield* new BaselineUnreadable({ reason: `${origin}: not a JSON array of fingerprints` })
