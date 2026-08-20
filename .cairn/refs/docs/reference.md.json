@@ -5,11 +5,11 @@
       "target": "./architecture.md"
     },
     {
-      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
+      "hash": "45a23e14a37aa2c42dcb5df291756352146fcc2fab55dd91525847c54163eec9",
       "target": "./using-the-hook.md"
     },
     {
-      "hash": "72fa410b6044036682a43bfda804df784f75af3458f9be7e3b16f57d917644e6",
+      "hash": "01eb961dc5f2d79344226ff2f86fb7804ba5aff60eeeeb9fddf410f75e1eafe7",
       "target": "../src/cli/options.ts"
     },
     {
@@ -34,12 +34,12 @@
     },
     {
       "anchor": "when-a-write-was-not-checked-at-all",
-      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
+      "hash": "45a23e14a37aa2c42dcb5df291756352146fcc2fab55dd91525847c54163eec9",
       "target": "./using-the-hook.md"
     },
     {
       "anchor": "check-both-runtimes-enforce-the-same-thing",
-      "hash": "542c82b2757189e5c2a680b4278a44482a35d7378119b22d2f10e6302d146614",
+      "hash": "45a23e14a37aa2c42dcb5df291756352146fcc2fab55dd91525847c54163eec9",
       "target": "./using-the-hook.md"
     }
   ]

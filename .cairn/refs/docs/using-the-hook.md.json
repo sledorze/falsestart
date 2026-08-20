@@ -1,7 +1,7 @@
 {
   "refs": [
     {
-      "hash": "72fa410b6044036682a43bfda804df784f75af3458f9be7e3b16f57d917644e6",
+      "hash": "01eb961dc5f2d79344226ff2f86fb7804ba5aff60eeeeb9fddf410f75e1eafe7",
       "target": "../src/cli/options.ts"
     },
     {
@@ -22,16 +22,16 @@
     },
     {
       "anchor": "the-hook-event-falsestart-implements",
-      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
+      "hash": "71e9ea0f44f085f0d772b8d1c5e32bb9547fb607fcfb5af8cafa2f09319b3082",
       "target": "./reference.md"
     },
     {
-      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
+      "hash": "71e9ea0f44f085f0d772b8d1c5e32bb9547fb607fcfb5af8cafa2f09319b3082",
       "target": "./reference.md"
     },
     {
       "anchor": "when-falsestart-itself-cannot-run",
-      "hash": "19dbbd78636491a8b07548e595eafe15844efaf34a98f83916dc0220d53db57d",
+      "hash": "71e9ea0f44f085f0d772b8d1c5e32bb9547fb607fcfb5af8cafa2f09319b3082",
       "target": "./reference.md"
     },
     {

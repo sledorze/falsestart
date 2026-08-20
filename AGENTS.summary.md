@@ -33,7 +33,7 @@ always fire on a file it was not meant for. Pair such a change with a negative t
 adjacent, similar-looking file is left alone.
 
 **Shipping one iteration well.** Full local verify before every push (`pnpm verify`: lint,
-format:check, typecheck, coverage:ci, build, docs — it must cover every gate CI applies, or verify can be
+format:check, typecheck, coverage:ci, build, docs, mutation:changed — it must cover every gate CI applies, or verify can be
 green while the merge is red). `lefthook` is ADVISORY and gates nothing — `--no-verify`, `LEFTHOOK=0`
 and a clone that never installed the hooks all skip it, and no hook runs on a merge made in the
 GitHub UI; `.github/workflows/ci.yml` is the only guard a merge can see (codeql.yml's job is gated

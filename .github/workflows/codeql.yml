@@ -13,9 +13,9 @@ jobs:
     # Gated like the release job, and for the same kind of reason: uploading results needs GitHub
     # Advanced Security, which is not enabled here. Without it every run fails at the upload step
     # with "Resource not accessible by integration", which makes `main` permanently red and trains
-    # everyone to ignore a red main — worse than not running the scan. Flip `vars.codeql-enabled`
+    # everyone to ignore a red main — worse than not running the scan. Flip `vars.CODEQL_ENABLED`
     # to 'true' once Advanced Security is on.
-    if: vars.codeql-enabled == 'true'
+    if: vars.CODEQL_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:
       security-events: write

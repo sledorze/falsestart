@@ -41,7 +41,7 @@ A failure of falsestart itself is reported and the write proceeds, which `--fail
 the failures the repository owns — a rule tree, rules package or config that will not load, and a
 rule that cannot run. A malformed hook payload and a refused command line are never denied.
 
-Development is `pnpm install` then `pnpm verify` (lint, typecheck, test, build, docs check).
+Development is `pnpm install` then `pnpm verify` (lint, format:check, typecheck, coverage:ci, build, docs check, mutation:changed).
 
 Also linked from the README: [CONTRIBUTING](./CONTRIBUTING.md) (how to run the checks and the three
 gates a new rule passes), [SECURITY](./SECURITY.md) (what the tool executes on your behalf — a
