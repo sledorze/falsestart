@@ -80,7 +80,17 @@ hash says a file changed, never that a list of its contents is complete.
 - `cairn check --links-only --fix` — auto-repair unambiguous dead links.
 - `cairn config` — print the RESOLVED config, where it came from, and the expanded roots. New in
   0.10, and the way to answer "why is that doc not checked" without guessing. It also shows the keys
-  you never set: `onlyGitTracked`, `refs.scope`, `proseRefs.ignore`, `stampCommand`.
+  you never set: `onlyGitTracked`, `refs.scope`, `proseRefs.ignore`. `stampCommand` and
+  `refsStampCommand` ARE set here, and `cairn config` is how you confirm which of the two a given
+  report will quote.
+- `refsStampCommand` is set in `.cairnrc.json` too, and is a SEPARATE key from `stampCommand` on
+  purpose: `stampCommand` is conventionally scoped to summary freshness and need not stamp `--refs`
+  sidecars at all. Before 0.11.1 the stale-reference report ignored config entirely and suggested
+  `pnpm run stamp:refs`, a script this repo does not have, omitting the formatter step and so
+  reproducing the ordering trap the configured command exists to avoid — it did not converge, since
+  its own "then re-run" re-derived the failure. Both keys are `pnpm format && pnpm stamp` here
+  because this repo's stamp script passes `--refs` itself. Verified after the upgrade on real drift:
+  `Fix: re-stamp with `pnpm format && pnpm stamp`, then re-run.`
 - `stampCommand` is set in `.cairnrc.json`, and setting it is load-bearing rather than tidy. cairn
   0.10's own agent guidance tells an agent to read that key and run what it names; unset, it falls
   back to `--summaries-only --stamp` — which omits `--refs`, and stamps BEFORE the formatter runs.
@@ -95,8 +105,13 @@ hash says a file changed, never that a list of its contents is complete.
   alone does not say which child caused it. Observed on a one-line edit to `docs/overview.md`:
   `dir docs/_SUMMARY.md (stale): driven by stale/missing child: docs/overview.md`.
   Since 0.11 a stale FILE summary also gets a git line-count delta against the commit the recorded
-  hash came from — observed on a two-line append to `docs/reference.md`:
-  `changed since fd2d5f58…: +2/-0 lines`. That is the answer to "is this a real content change or a
+  hash came from, printed since 0.11.1 immediately BELOW the hash pair rather than below the
+  outline — observed on a two-line append to `docs/reference.md`:
+  `expected 184c17f0… recorded 19dbbd78…` / `changed since fd2d5f58…: +2/-0 lines`. The outline
+  still prints in full for a stale summary as well as a missing one, and should: a stale summary has
+  to be REWRITTEN, and the outline is the source's current section shape you rewrite against. Both
+  of those are this repo's own report, [cairn#162](https://github.com/sledorze/cairn/issues/162),
+  acted on — including the outline suppression, which that report proposed and then withdrew. That is the answer to "is this a real content change or a
   reflex re-stamp", asked at the moment the question comes up, and it is what makes `--explain`
   worth running before `pnpm stamp` rather than after a reviewer catches it. Best-effort: it walks
   at most 50 commits per doc and enriches at most 20 stale docs per run, and silently omits the line
@@ -231,8 +246,9 @@ behaviour docs. Cause 3 was closed by a test here, as this file already prescrib
 shape than a new check — scoped and interactive stamping, which PREVENTS the reflex instead of
 detecting it afterwards, and so has no false positives to suppress.
 
-cairn 0.11 took a first bite of that ground from the other end: `--explain`'s line-count delta
-(above) does not prevent the reflex, but it removes its cheapest excuse. A bare hash mismatch gives
+cairn 0.11 took a first bite of that ground from the other end, and 0.11.1 finished the placement:
+`--explain`'s line-count delta (above) does not prevent the reflex, but it removes its cheapest
+excuse. A bare hash mismatch gives
 an agent nothing to weigh, so re-stamping is the rational move; `+2/-0 lines` versus `+180/-40` is
 the difference between a judgement call and a coin flip. It is not a substitute for
 `scripts/stamped-not-written.sh`, which asks about the INDEX at staging time — a question no report
