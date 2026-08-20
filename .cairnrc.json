@@ -13,6 +13,7 @@
     "dirSummary": "_SUMMARY.md",
     "fileSummarySuffix": ".summary.md"
   },
+  "refsStampCommand": "pnpm format && pnpm stamp",
   "roots": ["."],
   "stampCommand": "pnpm format && pnpm stamp",
   "thresholdLines": 30
