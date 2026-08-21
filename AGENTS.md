@@ -147,10 +147,13 @@ hash says a file changed, never that a list of its contents is complete.
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
     that would notice a missing Diátaxis quadrant. With four documents the rules would be asserted
     both in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
-    cairn 0.12 added `--changed <path...>`, which scopes that report to the rule edges touching the
-    files a diff touched and prints each rule's own `description` as review guidance. It is aimed
-    squarely at AI review tooling and is the most interesting reason yet to adopt `checks.coverage`
-    — but it is INERT without it, so it changes nothing here until the doc set justifies the rules.
+    `--changed <path...>` scopes that report to the rule edges touching the files a diff touched and
+    prints each rule's own `description` as review guidance. It is aimed squarely at AI review
+    tooling and is the most interesting reason yet to adopt `checks.coverage` — but it is INERT
+    without it, so it changes nothing here until the doc set justifies the rules. Its changelog
+    entry sits under 0.12.0, which was NEVER PUBLISHED (that release run hard-failed); the feature
+    is first installable in 0.13.0. Worth knowing before deciding a version to target from release
+    notes alone — this file said "cairn 0.12 added" until upstream annotated the gap.
   - `checks.docCoverage` asks the other direction — is this SOURCE file documented anywhere at all,
     by a link from some doc that already exists. It overlaps `src/documented.test.ts`, which already
     asserts every area entry point is cited by the architecture doc. It is not adopted because this
