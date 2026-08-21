@@ -146,7 +146,11 @@ hash says a file changed, never that a list of its contents is complete.
   - `checks.coverage` declares document _kinds_ by path glob and _rules_ between them ("every
     explanation doc must link to a reference doc"), then reports the ones missing. It is the check
     that would notice a missing Diátaxis quadrant. With four documents the rules would be asserted
-    both in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows.
+    both in `.cairnrc.json` and in the docs themselves. Revisit if the doc set grows. That decision
+    is now DECLARED rather than merely absent: `.cairnrc.json` sets `checks.coverage: false`, which
+    since cairn 0.13.2 distinguishes "considered and declined" from "never configured" and stops the
+    `checks.coverage.kinds` tip appearing under the `Fix:` line of every stale-refs report. Setting
+    it back to absent is not the same as setting it to `false`.
     `--changed <path...>` scopes that report to the rule edges touching the files a diff touched and
     prints each rule's own `description` as review guidance. It is aimed squarely at AI review
     tooling and is the most interesting reason yet to adopt `checks.coverage` — but it is INERT
