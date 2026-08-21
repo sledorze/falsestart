@@ -1,5 +1,92 @@
 # @sledorze/falsestart
 
+## 0.4.0
+
+### Minor Changes
+
+- 5135788: Mark the `effect` peer dependency optional, so a CLI-only install stops pulling in a framework it
+  does not use.
+
+  `falsestart`'s two entry points have different needs, and only one of them was declared. Measured by packing the
+  tarball and installing it as a consumer, under npm and pnpm defaults:
+
+  - the **`falsestart` binary** — the hook, and the reason almost everyone installs this — is bundled
+    by `bundle-cli` and carries **zero** runtime `effect` imports. It judges a write and denies it
+    correctly with no `effect` present at all.
+  - the **programmatic API** (`import { … } from '@sledorze/falsestart'`) genuinely loads the
+    consumer's copy: `Cannot find package 'effect'` without it.
+
+  A required peer applied the API's requirement to everyone. With `peerDependenciesMeta.effect.optional`
+  (the flag `@effect/platform-node` already carried), a consumer with no `effect` installs falsestart
+  alone instead of also acquiring `effect@4.0.0-rc.111`.
+
+  **This is a behaviour break for LIBRARY consumers, which is why it is a minor.** While the peer was
+  required, every package manager installed `effect` silently, so `import '@sledorze/falsestart'`
+  worked straight after `pnpm add -D @sledorze/falsestart`. It no longer does — it fails with
+  `Cannot find package 'effect'` until you run `pnpm add effect @effect/platform-node`. Both READMEs
+  said the library worked straight after install; both now say what it needs. Hook users, who are
+  almost everyone, are unaffected and get a 5-package install instead of 14.
+
+  **What this does NOT do, stated because the obvious assumption is wrong:** it does not rescue a
+  consumer who already has an incompatible `effect`. `optional` suppresses the _missing_-peer error,
+  not the _conflicting_-peer one — an existing `effect@4.0.0-beta.102` still fails `npm install` with
+  `ERESOLVE`, exactly as it does with the peer required. Verified in both configurations:
+
+  | consumer state                     | peer required                          | peer optional           |
+  | ---------------------------------- | -------------------------------------- | ----------------------- |
+  | already on `effect@4.0.0-beta.102` | ERESOLVE, not installed                | ERESOLVE, not installed |
+  | no `effect` at all                 | installs + pulls `effect@4.0.0-rc.111` | installs, no `effect`   |
+
+  So anyone on the Effect 4.0 beta line still has to move to `rc.111` to take this release. That is
+  the deliberate consequence of the peer floor being honest about what CI tests, and it is disclosed
+  in that change's own note rather than softened here.
+
+  The README already tells API users to `pnpm add effect` themselves, which is now the accurate
+  instruction rather than an incidental one.
+
+- 2bf4ba7: Move to Effect `4.0.0-rc.111`, and say so in `peerDependencies`.
+
+  **This can flip a previously-installing consumer to failing**, which is why it is a minor rather than
+  a patch: `peerDependencies` moves from `^4.0.0-beta.100` to `^4.0.0-rc.111` for both `effect` and
+  `@effect/platform-node`. A project still on the 4.0 beta line will now get a peer warning, or an
+  install failure under strict peer resolution. The old range was in any case an untested claim — CI
+  had been testing beta.102 alone, and never any beta from `.100` upward.
+
+  The only source change the upgrade required: `Schema.UnknownFromJsonString` no longer exists.
+  Effect's own Schema migration guide maps v3's `parseJson()` to `UnknownFromJsonString` and
+  `parseJson(schema)` to `fromJsonString(schema)`; the former was then removed inside the v4 line,
+  leaving `fromJsonString(schema, options?)` as the single JSON-string helper. Every call site now
+  composes it as `Schema.fromJsonString(Schema.Unknown)`, which is the same decode.
+
+  Verified rather than assumed, on the built binary: malformed input is still refused
+  (`could not read the hook payload as JSON (SchemaError(Expected a valid JSON string))`, exit 1), a
+  valid payload is still parsed and judged, and a clean write still passes with exit 0.
+
+  No behaviour change otherwise. 803 tests, 100% coverage and the full check suite pass on rc.111.
+
+### Patch Changes
+
+- b47016d: Correct five documented claims that were false, one of which was also printed by `--help`.
+
+  **`--rules` given twice is REFUSED, not ranked.** `docs/reference.md`, `docs/using-the-hook.md` and
+  the `--help` text all said that a `pkg:` specifier given alongside the directory form "wins, in
+  either order" or "replaces the first". It does neither — `falsestart: --rules can be given once;
+name one directory or one pkg: specifier, not two`, exit 1. A reader following the old text expected
+  the last flag to take effect and got a hard failure of the whole invocation. The reference table
+  contradicted itself in adjacent rows, and `--help` carried the same dead sentence.
+
+  Also corrected, all verified against the shipped corpus and the manifest rather than re-read:
+
+  - `docs/reference.md` said "all five" TypeScript-only rules immediately after naming six.
+  - `README.md` said an example trips "six" rules and then listed five.
+  - `README.md`'s `pnpm verify` comment named `lint + typecheck + test + build + check`; it runs
+    `lint + format:check + typecheck + coverage:ci + build + check + mutation:changed`. The `test` vs
+    `coverage:ci` distinction is the one this project records as learned the hard way.
+  - `AGENTS.md` said `LEFTHOOK_EXCLUDE` takes one command at a time; it takes a comma-separated list.
+
+  No behaviour change. The binary already did the right thing in every case; only the descriptions of
+  it were wrong.
+
 ## 0.3.0
 
 ### Minor Changes
