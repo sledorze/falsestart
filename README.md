@@ -21,9 +21,17 @@ pnpm add -D @sledorze/falsestart
 
 That is the whole install for the hook: the binary inlines what it needs and never loads yours.
 
-Importing falsestart as a **library** works too, straight after that command. What does not work is
-importing `effect` — its peer — from your own code: under pnpm's default isolated `node_modules`,
-`import 'effect'` fails. So declare it yourself if you use it, with `pnpm add effect`.
+Importing falsestart as a **library** needs one thing more. `effect` is an OPTIONAL peer, so no
+package manager installs it for you, and the library entry point genuinely loads it at runtime —
+`import '@sledorze/falsestart'` fails with `Cannot find package 'effect'` until you add it:
+
+```bash
+pnpm add effect @effect/platform-node
+```
+
+Optional because the two entry points differ: the binary inlines `effect` and never touches yours,
+so a hook-only install should not acquire a framework it cannot use. Measured — 5 packages against 14. The same command is what makes `import 'effect'` work in your own code, which pnpm's isolated
+`node_modules` otherwise refuses.
 
 Being a peer is not the reason. pnpm puts nothing in your project that your own `package.json` did
 not ask for, so `picomatch` — an ordinary dependency of falsestart, not a peer — is equally absent.

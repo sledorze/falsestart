@@ -848,6 +848,23 @@ layer(platform)('documentation covers the source', (it) => {
       // An install command for a package npm will refuse to publish is the same failure wearing a
       // different hat: the command is correct and the package is not there.
       expect(parsed.private).toBeUndefined()
+
+      // AN OPTIONAL PEER MOVES WORK ONTO THE READER, so both pages have to say so. `effect` is
+      // optional because the BIN inlines it — a hook-only install should not acquire a framework —
+      // but the LIBRARY entry point loads the consumer's copy and dies without it
+      // (`Cannot find package 'effect'`). While the peer was required, every package manager
+      // installed it silently and both pages could honestly say the library worked straight after
+      // `pnpm add -D`. Flipping the flag falsified that sentence on npmjs.com's own front page, in
+      // the release that corrected five other false claims, and nothing here noticed: `package.json`
+      // is not a `--refs` target and no test tied the two together. This is that tie.
+      const optionalPeers = (
+        parsed as { readonly peerDependenciesMeta?: Readonly<Record<string, { readonly optional?: boolean }>> }
+      ).peerDependenciesMeta
+      if (optionalPeers?.['effect']?.optional === true) {
+        const libraryInstall = 'pnpm add effect'
+        expect(readme).toContain(libraryInstall)
+        expect(summary).toContain(libraryInstall)
+      }
     }),
   )
 
