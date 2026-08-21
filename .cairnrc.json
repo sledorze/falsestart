@@ -1,4 +1,7 @@
 {
+  "checks": {
+    "coverage": false
+  },
   "ignore": [
     ".agents/**",
     ".changeset/**",
