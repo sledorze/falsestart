@@ -32,7 +32,7 @@ jobs:
           # default depth of 1 does not fetch. Without history there is no base commit to diff, and
           # the step degrades into the same silent no-op it exists to fix.
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node }}
@@ -120,7 +120,7 @@ jobs:
           # state in which the script's own fallback is `exit 0`. Without full history this job would
           # pass on every pull request without mutating a single file.
           fetch-depth: 0
-      - uses: pnpm/action-setup@v6.0.9
+      - uses: pnpm/action-setup@v6.0.10
       - uses: actions/setup-node@v7
         with:
           # One version, not the matrix: mutation score is a property of the tests, not of the
