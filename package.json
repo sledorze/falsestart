@@ -84,7 +84,7 @@
     "@types/node": "^26.1.1",
     "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^4.1.10",
-    "effect": "4.0.0-rc.111",
+    "effect": "4.0.0-rc.112",
     "esbuild": "^0.28.1",
     "lefthook": "^2.1.0",
     "oxlint": "1.76.0",
